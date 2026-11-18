@@ -318,6 +318,43 @@ export class TradingSessionService implements OnApplicationShutdown {
   isGated(): boolean {
     return this.sessionState.isGated();
   }
+  private areAllStrategiesGated(activeTrades = this.positionTracker.activeList()): boolean {
+    if (this.sessionState.paused) return true;
+    const strategyConfigs = this.getStrategyConfigs();
+    if (
+      strategyConfigs.length > 1 &&
+      this.sessionState.strategyGateStates &&
+      this.sessionState.strategyGateStates.size > 0
+    ) {
+      const GATING_STATES = new Set([
+        "max_trades",
+        "sl_guard",
+        "max_trades_period",
+        "max_trades_24h",
+        "sleeping",
+        "risk_pct",
+        "tod_risk",
+        "risk",
+      ]);
+      const activeKnifeTradesCount = activeTrades.filter((t: any) => t.is_knife).length;
+      for (const sc of strategyConfigs) {
+        const label = sc.strategy_label || "Momentum Strategy";
+        const isPaused = this.sessionState.isStrategyPaused
+          ? this.sessionState.isStrategyPaused(label)
+          : Boolean(this.sessionState.pausedStrategies?.has(label));
+        if (isPaused) continue;
+        const gateInfo = this.sessionState.strategyGateStates.get(label);
+        const isScGated = Boolean(gateInfo?.gateState && GATING_STATES.has(gateInfo.gateState));
+        const allowKnifeGatedBypass =
+          (sc.allow_knife_when_gated ?? false) && activeKnifeTradesCount === 0;
+        if (!isScGated || allowKnifeGatedBypass) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return this.isGated();
+  }
   setDashboardCount(count: number) {
     this.sessionState.dashboardCount = count;
   }
@@ -787,7 +824,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.sessionState.gateState = baseGateState;
     const riskResultToUse = baseRiskResult || { reason: 'OK', isAdaptiveTightened: false, nextSlotTs: null };
 
-    const shouldHibernate = this.isGated() && activeTrades.length === 0;
+    const shouldHibernate = this.areAllStrategiesGated(activeTrades) && activeTrades.length === 0;
 
     // Transition to Hibernation
     if (
@@ -808,7 +845,7 @@ export class TradingSessionService implements OnApplicationShutdown {
           this.hibernateGraceTimeout = null;
           try {
             if (
-              this.isGated() &&
+              this.areAllStrategiesGated() &&
               this.positionTracker.activeCount() === 0 &&
               !this.sessionState.hibernating
             ) {
@@ -902,10 +939,11 @@ export class TradingSessionService implements OnApplicationShutdown {
           isAdaptiveTightened: riskResultToUse.isAdaptiveTightened,
           nextSlotTs: riskResultToUse.nextSlotTs,
           scannerPaused:
-            this.sessionState.gateState === "max_trades" ||
-            this.sessionState.gateState === "sl_guard" ||
-            this.sessionState.gateState === "max_trades_period" ||
-            this.sessionState.paused,
+            this.areAllStrategiesGated(activeTrades) &&
+            (this.sessionState.gateState === "max_trades" ||
+              this.sessionState.gateState === "sl_guard" ||
+              this.sessionState.gateState === "max_trades_period" ||
+              this.sessionState.paused),
         });
       }
 
@@ -957,9 +995,10 @@ export class TradingSessionService implements OnApplicationShutdown {
       }
 
       // PERF: Adaptive Scanning Frequency.
-      // When gated (Light Sleep), we throttle scanning to 3x the normal interval.
-      // This balances UI "freshness" with CPU/API resource conservation.
-      if (this.isGated() && !this.sessionState.hibernating) {
+      // When all active strategies are gated (Light Sleep), we throttle scanning to 3x the normal interval.
+      // If any variant strategy remains un-gated, maintain normal scan cadence.
+      const allStrategiesGated = this.areAllStrategiesGated(activeTrades);
+      if (allStrategiesGated && !this.sessionState.hibernating) {
         const baseInterval = this.config.main_loop_interval_ms || 15000;
         if (now - this._lastGatedScanTs < baseInterval * 3) {
           // If we recently scanned while gated, skip this iteration
@@ -970,7 +1009,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       }
 
       const baseScanInterval = this.config.main_loop_interval_ms || 15000;
-      const effectiveScanInterval = (this.isGated() && !this.sessionState.hibernating)
+      const effectiveScanInterval = (allStrategiesGated && !this.sessionState.hibernating)
         ? baseScanInterval * 3
         : baseScanInterval;
       this.sessionState.scan_interval_ms = effectiveScanInterval;
@@ -1090,6 +1129,25 @@ export class TradingSessionService implements OnApplicationShutdown {
       });
 
       this.trackAndLogRemovedCandidates(strategyConfigs, scannerData, activePositionSymbols);
+
+      // Ensure newly discovered leader symbols (e.g. a dark-horse #1 gainer/loser) trigger an immediate
+      // watchlist subscription sync if not already in the active kline watchlist.
+      if (
+        typeof (this.marketFeed as any)?.getActiveWatchlistSymbols === "function" &&
+        typeof (this.marketFeed as any)?.updateWatchlist === "function"
+      ) {
+        const activeWatchlist: Set<string> = (this.marketFeed as any).getActiveWatchlistSymbols();
+        if (activeWatchlist && activeWatchlist.size > 0) {
+          const hasUnsubscribedLeader = scannerData.some((sd) =>
+            sd.opportunities.some((opp: any) => opp?.symbol && !activeWatchlist.has(opp.symbol)),
+          );
+          if (hasUnsubscribedLeader) {
+            Promise.resolve((this.marketFeed as any).updateWatchlist(this.config)).catch((err: any) => {
+              this.logger.debug(`Immediate watchlist sync skipped: ${err?.message || err}`);
+            });
+          }
+        }
+      }
 
       const opportunitiesWithSignals = scannerData[0]?.opportunities || [];
       this.updateScannerResults(opportunitiesWithSignals);

@@ -328,8 +328,6 @@ export class ExecutionService {
       return;
     }
 
-    const maxOpportunities = Math.min(opportunities.length, config.scanner_signal_depth || 10);
-
     // BOLT: Sequential processing of opportunities ensures that RiskEngine spacing
     // and frequency limits are correctly enforced between each entry.
     let count = 0;

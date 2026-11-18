@@ -1919,8 +1919,9 @@ export function DashboardView({ initialStrategy }) {
         }
       }
 
-      if (isEditMode && strategyId) {
-        await sessionAPI.update(strategyId, finalConfig)
+      const targetStrategyId = strategyId || lastSession?.id || (sessionActive ? 'default-session' : null);
+      if (isEditMode && targetStrategyId) {
+        await sessionAPI.update(targetStrategyId, finalConfig)
         updateConfig(finalConfig)
         addAlert({ level: 'success', title: 'Config Updated', message: 'Strategy parameters synchronized with the engine.' });
       } else {
@@ -1934,7 +1935,7 @@ export function DashboardView({ initialStrategy }) {
         }
         const res = await sessionAPI.start(finalConfig, finalConfig.paper_mode)
         updateConfig(finalConfig)
-        setSessionActive(true, res.data.strategyId || res.data.strategy_id)
+        setSessionActive(true, res.data.strategyId || res.data.strategy_id || res.data.sessionId || 'default-session')
         addAlert({ level: 'success', title: 'Session Started', message: `Engine active with "${finalConfig.strategy_label}".` });
       }
       setShowConfig(false)

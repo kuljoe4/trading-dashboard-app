@@ -15,6 +15,8 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { cn } from '../ui/primitives';
+import { SmartStrategyNameControl, WatchlistScopeSelector } from './SmartNamingAndScope';
+import { getWatchlistScopeDescriptor } from '../../utils/smartStrategyNaming.js';
 
 const TIMEFRAME_OPTIONS = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d'];
 
@@ -89,11 +91,11 @@ const SummaryCollapsibleSection = React.memo(({
       id={id}
       aria-invalid={hasError}
       className={cn(
-        'rounded-xl border overflow-hidden transition-colors',
+        'w-full min-w-0 max-w-full rounded-xl border overflow-hidden transition-colors',
         hasError ? 'border-red/60 bg-red/[0.03]' : 'border-border/70 bg-background/50',
       )}
     >
-      <div className="w-full flex items-center justify-between gap-2 p-2.5 sm:px-3.5 hover:bg-white/[0.02] transition-colors group">
+      <div className="w-full min-w-0 flex items-center justify-between gap-2 p-2.5 sm:px-3.5 hover:bg-white/[0.02] transition-colors group">
         <button
           type="button"
           onClick={onToggle}
@@ -156,9 +158,9 @@ const SummaryCollapsibleSection = React.memo(({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.18, ease: 'easeInOut' }}
-            className="overflow-hidden"
+            className="overflow-hidden w-full min-w-0"
           >
-            <div className="p-3 sm:p-4 pt-2.5 border-t border-border/40 flex flex-col gap-3">
+            <div className="p-2.5 sm:p-4 pt-2.5 border-t border-border/40 flex flex-col gap-3 w-full min-w-0">
               {children}
             </div>
           </motion.div>
@@ -267,7 +269,7 @@ export const ActiveSummaryPanel = React.memo(({
   const renderSchemaFields = React.useCallback((sigKey, schema, isLayered, accentColor = 'bg-accent') => {
     if (!schema || schema.length === 0) return null;
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pt-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pt-2.5 min-w-0">
         {schema.map((field) => {
           const helpText = TOOLTIPS[field.baseParamKey];
           if (field.type === 'boolean') {
@@ -275,7 +277,7 @@ export const ActiveSummaryPanel = React.memo(({
             return (
               <div
                 key={field.key}
-                className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border border-border/50 bg-surface/40 min-h-[36px]"
+                className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border border-border/50 bg-surface/40 min-h-[36px] min-w-0"
               >
                 <span className="text-[11px] font-semibold text-text/90 truncate" title={helpText || field.label}>
                   {field.label}
@@ -366,36 +368,43 @@ export const ActiveSummaryPanel = React.memo(({
     ? `${formatSlTypeLabel(slType)} · ${Number(cfg.sl_distance_pct ?? 1.5)}% · Risk ${Number(cfg.risk_pct_per_trade ?? 1)}%`
     : `${formatSlTypeLabel(slType)} · ${Number(cfg.sl_min_pct ?? 0.3)}%–${Number(cfg.sl_max_pct ?? 3)}%`;
 
+  const watchlistScope = useMemo(() => getWatchlistScopeDescriptor(cfg), [cfg]);
+
   return (
     <div
       id="config-panel-summary"
       role="tabpanel"
       aria-labelledby="config-tab-summary"
-      className="flex flex-col gap-2.5 animate-in fade-in duration-200"
+      className="flex flex-col gap-2.5 w-full min-w-0 max-w-full overflow-x-hidden animate-in fade-in duration-200"
     >
       {/* 1. Executive Strategy Snapshot + Identity */}
       <SummaryCollapsibleSection
         id="summary_env"
         icon={SlidersHorizontal}
         title="Active Configuration"
-        summary={`${cfg.strategy_label || 'Base'} · ${modeDisplay} · ${Number(cfg.risk_pct_per_trade ?? 1)}% (${formatUSD(riskAmount)})`}
+        summary={`${cfg.strategy_label || 'Base'} · ${watchlistScope.shortTag} · ${modeDisplay} · ${Number(cfg.risk_pct_per_trade ?? 1)}% (${formatUSD(riskAmount)})`}
         errorCount={envErrCount}
         isOpen={openSectionId === 'summary_env'}
         onToggle={() => toggleSection('summary_env')}
         headerActions={<SectionJumpButton label="Env" onClick={() => onOpenFullSection('env', 'adv_env')} />}
       >
 
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-          <div className="sm:col-span-5">
-            {renderField('Strategy Label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start w-full min-w-0">
+          <div className="lg:col-span-6 min-w-0">
+            <SmartStrategyNameControl
+              cfg={cfg}
+              setField={setField}
+              onInputFocus={onInputFocus}
+              compact
+            />
           </div>
-          <div className="sm:col-span-7 grid grid-cols-3 gap-2">
+          <div className="lg:col-span-6 grid grid-cols-3 gap-1.5 sm:gap-2 min-w-0">
             <div className={cn(
-              'px-2.5 py-2 rounded-lg border flex flex-col justify-between min-h-[52px]',
+              'px-2 sm:px-2.5 py-2 rounded-lg border flex flex-col justify-between min-h-[52px] min-w-0',
               errors?.trading_mode ? 'border-red/60 bg-red/10' : 'border-border/50 bg-surface/40',
             )}>
-              <span className="text-[10px] font-semibold text-dim">Mode</span>
-              <div className="flex items-center justify-between gap-1">
+              <span className="text-[10px] font-semibold text-dim truncate">Mode</span>
+              <div className="flex items-center justify-between gap-1 min-w-0">
                 <span className={cn('text-xs font-bold truncate', errors?.trading_mode ? 'text-red' : 'text-text')}>
                   {modeDisplay}
                 </span>
@@ -418,14 +427,14 @@ export const ActiveSummaryPanel = React.memo(({
                 </span>
               )}
             </div>
-            <div className="px-2.5 py-2 rounded-lg border border-border/50 bg-surface/40 flex flex-col justify-between min-h-[52px]">
-              <span className="text-[10px] font-semibold text-dim">Risk / Cap</span>
+            <div className="px-2 sm:px-2.5 py-2 rounded-lg border border-border/50 bg-surface/40 flex flex-col justify-between min-h-[52px] min-w-0">
+              <span className="text-[10px] font-semibold text-dim truncate">Risk / Cap</span>
               <span className="text-xs font-mono font-bold tabular-nums text-text truncate">
                 {formatUSD(riskAmount)} <span className="text-dim font-normal">·</span> {Number(cfg.risk_pct_per_trade ?? 1)}%
               </span>
             </div>
-            <div className="px-2.5 py-2 rounded-lg border border-border/50 bg-surface/40 flex flex-col justify-between min-h-[52px]">
-              <span className="text-[10px] font-semibold text-dim">Gates</span>
+            <div className="px-2 sm:px-2.5 py-2 rounded-lg border border-border/50 bg-surface/40 flex flex-col justify-between min-h-[52px] min-w-0">
+              <span className="text-[10px] font-semibold text-dim truncate">Gates</span>
               <span className="text-xs font-mono font-bold tabular-nums text-text truncate">
                 {entrySignals.length} In <span className="text-dim font-normal">·</span> {exitSignals.length} Out
               </span>
@@ -452,9 +461,7 @@ export const ActiveSummaryPanel = React.memo(({
         id="summary_scan"
         icon={Search}
         title="Scanner & Scope"
-        summary={scannerEnabled
-          ? `Top ${cfg.watchlist_size ?? 15} · ${cfg.scan_interval || '1m'} · ${(cfg.entry_side || 'both').toUpperCase()}`
-          : `Static only · ${staticSymbols.length} symbol(s)`}
+        summary={`${watchlistScope.badge} · ${cfg.scan_interval || '1m'} · ${(cfg.entry_side || 'both').toUpperCase()}`}
         errorCount={scanErrCount}
         isOpen={openSectionId === 'summary_scan'}
         onToggle={() => toggleSection('summary_scan')}
@@ -472,6 +479,12 @@ export const ActiveSummaryPanel = React.memo(({
           </>
         )}
       >
+        <WatchlistScopeSelector
+          cfg={cfg}
+          setField={setField}
+          onOpenWatchlistSection={() => onOpenFullSection('scan', 'scan_watchlist')}
+          compact
+        />
 
         {scannerEnabled ? (
           <>

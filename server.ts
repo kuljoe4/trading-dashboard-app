@@ -6,9 +6,27 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import crypto from 'crypto';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const SESSION_STATE_FILE = path.join(__dirname, '.session-state.json');
+
+function deepMergeConfig(target: any, source: any): any {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return source;
+  if (!target || typeof target !== 'object' || Array.isArray(target)) return source;
+  const output = { ...target };
+  for (const key of Object.keys(source)) {
+    const val = source[key];
+    if (val === undefined) continue;
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      output[key] = deepMergeConfig(target[key] || {}, val);
+    } else {
+      output[key] = val;
+    }
+  }
+  return output;
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -110,7 +128,7 @@ const state = {
   sessionPaused: false,
   pausedStrategies: [] as string[],
   strategyGateStates: {} as Record<string, string>,
-  strategyId: null as string | null,
+  strategyId: 'default-session' as string | null,
   strategyLabel: 'Momentum Strategy',
   balance: 10000.0,
   paperBalance: 10000.0,
@@ -255,6 +273,8 @@ const state = {
       trend: 0.2,
     },
     sl_out_of_bounds_action: 'clamp',
+    log_retention_days: 7,
+    trade_retention_days: 30,
   },
   presets: [
     {
@@ -899,7 +919,8 @@ function getStatusSnapshot() {
     sessionPaused: state.sessionPaused,
     paused_strategies: state.pausedStrategies,
     strategy_gate_states: state.strategyGateStates,
-    strategyId: state.strategyId,
+    strategyId: state.strategyId || 'default-session',
+    strategy_id: state.strategyId || 'default-session',
     balance: parseFloat(state.balance.toFixed(2)),
     totalPnl: state.totalPnl,
     totalRiskPct: state.totalRiskPct,
@@ -1754,6 +1775,49 @@ app.post('/session/trigger-ban', (req, res) => {
   res.json({ success: true, apiStatus: state.apiStatus });
 });
 
+function saveSessionStateToDisk() {
+  try {
+    const payload = {
+      sessionActive: state.sessionActive,
+      sessionPaused: state.sessionPaused,
+      pausedStrategies: state.pausedStrategies,
+      strategyId: state.strategyId || 'default-session',
+      strategyLabel: state.strategyLabel,
+      config: state.config,
+      presets: state.presets,
+    };
+    fs.writeFileSync(SESSION_STATE_FILE, JSON.stringify(payload, null, 2), 'utf8');
+  } catch (err) {
+    // Ignore disk write errors in read-only environments
+  }
+}
+
+function loadSessionStateFromDisk() {
+  try {
+    if (!fs.existsSync(SESSION_STATE_FILE)) return;
+    const raw = fs.readFileSync(SESSION_STATE_FILE, 'utf8');
+    const saved = JSON.parse(raw);
+    if (saved && typeof saved === 'object') {
+      if (typeof saved.sessionActive === 'boolean') state.sessionActive = saved.sessionActive;
+      if (typeof saved.sessionPaused === 'boolean') state.sessionPaused = saved.sessionPaused;
+      if (Array.isArray(saved.pausedStrategies)) state.pausedStrategies = saved.pausedStrategies;
+      if (saved.strategyId) state.strategyId = saved.strategyId;
+      if (saved.strategyLabel) state.strategyLabel = saved.strategyLabel;
+      if (saved.config && typeof saved.config === 'object') {
+        state.config = deepMergeConfig(state.config, saved.config);
+        if (state.config.strategy_label) state.strategyLabel = state.config.strategy_label;
+      }
+      if (Array.isArray(saved.presets) && saved.presets.length > 0) {
+        state.presets = saved.presets;
+      }
+    }
+  } catch (err) {
+    // Ignore disk read errors
+  }
+}
+
+loadSessionStateFromDisk();
+
 app.post('/session/start', async (req, res) => {
   if (state.apiStatus.isBanned) {
     return res.status(403).json({
@@ -1765,24 +1829,32 @@ app.post('/session/start', async (req, res) => {
   const { config, sessionId } = req.body || {};
   state.sessionActive = true;
   state.sessionPaused = false;
-  state.strategyId = sessionId || `session-${Date.now()}`;
+  state.strategyId = sessionId || state.strategyId || `session-${Date.now()}`;
   if (config) {
-    state.config = { ...state.config, ...config };
+    state.config = deepMergeConfig(state.config, config);
     if (config.trading_mode === 'live') {
       state.config.paper_mode = false;
       await syncLiveAccountBaseline();
     }
     if (config.strategy_label) state.strategyLabel = config.strategy_label;
   }
+  saveSessionStateToDisk();
   addLog(`Started trading session [${state.strategyId}] (${state.strategyLabel})`);
   const snapshot = getStatusSnapshot();
   broadcast({ type: 'status', ...snapshot });
-  res.json({ success: true, sessionId: state.strategyId, status: snapshot });
+  res.json({
+    success: true,
+    sessionId: state.strategyId,
+    strategyId: state.strategyId,
+    strategy_id: state.strategyId,
+    status: snapshot,
+  });
 });
 
 app.post('/session/stop', (req, res) => {
   state.sessionActive = false;
   state.sessionPaused = false;
+  saveSessionStateToDisk();
   addLog(`Stopped trading session [${state.strategyId || 'active'}]`);
   const snapshot = getStatusSnapshot();
   broadcast({ type: 'status', ...snapshot });
@@ -1802,6 +1874,7 @@ app.post('/session/pause', (req, res) => {
   } else {
     state.sessionPaused = !!paused;
   }
+  saveSessionStateToDisk();
   addLog(paused ? 'Session entries paused' : 'Session entries resumed');
   broadcast({ type: 'status', ...getStatusSnapshot() });
   res.json({ success: true, paused: state.sessionPaused, paused_strategies: state.pausedStrategies });
@@ -1823,17 +1896,24 @@ app.get('/session/list', (req, res) => {
 
 app.patch('/session/:id', async (req, res) => {
   const { config } = req.body || {};
-  if (config) {
-    state.config = { ...state.config, ...config };
+  if (req.params.id && req.params.id !== 'undefined' && req.params.id !== 'null') {
+    state.strategyId = req.params.id;
+  }
+  if (config && typeof config === 'object') {
+    state.config = deepMergeConfig(state.config, config);
+    if (config.strategy_label) {
+      state.strategyLabel = config.strategy_label;
+    }
     enforceWatchlistLimit(state.config);
     if (config.trading_mode === 'live') {
       state.config.paper_mode = false;
       await syncLiveAccountBaseline();
     }
+    saveSessionStateToDisk();
     addLog('Updated session configuration');
     broadcast({ type: 'status', ...getStatusSnapshot() });
   }
-  res.json({ success: true, config: state.config });
+  res.json({ status: 'updated', success: true, config: state.config });
 });
 
 // Dedicated Watchlist & Scheduler Endpoints

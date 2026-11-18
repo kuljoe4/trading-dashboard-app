@@ -1483,22 +1483,22 @@ export function SettingsView() {
                   </div>
                 </div>
               )}
-
-              <ConfirmationModal
-                isOpen={resetConfirm}
-                onClose={() => setResetConfirm(false)}
-                onConfirm={() => {
-                  setResetConfirm(false)
-                  handleResetBalance()
-                }}
-                title="Reset Paper Balance?"
-                message="This will reset your simulated paper trading balance to $10,000.00. Your trade history will remain intact, but active session metrics might be affected. This action cannot be undone."
-                confirmText="Reset Now"
-                variant="danger"
-                loading={resetting}
-              />
             </section>
           )}
+
+          <ConfirmationModal
+            isOpen={resetConfirm}
+            onClose={() => setResetConfirm(false)}
+            onConfirm={() => {
+              setResetConfirm(false)
+              handleResetBalance()
+            }}
+            title="Reset Paper Balance?"
+            message="This will reset your simulated paper trading balance to $10,000.00. Your trade history will remain intact, but active session metrics might be affected. This action cannot be undone."
+            confirmText="Reset Now"
+            variant="danger"
+            loading={resetting}
+          />
 
           <section className="bg-amber/5 border border-amber/20 rounded-2xl p-4 sm:p-5 flex gap-3.5 items-start">
             <div className="w-9 h-9 rounded-xl bg-amber/10 flex items-center justify-center shrink-0 mt-0.5">

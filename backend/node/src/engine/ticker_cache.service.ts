@@ -25,6 +25,7 @@ export class TickerCacheService {
   private _topByLossCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
   private _topByAbsChangeCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
   private readonly TOP_VOLUME_CACHE_TTL_MS = 300000;
+  private readonly TOP_CHANGE_CACHE_TTL_MS = 15000;
   private readonly TOP_VOLUME_CACHE_MAX_KEYS = 12;
 
   // BOLT OPTIMIZATION: Read-only array cache of ticker values to prevent O(N) Array.from allocations.
@@ -213,7 +214,7 @@ export class TickerCacheService {
     const cached = this._topByChangeCache.get(cacheKey);
     const now = Date.now();
 
-    if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
+    if (cached && (now - cached.timestamp < this.TOP_CHANGE_CACHE_TTL_MS)) {
       return cached.data;
     }
 
@@ -263,7 +264,7 @@ export class TickerCacheService {
     const cached = this._topByLossCache.get(cacheKey);
     const now = Date.now();
 
-    if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
+    if (cached && (now - cached.timestamp < this.TOP_CHANGE_CACHE_TTL_MS)) {
       return cached.data;
     }
 
@@ -311,7 +312,7 @@ export class TickerCacheService {
     const cached = this._topByAbsChangeCache.get(cacheKey);
     const now = Date.now();
 
-    if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
+    if (cached && (now - cached.timestamp < this.TOP_CHANGE_CACHE_TTL_MS)) {
       return cached.data;
     }
 

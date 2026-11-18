@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Eye, Shield, RefreshCw, Lock, Unlock, Plus, X, Sparkles, ChevronDown, ChevronUp, Clock, AlertCircle, Layers, Target, ArrowRightLeft, Download, CheckSquare, Square, Filter, CheckCircle2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
@@ -1030,10 +1031,11 @@ export const WatchlistManager = React.memo(({
         </AnimatePresence>
       </div>
 
-      {/* Global Scanner Bulk Import Modal */}
-      <AnimatePresence>
-        {showImportModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md">
+      {/* Global Scanner Bulk Import Modal — portaled so it always appears over the active viewport */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {showImportModal && (
+            <div className="fixed inset-0 z-[10200] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md" data-vaul-no-drag>
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -1242,8 +1244,10 @@ export const WatchlistManager = React.memo(({
               </div>
             </motion.div>
           </div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 });

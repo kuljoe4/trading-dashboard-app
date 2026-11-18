@@ -135,7 +135,7 @@ describe('Bolt Optimization: Anti-Whipsaw Performance & Correctness', () => {
     sessionState.closedTrades = closedTrades;
 
     // Create 100 opportunities
-    const opportunities = [];
+    const opportunities: any[] = [];
     for (let i = 0; i < 100; i++) {
       opportunities.push({ symbol: `SYM_${i % 50}`, direction: 'LONG', score: 1 });
     }

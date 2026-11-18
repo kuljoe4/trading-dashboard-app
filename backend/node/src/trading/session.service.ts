@@ -2697,7 +2697,12 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     // 3. Validate Strategy Configuration overrides (if provided) to prevent parameter injection / Stored XSS
     if (dto.strategy_config) {
       const inputInstance = plainToInstance(SessionConfig, dto.strategy_config);
-      const errors = await validate(inputInstance, { whitelist: true, forbidNonWhitelisted: true });
+      for (const key of Object.keys(inputInstance)) {
+        if (!Object.prototype.hasOwnProperty.call(dto.strategy_config, key)) {
+          delete (inputInstance as any)[key];
+        }
+      }
+      const errors = await validate(inputInstance, { whitelist: true, forbidNonWhitelisted: true, skipMissingProperties: true });
       if (errors.length > 0) {
         const detailedErrors = formatValidationErrors(errors);
         this.logger.warn(`Trade strategy_config input validation failed: ${JSON.stringify(detailedErrors)}`);
@@ -2899,6 +2904,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       const fallbackMode = session.tradingMode || (session.paperMode === false ? "live" : "paper");
       const fallbackPaper = fallbackMode === "paper";
       session.config = {
+        ...(session.config || {}),
         scan_interval: session.config?.scan_interval || "5m",
         trading_mode: session.config?.trading_mode || fallbackMode,
         strategy_label: session.config?.strategy_label || session.strategyLabel || "Momentum Strategy",

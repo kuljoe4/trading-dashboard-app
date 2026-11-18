@@ -2,6 +2,19 @@ import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, I
 import { Type, Transform } from 'class-transformer';
 import { CONFIG_LIMITS } from './constants';
 
+export function retainExplicitKeys<T extends object>(instance: T, rawSource: any): T {
+  if (!instance || typeof instance !== 'object' || !rawSource || typeof rawSource !== 'object') {
+    return instance;
+  }
+  const allowedKeys = new Set(Object.keys(rawSource));
+  for (const key of Object.keys(instance)) {
+    if (!allowedKeys.has(key)) {
+      delete (instance as any)[key];
+    }
+  }
+  return instance;
+}
+
 export class SingleSymbolConfig {
   @IsString()
   @MaxLength(20)
@@ -24,6 +37,7 @@ export class SingleSymbolConfig {
   @IsOptional()
   @ValidateNested()
   @Type(() => SessionConfig)
+  @Transform(({ value, obj }) => retainExplicitKeys(value, obj?.custom_config))
   custom_config?: Partial<SessionConfig>;
 }
 
@@ -67,6 +81,10 @@ export class SessionConfig {
   @ArrayMaxSize(CONFIG_LIMITS.MAX_VARIANTS)
   @ValidateNested({ each: true })
   @Type(() => SessionConfig)
+  @Transform(({ value, obj }) => {
+    if (!Array.isArray(value) || !Array.isArray(obj?.strategy_variants)) return value;
+    return value.map((item, idx) => retainExplicitKeys(item, obj.strategy_variants[idx]));
+  })
   strategy_variants?: Partial<SessionConfig>[] = [];
 
   @IsBoolean()
@@ -861,6 +879,18 @@ export class SessionConfig {
   @IsBoolean()
   @IsOptional()
   release_risk_on_est_pnl_be?: boolean = false;
+
+  @IsNumber()
+  @Min(1)
+  @Max(365)
+  @IsOptional()
+  log_retention_days?: number = 7;
+
+  @IsNumber()
+  @Min(1)
+  @Max(365)
+  @IsOptional()
+  trade_retention_days?: number = 30;
 
   @IsObject()
   @IsOptional()

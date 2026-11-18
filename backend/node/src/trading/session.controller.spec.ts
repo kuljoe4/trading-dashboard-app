@@ -21,6 +21,7 @@ describe("SessionController", () => {
           provide: SessionService,
           useValue: {
             startSession: jest.fn().mockResolvedValue({ id: 'test-session-id' }),
+            updateSession: jest.fn().mockResolvedValue({ status: 'updated' }),
             pauseSession: jest.fn().mockResolvedValue({ success: true }),
             adoptPositionManually: jest.fn().mockResolvedValue({ success: true }),
             getTrade: jest.fn(),
@@ -232,6 +233,31 @@ describe("SessionController", () => {
       const errors = await validate(dto);
       expect(errors.length).toBeGreaterThan(0);
       expect(JSON.stringify(errors)).toContain("scan_interval must be a valid Binance kline interval");
+    });
+
+    it("should not populate default strategy_label or strategy_variants on partial config updates", async () => {
+      const mockReq = { ip: "127.0.0.1", headers: {} } as any;
+      const sessionId = "550e8400-e29b-41d4-a716-446655440000";
+      const dto = plainToInstance(UpdateSessionDto, {
+        config: {
+          hibernation_mode: "light",
+          discovery_mode: "change_pct",
+          log_retention_days: 14,
+        },
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+      expect("strategy_label" in (dto.config as any)).toBe(false);
+      expect("strategy_variants" in (dto.config as any)).toBe(false);
+
+      await controller.updateSession(sessionId, dto, mockReq);
+      expect(sessionService.updateSession).toHaveBeenCalledTimes(1);
+      const [, passedConfig] = (sessionService.updateSession as jest.Mock).mock.calls[0];
+      expect(passedConfig.hibernation_mode).toBe("light");
+      expect(passedConfig.discovery_mode).toBe("change_pct");
+      expect(passedConfig.log_retention_days).toBe(14);
+      expect("strategy_label" in passedConfig).toBe(false);
+      expect("strategy_variants" in passedConfig).toBe(false);
     });
   });
 

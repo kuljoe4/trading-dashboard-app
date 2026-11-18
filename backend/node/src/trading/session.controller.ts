@@ -22,7 +22,7 @@ import { SessionService } from "./session.service";
 import { BacktestService, RunBacktestDto } from "../engine/backtest.service";
 import { SmartOptimizerService, RunOptimizationDto } from "../engine/smart-optimizer.service";
 import { ApiKeyGuard } from "../lib/api-key.guard";
-import { SessionConfig } from "../models/SessionConfig";
+import { SessionConfig, retainExplicitKeys } from "../models/SessionConfig";
 import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionDto, BackfillKlinesDto } from "./dto/session.dto";
 import { PauseSessionDto } from "./dto/pause-session.dto";
 import { extractIp } from "../lib/throttle";
@@ -250,7 +250,16 @@ export class SessionController {
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
 
-    const configInstance = plainToInstance(SessionConfig, sessionDto.config || {});
+    const rawConfig =
+      req?.body && typeof req.body === "object" && req.body.config && typeof req.body.config === "object"
+        ? req.body.config
+        : body?.config && typeof body.config === "object"
+          ? body.config
+          : {};
+    const configInstance = retainExplicitKeys(
+      plainToInstance(SessionConfig, sessionDto.config || {}),
+      rawConfig,
+    );
     // SEC-SENTINEL: Defense-in-depth whitelist and type validation on partial session configuration instance
     const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true, skipMissingProperties: true });
     if (errors.length > 0) {
@@ -400,7 +409,16 @@ export class SessionController {
     }
 
     if (tradeConfigDto.strategy_config) {
-      const configInstance = plainToInstance(SessionConfig, tradeConfigDto.strategy_config);
+      const rawStrategyConfig =
+        req?.body && typeof req.body === "object" && req.body.strategy_config && typeof req.body.strategy_config === "object"
+          ? req.body.strategy_config
+          : body?.strategy_config && typeof body.strategy_config === "object"
+            ? body.strategy_config
+            : tradeConfigDto.strategy_config;
+      const configInstance = retainExplicitKeys(
+        plainToInstance(SessionConfig, tradeConfigDto.strategy_config),
+        rawStrategyConfig,
+      );
       // SEC-SENTINEL: Defense-in-depth whitelist and type validation on trade strategy configuration overrides
       const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true, skipMissingProperties: true });
       if (errors.length > 0) {

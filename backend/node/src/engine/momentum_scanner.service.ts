@@ -347,11 +347,29 @@ export class MomentumScannerService {
     if (livePrice && livePrice > 0 && typeof (this.klineStore as any).syncLivePrice === 'function') {
       (this.klineStore as any).syncLivePrice(symbol, livePrice);
     }
+    const allowedSide = (config.entry_side || 'both').toLowerCase();
+    const discoveryMode = config.discovery_mode || 'volume';
+    const isSoloLeader = !isExplicitSymbol && Number(config.watchlist_size) === 1;
+    const isDirectionalDiscovery =
+      (discoveryMode === 'change_pct' && allowedSide === 'long') ||
+      (discoveryMode === 'loss_pct' && allowedSide === 'short');
+    const preferredDirection: 'LONG' | 'SHORT' =
+      (allowedSide === 'short' || (allowedSide === 'both' && discoveryMode === 'loss_pct'))
+        ? 'SHORT'
+        : 'LONG';
+
     const candles = this.klineStore.getRawCandles(symbol, interval);
     if (candles.length < lookback + 1) {
-      if (isExplicitSymbol || (Array.isArray(config.symbols) && config.symbols.includes(symbol))) {
+      if (typeof (this.marketFeed as any)?.queueBackfill === 'function') {
+        try {
+          (this.marketFeed as any).queueBackfill(symbol, interval);
+        } catch {
+          // Non-fatal: scanner continues while backfill runs asynchronously
+        }
+      }
+      if (isExplicitSymbol || isSoloLeader || (Array.isArray(config.symbols) && config.symbols.includes(symbol))) {
         const tickerData = this.tickerCache.getTicker(symbol);
-        const displayPrice = tickerData?.price || 0;
+        const displayPrice = tickerData?.price || livePrice || 0;
         if (displayPrice > 0) {
           return {
             opp: {
@@ -360,7 +378,7 @@ export class MomentumScannerService {
               momentum: 0,
               volume_24h: Number(tickerData?.volume_24h || 0),
               score: 50,
-              direction: 'LONG',
+              direction: preferredDirection,
               candle_count: candles.length,
               sl_dist_pct: config.sl_distance_pct || 0.8,
               prospect_rr: config.tp_ratio || 2.0,
@@ -371,13 +389,6 @@ export class MomentumScannerService {
       }
       const warmReason = `insufficient ${interval} candles (${candles.length}/${lookback + 1})`;
       this.recordPreFilterReason(symbol, 'insufficient_candles', warmReason, undefined, undefined, config.strategy_label);
-      if (typeof (this.marketFeed as any)?.queueBackfill === 'function') {
-        try {
-          (this.marketFeed as any).queueBackfill(symbol, interval);
-        } catch {
-          // Non-fatal: scanner continues while backfill runs asynchronously
-        }
-      }
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} skipped: insufficient candles (${candles.length} < ${lookback + 1}) for interval ${interval}`,
@@ -407,9 +418,9 @@ export class MomentumScannerService {
       return null;
     }
 
-    // BOLT OPTIMIZATION: Early return if momentum is below threshold (unless explicit watchlist target)
+    // BOLT OPTIMIZATION: Early return if momentum is below threshold (unless explicit watchlist target or solo leader)
     const threshold = config.scan_pct_threshold ?? 0;
-    if (!isExplicitSymbol && Math.abs(momentumPct) < threshold) {
+    if (!isExplicitSymbol && !isSoloLeader && Math.abs(momentumPct) < threshold) {
       this.recordPreFilterReason(
         symbol,
         'momentum_below',
@@ -426,11 +437,15 @@ export class MomentumScannerService {
       return null;
     }
 
-    // Determine direction based on momentum
-    const direction = momentumPct >= 0 ? 'LONG' : 'SHORT';
+    // Determine direction based on momentum, or pin to configured entry_side for solo leaders / zero-threshold directional discovery
+    const pinToAllowedSide =
+      (allowedSide === 'long' || allowedSide === 'short') &&
+      (isSoloLeader || (isDirectionalDiscovery && threshold <= 0));
+    const direction: 'LONG' | 'SHORT' = pinToAllowedSide
+      ? (allowedSide === 'short' ? 'SHORT' : 'LONG')
+      : (momentumPct >= 0 ? 'LONG' : 'SHORT');
 
     // Enforce configured entry_side ('both' | 'long' | 'short') without scanning opposite-side moves as attempted trades
-    const allowedSide = (config.entry_side || 'both').toLowerCase();
     if (!isExplicitSymbol && allowedSide === 'long' && direction !== 'LONG') {
       this.recordPreFilterReason(
         symbol,

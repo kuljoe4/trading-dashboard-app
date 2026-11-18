@@ -14,8 +14,8 @@ import {
   Min,
   Max,
 } from "class-validator";
-import { Type } from "class-transformer";
-import { SessionConfig } from "../../models/SessionConfig";
+import { Type, Transform } from "class-transformer";
+import { SessionConfig, retainExplicitKeys } from "../../models/SessionConfig";
 
 export class StartSessionDto {
   @IsOptional()
@@ -46,6 +46,7 @@ export class UpdateSessionDto {
   @IsNotEmpty()
   @ValidateNested()
   @Type(() => SessionConfig)
+  @Transform(({ value, obj }) => retainExplicitKeys(value, obj?.config))
   config: SessionConfig;
 }
 
@@ -129,5 +130,6 @@ export class UpdateTradeConfigDto {
   @IsObject()
   @ValidateNested()
   @Type(() => SessionConfig)
+  @Transform(({ value, obj }) => retainExplicitKeys(value, obj?.strategy_config))
   strategy_config?: SessionConfig;
 }

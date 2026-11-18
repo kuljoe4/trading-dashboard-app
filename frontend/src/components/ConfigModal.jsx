@@ -13,6 +13,15 @@ import { isSignalLayer } from '../utils/signalIdentity.js'
 import { resolveStrategyConfig } from '../utils/strategyConfig.js'
 import { EntrySignalCard, ExitSignalCard } from './config/SignalCards'
 import { ActiveSummaryPanel } from './config/ActiveSummaryPanel'
+import { SmartStrategyNameControl, WatchlistScopeSelector } from './config/SmartNamingAndScope'
+import {
+  STRATEGY_NAME_CHAR_LIMITS,
+  generateSmartNameSuggestions,
+  generateSmartStrategyName,
+  getWatchlistScopeDescriptor,
+  isGenericStrategyName,
+  sanitizeStrategyLabel,
+} from '../utils/smartStrategyNaming.js'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -632,8 +641,8 @@ const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => {
 })
 Toggle.displayName = 'Toggle'
 
-const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
-  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
+const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", className, ...props }, ref) => (
+  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", active ? activeClass : "border-border text-dim hover:border-dim/50", className)} {...props}>{children}</button>
 ))
 Chip.displayName = 'Chip'
 
@@ -1180,7 +1189,7 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     active={active}
     onClick={() => onClick(id)}
     className={cn(
-      "flex items-center gap-1 relative transition-all duration-200 min-h-[30px] px-2 sm:px-3 py-0.5 rounded-lg text-[11px] sm:text-xs font-bold shrink-0 snap-center cursor-pointer",
+      "flex items-center justify-center gap-1 relative transition-all duration-200 min-h-[26px] sm:min-h-[30px] px-1.5 sm:px-3 py-0.5 rounded-lg text-[10px] sm:text-xs font-bold tracking-tight sm:tracking-wider min-w-0 w-full sm:w-auto sm:shrink-0 snap-center cursor-pointer",
       active
         ? "bg-accent text-white font-black border-accent shadow-[0_2px_10px_rgba(var(--accent-rgb),0.3)]"
         : "border-border/70 bg-background/40 text-dim hover:border-dim/50 hover:text-text",
@@ -1193,8 +1202,8 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     id={`config-tab-${id}`}
     tabIndex={active ? 0 : -1}
   >
-    <Icon size={12} className={cn("shrink-0", active ? "text-white" : "text-dim", hasError && !active && "text-red")} />
-    <span className="whitespace-nowrap">{label}</span>
+    <Icon size={11} className={cn("hidden min-[420px]:inline sm:inline shrink-0", active ? "text-white" : "text-dim", hasError && !active && "text-red")} />
+    <span className="truncate whitespace-nowrap">{label}</span>
     {hasError && !active && (
       <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" aria-hidden="true" />
     )}
@@ -1272,7 +1281,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
 
   return (
     <div
-      className="flex items-center justify-between gap-1.5 px-2.5 py-1 sm:px-3.5 relative z-40 w-full"
+      className="flex items-center justify-between gap-1 sm:gap-1.5 px-1.5 sm:px-3.5 py-1 relative z-40 w-full min-w-0"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
@@ -1281,7 +1290,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     >
       <div
         ref={listRef}
-        className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar snap-x snap-proximity outline-none flex-1 min-w-0"
+        className="grid grid-cols-5 sm:flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar snap-x snap-proximity outline-none flex-1 min-w-0"
       >
         {primaryTabs.map((tab) => (
           <SectionTab
@@ -1302,7 +1311,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
             aria-label="More configuration sections"
             aria-invalid={overflowHasError}
             className={cn(
-              "flex items-center gap-1 relative transition-all duration-200 min-h-[30px] px-2 sm:px-2.5 py-0.5 rounded-lg text-[11px] sm:text-xs font-bold shrink-0 border cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              "flex items-center justify-center gap-0.5 sm:gap-1 relative transition-all duration-200 min-h-[26px] sm:min-h-[30px] px-1.5 sm:px-2.5 py-0.5 rounded-lg text-[10px] sm:text-xs font-bold shrink-0 border cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
               activeOverflowTab
                 ? "bg-accent text-white font-black border-accent shadow-[0_2px_10px_rgba(var(--accent-rgb),0.3)]"
                 : "border-border/70 bg-background/40 text-dim hover:border-dim/50 hover:text-text",
@@ -1310,8 +1319,10 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
             )}
           >
             <TriggerIcon size={12} className={cn("shrink-0", activeOverflowTab ? "text-white" : "text-dim", overflowHasError && !activeOverflowTab && "text-red")} />
-            <span className="whitespace-nowrap">{activeOverflowTab ? activeOverflowTab.label : 'More'}</span>
-            <ChevronDown size={11} className={cn("shrink-0 opacity-75", activeOverflowTab ? "text-white" : "text-dim")} />
+            <span className={cn("whitespace-nowrap", !activeOverflowTab && "hidden sm:inline")}>
+              {activeOverflowTab ? activeOverflowTab.label : 'More'}
+            </span>
+            <ChevronDown size={10} className={cn("shrink-0 opacity-75 hidden sm:inline", activeOverflowTab ? "text-white" : "text-dim")} />
             {overflowHasError && !activeOverflowTab && (
               <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" aria-hidden="true" />
             )}
@@ -1361,7 +1372,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
 })
 SectionTabs.displayName = 'SectionTabs';
 
-const SmartAutoDiscoveryPanel = React.memo(({ cfg, buildConfigToSave, onLoadRecommendation, savePreset }) => {
+const SmartAutoDiscoveryPanel = React.memo(({ cfg, buildConfigToSave, onLoadRecommendation, savePreset, onOpenSaveAsNew }) => {
   const [iterations, setIterations] = useState(15);
   const [days, setDays] = useState(14);
   const [startingBalance, setStartingBalance] = useState(10000);
@@ -1623,7 +1634,13 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, buildConfigToSave, onLoadReco
 
                       <Btn
                         variant="ghost"
-                        onClick={() => savePreset(rec.name)}
+                        onClick={() => {
+                          if (onOpenSaveAsNew) {
+                            onOpenSaveAsNew({ name: rec.name, config: rec.config });
+                          } else {
+                            savePreset(rec.name);
+                          }
+                        }}
                         className="px-3 py-1.5 text-[10px] font-bold border border-border hover:border-accent/40 text-dim hover:text-text flex items-center gap-1"
                       >
                         <Save size={12} /> Save as Preset
@@ -1700,7 +1717,7 @@ const EnvironmentButton = React.memo(({ mode, isSelected, onClick, disabled = fa
 ))
 EnvironmentButton.displayName = 'EnvironmentButton'
 
-const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, onSave }) => {
+const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, onSave, onOpenSaveAsNew }) => {
   const [days, setDays] = useState(14);
   const [startingBalance, setStartingBalance] = useState(10000);
   const [symbolText, setSymbolSearchText] = useState(() => (Array.isArray(cfg?.symbols) && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : typeof cfg?.symbols === 'string' ? cfg.symbols : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
@@ -1837,7 +1854,18 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
+            {onOpenSaveAsNew && (
+              <Btn
+                variant="ghost"
+                onClick={() => onOpenSaveAsNew(null)}
+                className="px-3 py-2 text-xs font-bold border border-border hover:border-accent/40 text-dim hover:text-text flex items-center gap-1.5"
+                title="Save current configuration as a preset"
+              >
+                <Save size={13} />
+                <span className="hidden sm:inline">Save As</span>
+              </Btn>
+            )}
             {isRunning ? (
               <Btn
                 variant="ghost"
@@ -2146,14 +2174,39 @@ const computePresetDiff = (current, saved) => {
   return diffs;
 };
 
-const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSummary = null }) => {
+const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSummary = null, targetConfig = null }) => {
+  const [charLimit, setCharLimit] = useState(() => {
+    try {
+      const saved = typeof localStorage !== 'undefined' && Number(localStorage.getItem('strategy_name_char_limit'));
+      if (saved === 20 || saved === 28 || saved === 50) return saved;
+    } catch (e) {}
+    return STRATEGY_NAME_CHAR_LIMITS.STANDARD;
+  });
   const [name, setName] = useState(defaultName);
+  const [isAutoGenerated, setIsAutoGenerated] = useState(true);
   const [error, setError] = useState('');
   const inputRef = useRef(null);
 
+  const suggestions = useMemo(
+    () => (targetConfig ? generateSmartNameSuggestions(targetConfig, charLimit) : []),
+    [targetConfig, charLimit],
+  );
+
   useEffect(() => {
     if (isOpen) {
-      setName(defaultName);
+      const initialLimit = (() => {
+        try {
+          const saved = typeof localStorage !== 'undefined' && Number(localStorage.getItem('strategy_name_char_limit'));
+          if (saved === 20 || saved === 28 || saved === 50) return saved;
+        } catch (e) {}
+        return STRATEGY_NAME_CHAR_LIMITS.STANDARD;
+      })();
+      setCharLimit(initialLimit);
+      const initialName = defaultName
+        ? sanitizeStrategyLabel(defaultName, initialLimit)
+        : (targetConfig ? generateSmartStrategyName(targetConfig, { maxLen: initialLimit, style: 'standard' }) : '');
+      setName(initialName);
+      setIsAutoGenerated(true);
       setError('');
       setTimeout(() => {
         if (inputRef.current) {
@@ -2162,13 +2215,28 @@ const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSumm
         }
       }, 50);
     }
-  }, [isOpen, defaultName]);
+  }, [isOpen, defaultName, targetConfig]);
 
   if (!isOpen) return null;
 
+  const handleSelectLimit = (nextLimit) => {
+    setCharLimit(nextLimit);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('strategy_name_char_limit', String(nextLimit));
+      }
+    } catch (e) {}
+    if (targetConfig && isAutoGenerated) {
+      const smart = generateSmartStrategyName(targetConfig, { maxLen: nextLimit, style: 'standard' });
+      setName(smart);
+    } else if (name.length > nextLimit) {
+      setName(sanitizeStrategyLabel(name, nextLimit));
+    }
+  };
+
   const handleSubmit = (e) => {
     e?.preventDefault();
-    const trimmed = name.trim();
+    const trimmed = sanitizeStrategyLabel(name, charLimit).trim();
     if (!trimmed) {
       setError('Please enter a preset name');
       return;
@@ -2178,14 +2246,14 @@ const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSumm
   };
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
+    <div className="absolute inset-0 z-[120] flex items-end sm:items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200" data-vaul-no-drag>
       <div
         role="dialog"
         aria-labelledby="save-preset-modal-title"
         aria-modal="true"
-        className="w-full max-w-md bg-surface border border-border/80 rounded-2xl p-3.5 sm:p-5 shadow-2xl flex flex-col gap-3 relative my-auto animate-in zoom-in-95 duration-200"
+        className="w-full max-w-md bg-surface border border-border/80 rounded-2xl p-3.5 sm:p-5 shadow-2xl flex flex-col gap-3 relative my-auto animate-in zoom-in-95 duration-200 overflow-hidden"
       >
-        <div className="flex items-center justify-between pb-2 border-b border-border/40">
+        <div className="flex items-center justify-between pb-2 border-b border-border/40 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
             <span className="p-1.5 rounded-lg bg-accent/15 text-accent shrink-0">
               <Save size={15} />
@@ -2202,26 +2270,95 @@ const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSumm
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="save-new-preset-input" className="text-xs font-semibold text-dim">
-              Preset Name
-            </label>
-            <input
-              id="save-new-preset-input"
-              ref={inputRef}
-              type="text"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (error) setError('');
-              }}
-              placeholder="e.g. Scalp Alpha 1m"
-              className={cn(
-                "w-full min-h-[32px] bg-background border rounded-lg px-2.5 py-1 text-xs font-medium text-text focus:outline-none transition-colors",
-                error ? "border-red focus:border-red" : "border-border focus:border-accent"
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3 min-w-0">
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <div className="flex items-center justify-between gap-2 flex-wrap min-w-0">
+              <label htmlFor="save-new-preset-input" className="text-xs font-semibold text-dim">
+                Preset Name
+              </label>
+              <div className="flex items-center gap-1.5 text-[10px] font-mono tabular-nums shrink-0">
+                <span className={cn("font-semibold", name.length >= charLimit - 2 ? "text-amber" : "text-dim")}>
+                  {name.length}/{charLimit}
+                </span>
+                <span className="text-dim/40">·</span>
+                {[
+                  { label: '20c', val: STRATEGY_NAME_CHAR_LIMITS.COMPACT },
+                  { label: '28c', val: STRATEGY_NAME_CHAR_LIMITS.STANDARD },
+                  { label: '50c', val: STRATEGY_NAME_CHAR_LIMITS.MAX },
+                ].map((opt) => (
+                  <button
+                    key={opt.val}
+                    type="button"
+                    onClick={() => handleSelectLimit(opt.val)}
+                    className={cn(
+                      "px-1.5 py-0.5 rounded text-[9.5px] font-mono font-semibold transition-colors cursor-pointer",
+                      charLimit === opt.val ? "bg-accent text-background font-bold" : "text-dim hover:text-text"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 min-w-0 w-full">
+              <input
+                id="save-new-preset-input"
+                ref={inputRef}
+                type="text"
+                maxLength={charLimit}
+                value={name}
+                onChange={(e) => {
+                  setIsAutoGenerated(false);
+                  setName(sanitizeStrategyLabel(e.target.value, charLimit));
+                  if (error) setError('');
+                }}
+                placeholder="e.g. Top 1h HL 2/5 EMA"
+                className={cn(
+                  "flex-1 min-w-0 w-full min-h-[34px] bg-background border rounded-lg px-2.5 py-1 text-xs font-mono font-bold text-text focus:outline-none transition-colors",
+                  error ? "border-red focus:border-red" : "border-border focus:border-accent"
+                )}
+              />
+              {targetConfig && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const smart = generateSmartStrategyName(targetConfig, { maxLen: charLimit, style: 'standard' });
+                    setIsAutoGenerated(true);
+                    setName(smart);
+                    if (error) setError('');
+                  }}
+                  title="Auto-generate smart name from strategy parameters"
+                  className="min-h-[34px] px-2.5 rounded-lg border border-border bg-background hover:border-accent/50 hover:text-accent text-dim inline-flex items-center gap-1 text-[11px] font-semibold transition-colors cursor-pointer shrink-0"
+                >
+                  <Sparkles size={12} />
+                  <span>Auto-Name</span>
+                </button>
               )}
-            />
+            </div>
+            {suggestions.length > 0 && (
+              <div className="grid grid-cols-3 sm:flex sm:items-center sm:flex-wrap gap-1.5 pt-0.5 w-full min-w-0">
+                <span className="hidden sm:inline text-[10px] text-dim font-medium">Smart:</span>
+                {suggestions.map((sug) => (
+                  <button
+                    key={sug.id}
+                    type="button"
+                    onClick={() => {
+                      setIsAutoGenerated(true);
+                      setName(sug.value);
+                      if (error) setError('');
+                    }}
+                    className={cn(
+                      "min-w-0 w-full sm:w-auto px-2 py-0.5 rounded-md font-mono text-[10px] border transition-colors cursor-pointer truncate text-center sm:max-w-[180px]",
+                      name === sug.value
+                        ? "bg-accent/15 border-accent/40 text-accent font-bold"
+                        : "bg-background/60 border-border/50 text-dim hover:text-text"
+                    )}
+                  >
+                    {sug.value}
+                  </button>
+                ))}
+              </div>
+            )}
             {error && <span className="text-xs text-red font-medium">{error}</span>}
           </div>
 
@@ -2230,6 +2367,12 @@ const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSumm
               <span className="font-semibold text-text uppercase tracking-wider text-[10px]">Strategy Overview</span>
               <div className="flex items-center gap-1.5 flex-wrap font-mono text-text/90">
                 <span className="px-1.5 py-0.5 rounded bg-surface border border-border/40 text-[10px] font-bold">{configSummary.mode}</span>
+                {configSummary.scope && (
+                  <>
+                    <span>·</span>
+                    <span className="text-accent font-semibold">{configSummary.scope}</span>
+                  </>
+                )}
                 <span>·</span>
                 <span>{configSummary.interval}</span>
                 <span>·</span>
@@ -2402,7 +2545,7 @@ const PresetItem = React.memo(React.forwardRef(({
              </div>
 
              <div className="text-[10.5px] text-dim font-mono tracking-tight truncate leading-snug">
-               {`${preset.config.scan_interval || '1m'} · ${preset.config.risk_pct_per_trade}% · SL ${preset.config.sl_distance_pct}%${tpRatio ? ` · ${Number(tpRatio).toFixed(1)}R` : ''} · ${modeLabel}`}
+               {`${getWatchlistScopeDescriptor(preset.config).badge} · ${preset.config.scan_interval || '1m'} · ${preset.config.risk_pct_per_trade}% · SL ${preset.config.sl_distance_pct}%${tpRatio ? ` · ${Number(tpRatio).toFixed(1)}R` : ''} · ${modeLabel}`}
              </div>
           </div>
         </div>
@@ -3600,42 +3743,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (loadedPresetName && typeof loadedPresetName === 'string' && loadedPresetName.trim()) {
       return loadedPresetName.trim();
     }
-
-    const sigs = cfg.enabled_signals || [];
-    let sigAbbr = '';
-    if (sigs.length === 0) {
-      sigAbbr = 'Scl';
-    } else if (sigs.length === 1) {
-      const s = sigs[0];
-      if (s.startsWith('ema_dual')) sigAbbr = 'Dul';
-      else if (s.startsWith('ema')) sigAbbr = 'EMA';
-      else if (s.startsWith('macd')) sigAbbr = 'MCD';
-      else if (s === 'supertrend') sigAbbr = 'ST';
-      else if (s === 'breakout_hl') sigAbbr = 'Brk';
-      else if (s === 'momentum_pct') sigAbbr = 'Mom';
-      else if (s === 'engulfing') sigAbbr = 'Eng';
-      else if (s === 'knife_catch') sigAbbr = 'Knf';
-      else sigAbbr = 'Sig';
-    } else {
-      sigAbbr = 'Mlt';
-    }
-
-    let modifier = '';
-    if (cfg.trailing_stop_enabled) {
-      modifier = 'Trail';
-    } else if (cfg.sl_distance_pct !== undefined && cfg.sl_distance_pct !== null && cfg.sl_distance_pct !== '') {
-      modifier = `${cfg.sl_distance_pct}SL`;
-    } else if (cfg.tp_ratio !== undefined && cfg.tp_ratio !== null && cfg.tp_ratio !== '') {
-      modifier = `${cfg.tp_ratio}R`;
-    } else if (cfg.risk_pct_per_trade !== undefined && cfg.risk_pct_per_trade !== null && cfg.risk_pct_per_trade !== '') {
-      modifier = `${cfg.risk_pct_per_trade}%`;
-    }
-
-    const parts = [sigAbbr, modifier].filter(Boolean);
-    const name = parts.join(' ');
-
-    return name.length > 10 ? name.slice(0, 10).trim() : name;
-  }, [cfg.enabled_signals, cfg.sl_distance_pct, cfg.trailing_stop_enabled, cfg.tp_ratio, cfg.risk_pct_per_trade, loadedPresetName]);
+    return generateSmartStrategyName(cfg, {
+      maxLen: STRATEGY_NAME_CHAR_LIMITS.STANDARD,
+      style: 'standard',
+    });
+  }, [cfg, loadedPresetName]);
 
   const fetchPresets = React.useCallback(async () => {
     try {
@@ -4603,9 +4715,55 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const handleOpenSaveAsNew = React.useCallback((presetToCopy = null) => {
     const targetConfig = presetToCopy ? presetToCopy.config : cfg;
-    const targetName = presetToCopy ? presetToCopy.name : (cfg.strategy_label || 'New Strategy');
-    const suggestedName = presetToCopy ? `${targetName} (Copy)` : targetName;
+    const rawTargetName = presetToCopy ? presetToCopy.name : cfg.strategy_label;
+    const savedLimit = (() => {
+      try {
+        const s = typeof localStorage !== 'undefined' && Number(localStorage.getItem('strategy_name_char_limit'));
+        if (s === 20 || s === 28 || s === 50) return s;
+      } catch (e) {}
+      return STRATEGY_NAME_CHAR_LIMITS.STANDARD;
+    })();
 
+    const smartStandard = generateSmartStrategyName(targetConfig, {
+      maxLen: savedLimit,
+      style: 'standard',
+    });
+    const smartDetailed = generateSmartStrategyName(targetConfig, {
+      maxLen: savedLimit,
+      style: 'detailed',
+    });
+
+    const existingNames = new Set((Array.isArray(presets) ? presets : []).map(p => p?.name).filter(Boolean));
+    let suggestedName;
+
+    if (presetToCopy) {
+      // Cloning an existing preset row: use smart name if different, otherwise clean suffix within limit
+      if (smartStandard && !existingNames.has(smartStandard)) {
+        suggestedName = smartStandard;
+      } else if (smartDetailed && !existingNames.has(smartDetailed)) {
+        suggestedName = smartDetailed;
+      } else {
+        const base = sanitizeStrategyLabel(rawTargetName || smartStandard, Math.max(10, savedLimit - 5));
+        suggestedName = `${base} v2`;
+      }
+    } else {
+      // "Save As" from active editor: if current label is generic OR still matches the loaded preset name,
+      // automatically generate a fresh smart name reflecting the current parameters!
+      const isUnchangedLoadedName = loadedPresetName && rawTargetName === loadedPresetName;
+      if (!rawTargetName || isGenericStrategyName(rawTargetName) || isUnchangedLoadedName) {
+        if (smartStandard && (!existingNames.has(smartStandard) || smartStandard !== loadedPresetName)) {
+          suggestedName = smartStandard;
+        } else if (smartDetailed && (!existingNames.has(smartDetailed) || smartDetailed !== loadedPresetName)) {
+          suggestedName = smartDetailed;
+        } else {
+          suggestedName = smartStandard;
+        }
+      } else {
+        suggestedName = sanitizeStrategyLabel(rawTargetName, savedLimit);
+      }
+    }
+
+    const scopeInfo = getWatchlistScopeDescriptor(targetConfig);
     const mode = targetConfig.trading_mode || (targetConfig.paper_mode ? 'paper' : 'live');
     const interval = targetConfig.scan_interval || '1m';
     const risk = targetConfig.risk_pct_per_trade || 1.0;
@@ -4619,16 +4777,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setSaveModalState({
       isOpen: true,
       preset: presetToCopy,
+      targetConfig,
       defaultName: suggestedName,
       configSummary: {
         mode: mode ? mode.toUpperCase() : 'PAPER',
+        scope: scopeInfo.badge,
         interval,
         risk,
         sl,
         tp: tp ? Number(tp).toFixed(1) : undefined
       }
     });
-  }, [cfg]);
+  }, [cfg, loadedPresetName, presets]);
 
   const handleConfirmSaveAsNew = React.useCallback(async (newName) => {
     if (saveModalState.preset) {
@@ -5203,8 +5363,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         </div>
         <SectionTabs section={section} onSectionChange={handleSectionChange} errors={errors} />
 
-        {/* Ultra-Dense, High-Clarity Sub-Header Ribbon across other tabs (auto-collapses while keyboard is active) */}
-        {section !== 'presets' && (!isInputFocused && (
+        {/* Ultra-Dense, High-Clarity Sub-Header Ribbon across tabs (auto-collapses while keyboard is active) */}
+        {!isInputFocused && (
           editingVariantIdx !== null ? (
             <div className="px-3 sm:px-4 py-1 bg-violet-950/35 border-t border-b border-violet-500/30 flex items-center justify-between gap-2 text-xs transition-all relative z-30 animate-in fade-in duration-150">
               {/* Left: Indicator, Variant Badge, and Full Strategy Name */}
@@ -5257,7 +5417,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 <button
                   type="button"
                   onClick={() => handleOpenSaveAsNew(null)}
-                  className="px-2 py-1 rounded-lg text-[11px] font-bold text-violet-200 hover:text-white border border-violet-500/30 hover:bg-white/5 transition-colors cursor-pointer shrink-0 hidden sm:inline-flex"
+                  className="px-2 py-1 rounded-lg text-[11px] font-bold text-violet-200 hover:text-white border border-violet-500/30 hover:bg-white/5 transition-colors cursor-pointer shrink-0 inline-flex items-center gap-1"
                   title="Save this variant as a new preset in library"
                 >
                   Save As
@@ -5281,7 +5441,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </div>
           ) : (
-            (loadedPresetName || cfg.strategy_label) && (
+            section !== 'presets' && (
               <div className={cn(
                 "px-3 sm:px-4 py-1 border-t border-b flex items-center justify-between gap-2 text-xs transition-all relative z-30",
                 isDirty
@@ -5296,9 +5456,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   )} />
                   <span
                     className="font-mono font-bold text-[11px] sm:text-xs truncate text-text min-w-0 flex-1"
-                    title={loadedPresetName || cfg.strategy_label}
+                    title={loadedPresetName || cfg.strategy_label || generatedPresetName || 'Draft Strategy'}
                   >
-                    {loadedPresetName || cfg.strategy_label || 'Custom Strategy'}
+                    {loadedPresetName || cfg.strategy_label || generatedPresetName || 'Draft Strategy'}
                   </span>
                   {loadedPresetName ? (
                     isDirty ? (
@@ -5341,7 +5501,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <button
                     type="button"
                     onClick={() => handleOpenSaveAsNew(null)}
-                    className="px-2 py-1 rounded-lg text-[11px] font-bold text-dim hover:text-accent border border-border/60 hover:border-accent/40 hover:bg-white/5 transition-colors cursor-pointer shrink-0"
+                    className="px-2 py-1 rounded-lg text-[11px] font-bold text-dim hover:text-accent border border-border/60 hover:border-accent/40 hover:bg-white/5 transition-colors cursor-pointer shrink-0 inline-flex items-center gap-1"
                     title="Save configuration as a new preset in library"
                   >
                     Save As
@@ -5350,11 +5510,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             )
           )
-        ))}
+        )}
       </div>
       <ModalAlertTicker />
 
-      <div ref={scrollBodyRef} className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-2.5 pt-1.5 sm:px-4 sm:pt-2.5 pb-2 sm:pb-3 overscroll-contain" data-vaul-no-drag>
+      <div ref={scrollBodyRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden no-scrollbar px-2.5 pt-1.5 sm:px-4 sm:pt-2.5 pb-2 sm:pb-3 overscroll-contain" data-vaul-no-drag>
         {section === 'summary' && (
           <ActiveSummaryPanel
             cfg={cfg}
@@ -5396,12 +5556,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             <CollapsibleSection
               id="scan_general"
               icon={Settings2}
-              title="General"
-              subtitle="Basic strategy identification"
+              title="General & Smart Naming"
+              subtitle="Dynamic strategy identification & character limit"
               isOpen={openSectionId === 'scan_general'}
               onToggle={() => setOpenSectionId(openSectionId === 'scan_general' ? null : 'scan_general')}
             >
-              {renderField('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
+              <SmartStrategyNameControl
+                cfg={cfg}
+                setField={setField}
+                onInputFocus={handleInputFocus}
+              />
             </CollapsibleSection>
             ),
 
@@ -5457,24 +5621,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               onToggle={() => setOpenSectionId(openSectionId === 'scan_global' ? null : 'scan_global')}
               {...getSectionErrorInfo('scan_global')}
             >
-              <div className="p-3.5 bg-accent/5 border border-accent/20 rounded-2xl flex flex-col gap-2 mb-5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent shrink-0">
-                      <Search size={16} />
-                    </div>
-                    <span className="text-xs font-bold truncate">Global Scanner</span>
-                    <InfoHelpButton
-                      open={!!expandedHelpMap.scan_global_toggle}
-                      onToggle={() => toggleHelpKey('scan_global_toggle')}
-                      label="Global Scanner"
-                    />
-                  </div>
-                  <Toggle value={cfg.global_scanner_enabled !== false} onChange={(v) => setField('global_scanner_enabled', v)} />
-                </div>
-                {expandedHelpMap.scan_global_toggle && (
-                  <InfoDropdownBox>Automatic market-wide candidate discovery using Binance 24h rankings and configurable filters.</InfoDropdownBox>
-                )}
+              <div className="mb-4">
+                <WatchlistScopeSelector
+                  cfg={cfg}
+                  setField={setField}
+                  onOpenWatchlistSection={() => setOpenSectionId('scan_watchlist')}
+                />
               </div>
 
               <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
@@ -7193,6 +7345,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               });
             }}
             savePreset={savePreset}
+            onOpenSaveAsNew={handleOpenSaveAsNew}
           />
         )}
 
@@ -7202,6 +7355,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             setField={setField}
             buildConfigToSave={buildConfigToSave}
             onSave={onSave}
+            onOpenSaveAsNew={handleOpenSaveAsNew}
           />
         )}
 
@@ -7473,25 +7627,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                )}
             </div>
             )}
-
-            <ConfirmationModal
-                isOpen={!!presetToDelete}
-                onClose={() => setPresetToDelete(null)}
-                onConfirm={() => deletePreset(presetToDelete)}
-                title="Delete Strategy Preset?"
-                message={`Are you sure you want to permanently remove "${presetToDelete}"? This will delete the configuration from the database and cannot be undone.`}
-                confirmText="Delete Preset"
-                variant="danger"
-                loading={isDeleting}
-            />
-
-            <SavePresetModal
-                isOpen={saveModalState.isOpen}
-                onClose={() => setSaveModalState(prev => ({ ...prev, isOpen: false }))}
-                onSave={handleConfirmSaveAsNew}
-                defaultName={saveModalState.defaultName}
-                configSummary={saveModalState.configSummary}
-            />
           </div>
         )}
       </div>
@@ -7615,13 +7750,33 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         </div>
       </div>
 
+      <ConfirmationModal
+        isOpen={!!presetToDelete}
+        onClose={() => setPresetToDelete(null)}
+        onConfirm={() => deletePreset(presetToDelete)}
+        title="Delete Strategy Preset?"
+        message={`Are you sure you want to permanently remove "${presetToDelete}"? This will delete the configuration from the database and cannot be undone.`}
+        confirmText="Delete Preset"
+        variant="danger"
+        loading={isDeleting}
+      />
+
+      <SavePresetModal
+        isOpen={saveModalState.isOpen}
+        onClose={() => setSaveModalState(prev => ({ ...prev, isOpen: false }))}
+        onSave={handleConfirmSaveAsNew}
+        defaultName={saveModalState.defaultName}
+        configSummary={saveModalState.configSummary}
+        targetConfig={saveModalState.targetConfig || cfg}
+      />
+
       <AnimatePresence>
         {showPasteOverlay && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md"
+            className="absolute inset-0 z-[120] flex items-center justify-center p-4 bg-background/80 backdrop-blur-md"
           >
             <motion.div
               initial={{ scale: 0.95, y: 10 }}

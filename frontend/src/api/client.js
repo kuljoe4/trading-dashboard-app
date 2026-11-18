@@ -305,6 +305,8 @@ const sessionConfigAllowedKeys = [
   'trigger_candle_exit_timeframe',
   'trigger_candle_exit_buffer_pct',
   'force_risk_release',
+  'log_retention_days',
+  'trade_retention_days',
 ]
 
 const sanitizeSessionConfig = (config) => {

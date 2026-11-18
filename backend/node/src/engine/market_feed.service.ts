@@ -747,14 +747,14 @@ export class MarketFeedService {
         return Boolean(this.sessionState.pausedStrategies?.has(label));
       };
 
-      const GATING_STATES = new Set(['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk']);
+      const GATING_STATES = new Set(['max_trades', 'sl_guard', 'max_trades_period', 'max_trades_24h', 'sleeping', 'risk_pct', 'tod_risk', 'risk']);
       const isStrategyGatedFn = (label: string): boolean => {
         const stratGateMap = this.sessionState.strategyGateStates;
         if (stratGateMap && stratGateMap.size > 0) {
           const st = stratGateMap.get(label);
           return Boolean(st && GATING_STATES.has(st.gateState || ''));
         }
-        return GATING_STATES.has(this.sessionState.gateState || '');
+        return GATING_STATES.has(this.sessionState.gateState || '') || Boolean(this.sessionState.isGated?.());
       };
 
       const canStrategyBypassKnifeFn = (sc: SessionConfig, label: string): boolean => {
@@ -775,7 +775,7 @@ export class MarketFeedService {
         if (!isStrategyGatedFn(scLabel)) return true;
         return canStrategyBypassKnifeFn(sc, scLabel);
       });
-      const suppressScanner = hibMode !== 'light' && (isGated || !anyStrategyCanEnter) && !strategyConfigs.some(sc => {
+      const suppressScanner = hibMode !== 'light' && !anyStrategyCanEnter && !strategyConfigs.some(sc => {
         const scLabel = sc.strategy_label || 'Momentum Strategy';
         return !isStrategyPausedFn(scLabel) && canStrategyBypassKnifeFn(sc, scLabel);
       });
@@ -798,7 +798,11 @@ export class MarketFeedService {
         } else {
           const signature = this.getWatchlistConfigSignature(config, activeSymbolList);
           const now = Date.now();
-          const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+          const isChangeDiscovery =
+            config.discovery_mode === 'change_pct' ||
+            config.discovery_mode === 'loss_pct' ||
+            config.discovery_mode === 'abs_change_pct';
+          const CACHE_TTL_MS = isChangeDiscovery ? 30 * 1000 : 5 * 60 * 1000;
 
           if (
             this.discoveredSymbolsCache &&
@@ -838,19 +842,21 @@ export class MarketFeedService {
 
               // Ensure we also include the standard top volume or change-pct symbols to avoid missing established liquidity
               const discoveryMode = config.discovery_mode || 'volume';
-              const topSymbols = discoveryMode === 'change_pct' ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
-                : discoveryMode === 'loss_pct' ? await this.tickerCache.topByLossPct(Math.floor(watchlistSize / 2), combinedExcluded)
-                  : discoveryMode === 'abs_change_pct' ? await this.tickerCache.topByAbsChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
-                    : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
+              const leaderCount = Math.max(1, Math.floor(watchlistSize / 2));
+              const topSymbols = discoveryMode === 'change_pct' ? await this.tickerCache.topByChangePct(Math.max(leaderCount, 3), combinedExcluded)
+                : discoveryMode === 'loss_pct' ? await this.tickerCache.topByLossPct(Math.max(leaderCount, 3), combinedExcluded)
+                  : discoveryMode === 'abs_change_pct' ? await this.tickerCache.topByAbsChangePct(Math.max(leaderCount, 3), combinedExcluded)
+                    : await this.tickerCache.topByVolume(leaderCount, combinedExcluded);
               const volumeSymbols = topSymbols.map(t => t.symbol);
 
               symbols = Array.from(new Set([...symbols, ...volumeSymbols])).filter(s => !activeExcludedSet.has(s));
             } else {
               const discoveryMode = config.discovery_mode || 'volume';
-              const top = discoveryMode === 'change_pct' ? await this.tickerCache.topByChangePct(watchlistSize + offset, combinedExcluded)
-                : discoveryMode === 'loss_pct' ? await this.tickerCache.topByLossPct(watchlistSize + offset, combinedExcluded)
-                  : discoveryMode === 'abs_change_pct' ? await this.tickerCache.topByAbsChangePct(watchlistSize + offset, combinedExcluded)
-                    : await this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
+              const feedWatchlistSize = isChangeDiscovery ? Math.max(watchlistSize, 3) : watchlistSize;
+              const top = discoveryMode === 'change_pct' ? await this.tickerCache.topByChangePct(feedWatchlistSize + offset, combinedExcluded)
+                : discoveryMode === 'loss_pct' ? await this.tickerCache.topByLossPct(feedWatchlistSize + offset, combinedExcluded)
+                  : discoveryMode === 'abs_change_pct' ? await this.tickerCache.topByAbsChangePct(feedWatchlistSize + offset, combinedExcluded)
+                    : await this.tickerCache.topByVolume(feedWatchlistSize + offset, combinedExcluded);
               const slicedTop = top.slice(offset);
 
               // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
@@ -882,19 +888,24 @@ export class MarketFeedService {
             } else {
               const effectiveDiscoveryMode = sc.discovery_mode || config.discovery_mode || 'volume';
               const effectiveWatchlistSize = sc.watchlist_size || config.watchlist_size || 50;
+              const isScChangeDiscovery =
+                effectiveDiscoveryMode === 'change_pct' ||
+                effectiveDiscoveryMode === 'loss_pct' ||
+                effectiveDiscoveryMode === 'abs_change_pct';
+              const feedVariantSize = isScChangeDiscovery ? Math.max(effectiveWatchlistSize, 3) : effectiveWatchlistSize;
               const isDifferentDiscovery = sc.discovery_mode !== undefined && sc.discovery_mode !== config.discovery_mode;
               const isDifferentSize = sc.watchlist_size !== undefined && sc.watchlist_size !== config.watchlist_size;
               const isDifferentOffset = sc.watchlist_offset !== undefined && sc.watchlist_offset !== (config.watchlist_offset || 0);
 
-              if (isDifferentDiscovery || isDifferentSize || isDifferentOffset) {
+              if (isDifferentDiscovery || isDifferentSize || isDifferentOffset || isScChangeDiscovery) {
                 const scOffset = sc.watchlist_offset || 0;
                 const scTop = effectiveDiscoveryMode === 'change_pct'
-                  ? await this.tickerCache.topByChangePct(effectiveWatchlistSize + scOffset, combinedExcluded)
+                  ? await this.tickerCache.topByChangePct(feedVariantSize + scOffset, combinedExcluded)
                   : effectiveDiscoveryMode === 'loss_pct'
-                    ? await this.tickerCache.topByLossPct(effectiveWatchlistSize + scOffset, combinedExcluded)
+                    ? await this.tickerCache.topByLossPct(feedVariantSize + scOffset, combinedExcluded)
                     : effectiveDiscoveryMode === 'abs_change_pct'
-                      ? await this.tickerCache.topByAbsChangePct(effectiveWatchlistSize + scOffset, combinedExcluded)
-                      : await this.tickerCache.topByVolume(effectiveWatchlistSize + scOffset, combinedExcluded);
+                      ? await this.tickerCache.topByAbsChangePct(feedVariantSize + scOffset, combinedExcluded)
+                      : await this.tickerCache.topByVolume(feedVariantSize + scOffset, combinedExcluded);
                 scSymbols = scTop
                   .slice(scOffset)
                   .map((t: any) => t.symbol)

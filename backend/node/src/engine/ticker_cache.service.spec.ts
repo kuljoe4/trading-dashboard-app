@@ -122,6 +122,37 @@ describe('TickerCacheService', () => {
       expect(topUndefined.length).toBe(2);
     });
 
+    it('rotates topByChangePct and topByLossPct after 15s TTL while keeping 5m TTL for topByVolume', () => {
+      const nowSpy = jest.spyOn(Date, 'now');
+      nowSpy.mockReturnValue(100000);
+
+      service.updateTicker('BTCUSDT', 110, 1000000, 100); // +10%
+      service.updateTicker('SOLUSDT', 105, 2000000, 100); // +5%
+      service.updateTicker('XRPUSDT', 90, 500000, 100);   // -10%
+
+      expect(service.topByChangePct(1)[0].symbol).toBe('BTCUSDT');
+      expect(service.topByLossPct(1)[0].symbol).toBe('XRPUSDT');
+      expect(service.topByVolume(1)[0].symbol).toBe('SOLUSDT');
+
+      // SOL overtakes BTC as #1 gainer (+25%), BTC overtakes SOL in volume
+      service.updateTicker('SOLUSDT', 125, 2000000, 100);
+      service.updateTicker('BTCUSDT', 80, 5000000, 100); // -20% loser, 5M vol
+
+      // Within 15s (e.g. +10s): caches still hold previous #1
+      nowSpy.mockReturnValue(110000);
+      expect(service.topByChangePct(1)[0].symbol).toBe('BTCUSDT');
+      expect(service.topByLossPct(1)[0].symbol).toBe('XRPUSDT');
+      expect(service.topByVolume(1)[0].symbol).toBe('SOLUSDT');
+
+      // After 16s: change_pct and loss_pct rotate to the new #1 leader, while volume cache (5m TTL) stays cached
+      nowSpy.mockReturnValue(116000);
+      expect(service.topByChangePct(1)[0].symbol).toBe('SOLUSDT');
+      expect(service.topByLossPct(1)[0].symbol).toBe('BTCUSDT');
+      expect(service.topByVolume(1)[0].symbol).toBe('SOLUSDT');
+
+      nowSpy.mockRestore();
+    });
+
     describe('topByChangePct performance benchmark', () => {
       it('should run significantly faster than the old unoptimized implementation', () => {
         // Setup 300 symbols to simulate a realistic production list

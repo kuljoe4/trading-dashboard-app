@@ -1173,5 +1173,55 @@ describe('SessionService Validation', () => {
         expect(Math.abs(diffMs - expectedMs)).toBeLessThan(5000); // within 5s
       }
     });
+
+    it('getHistory returns exact closedCounts per horizon and caps takeLimit at 50000', async () => {
+      const listQb = {
+        leftJoin: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([
+          { id: 't-1', symbol: 'BTCUSDT', status: 'CLOSED_TP', pnl: 50, session: { id: 's1', tradingMode: 'paper', paperMode: true } }
+        ]),
+      };
+      const countQb = {
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        setParameters: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({
+          total: '6420',
+          d7: '140',
+          d14: '280',
+          d30: '610',
+          m6: '3900',
+          y1: '6420',
+        }),
+      };
+
+      (service as any).tradeRepository = {
+        createQueryBuilder: jest.fn()
+          .mockReturnValueOnce(listQb)
+          .mockReturnValueOnce(countQb),
+      };
+
+      const res = await service.getHistory('all', 80000);
+      expect(listQb.take).toHaveBeenCalledWith(50000);
+      expect(res.totalCount).toBe(6420);
+      expect(res.closedCounts).toEqual({
+        total: 6420,
+        '7D': 140,
+        '14D': 280,
+        '4W': 610,
+        '30D': 610,
+        '6M': 3900,
+        '1Y': 6420,
+      });
+      expect(res.trades).toHaveLength(1);
+      expect(res.trades[0].trading_mode).toBe('paper');
+    });
   });
 });

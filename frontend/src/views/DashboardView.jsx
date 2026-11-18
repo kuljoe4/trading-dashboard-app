@@ -4,6 +4,7 @@ import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
 import { formatDuration, calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
 import { calculatePerformanceMetrics } from '../lib/analytics'
+import { resolveAdaptivePeriodicLimit, isClosedValidTrade, computePeriodicBuckets, computePeriodBadges } from '../utils/periodicPerformance'
 
 const formatTimeAgo = (ts) => {
   if (!ts) return 'ago';
@@ -144,12 +145,32 @@ const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay'
 const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 
 // --- Observable Periodic Revenue Bar Chart (Daily, Weekly, Monthly) ---
-const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, config = {} }) => {
-  const [timeframe, setTimeframe] = useState('7D'); // '7D' (Daily), '4W' (Weekly), '6M' (Monthly), '1Y' (Monthly)
+const MonthlyRevenueChart = React.memo(({
+  tradeHistory = [],
+  balance = 10000,
+  config = {},
+  scope = 'all',
+  onScopeChange,
+  timeframe: controlledTimeframe,
+  onTimeframeChange,
+  hasSession = false,
+  sessionLabel = 'This Session',
+  nowTick = Date.now(),
+  isLoadingHistory = false
+}) => {
+  const [internalTimeframe, setInternalTimeframe] = useState('7D');
+  const timeframe = controlledTimeframe || internalTimeframe;
   const [selectedStrategy, setSelectedStrategy] = useState('ALL');
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [isChartExpanded, setIsChartExpanded] = useState(false);
+
+  const activeTradingMode = config?.trading_mode || (config?.paper_mode === false ? 'live' : 'paper');
+
+  const validTrades = useMemo(() => {
+    const raw = tradeHistory || [];
+    return raw.filter(t => isClosedValidTrade(t, activeTradingMode));
+  }, [tradeHistory, activeTradingMode]);
 
   const strategyOptions = useMemo(() => {
     const labels = new Set();
@@ -159,153 +180,58 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
         if (v?.strategy_label && v.enabled !== false) labels.add(v.strategy_label);
       }
     }
-    for (const t of (tradeHistory || [])) {
-      if (t?.strategy_label) labels.add(t.strategy_label);
+    for (let i = 0; i < validTrades.length; i++) {
+      const label = validTrades[i]?.strategy_label || validTrades[i]?.strategyLabel;
+      if (label) labels.add(label);
     }
     return Array.from(labels);
-  }, [config?.strategy_label, config?.strategy_variants, tradeHistory]);
+  }, [config?.strategy_label, config?.strategy_variants, validTrades]);
 
   const filteredHistory = useMemo(() => {
-    const trades = tradeHistory || [];
-    if (selectedStrategy === 'ALL') return trades;
-    return trades.filter(t => (t?.strategy_label || config?.strategy_label || 'Momentum Strategy') === selectedStrategy);
-  }, [tradeHistory, selectedStrategy, config?.strategy_label]);
+    if (selectedStrategy === 'ALL') return validTrades;
+    return validTrades.filter(t => (t?.strategy_label || t?.strategyLabel || 'Momentum Strategy') === selectedStrategy);
+  }, [validTrades, selectedStrategy]);
 
   const periodicData = useMemo(() => {
-    const trades = filteredHistory;
-    const now = new Date();
-    const buckets = [];
-
-    if (timeframe === '7D' || timeframe === '14D') {
-      const numDays = timeframe === '7D' ? 7 : 14;
-      for (let i = numDays - 1; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-        const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const label = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-        buckets.push({
-          id: dateKey,
-          label,
-          subLabel: d.toLocaleDateString([], { weekday: 'short' }),
-          startMs: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(),
-          endMs: new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime() - 1,
-          pnl: 0,
-          tradesCount: 0,
-          winCount: 0
-        });
-      }
-    } else if (timeframe === '4W' || timeframe === '8W') {
-      const numWeeks = timeframe === '4W' ? 4 : 8;
-      for (let i = numWeeks - 1; i >= 0; i--) {
-        const start = new Date(now);
-        start.setDate(now.getDate() - (now.getDay() + i * 7));
-        start.setHours(0, 0, 0, 0);
-
-        const end = new Date(start);
-        end.setDate(start.getDate() + 6);
-        end.setHours(23, 59, 59, 999);
-
-        const label = `W${numWeeks - i}`;
-        const subLabel = `${start.getDate()} ${start.toLocaleDateString([], { month: 'short' })}`;
-
-        buckets.push({
-          id: `week-${i}`,
-          label,
-          subLabel,
-          startMs: start.getTime(),
-          endMs: end.getTime(),
-          pnl: 0,
-          tradesCount: 0,
-          winCount: 0
-        });
-      }
-    } else {
-      // Monthly: '3M', '6M', '1Y'
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const numMonths = timeframe === '3M' ? 3 : timeframe === '1Y' ? 12 : 6;
-
-      for (let i = numMonths - 1; i >= 0; i--) {
-        const first = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const last = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59, 999);
-        buckets.push({
-          id: `month-${first.getFullYear()}-${first.getMonth()}`,
-          label: monthNames[first.getMonth()],
-          subLabel: String(first.getFullYear()),
-          startMs: first.getTime(),
-          endMs: last.getTime(),
-          pnl: 0,
-          tradesCount: 0,
-          winCount: 0
-        });
-      }
-    }
-
-    // Populate trade metrics in buckets
-    for (let i = 0; i < trades.length; i++) {
-      const t = trades[i];
-      if (!t) continue;
-      const ts = t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
-      if (!ts) continue;
-
-      for (let b = 0; b < buckets.length; b++) {
-        const bucket = buckets[b];
-        if (ts >= bucket.startMs && ts <= bucket.endMs) {
-          const pnl = Number(t.pnl || 0);
-          bucket.pnl += pnl;
-          bucket.tradesCount++;
-          if (pnl > 0) bucket.winCount++;
-          break;
-        }
-      }
-    }
-
-    // Determine scale bounds
-    let maxVal = 0;
-    for (let i = 0; i < buckets.length; i++) {
-      const absVal = Math.abs(buckets[i].pnl);
-      if (absVal > maxVal) maxVal = absVal;
-    }
-    if (maxVal === 0) maxVal = 500; // baseline scale
-
-    return { buckets, maxVal };
-  }, [filteredHistory, timeframe]);
+    return computePeriodicBuckets({ trades: filteredHistory, timeframe, nowTs: nowTick });
+  }, [filteredHistory, timeframe, nowTick]);
 
   const { buckets, maxVal } = periodicData;
-  // BOLT OPTIMIZATION: Fused totalRevenue calculation
-  // Replaces .reduce() with a single-pass O(N) loop to eliminate callback allocation.
+  // BOLT OPTIMIZATION: Fused totalRevenue & periodTradesCount calculation
   let totalRevenue = 0;
+  let periodTradesCount = 0;
   for (let i = 0; i < buckets.length; i++) {
     totalRevenue += buckets[i].pnl;
+    periodTradesCount += buckets[i].tradesCount;
   }
 
-  // Period Quick Badges (Today, 7D, 30D)
+  // Period Quick Badges (Today, 7D, 30D — midnight-aligned to match bar buckets)
   const periodBadges = useMemo(() => {
-    const trades = filteredHistory;
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
-    const thirtyDaysAgo = now.getTime() - (30 * 24 * 60 * 60 * 1000);
+    return computePeriodBadges({ trades: filteredHistory, nowTs: nowTick });
+  }, [filteredHistory, nowTick]);
 
-    let today = 0;
-    let d7 = 0;
-    let d30 = 0;
-
-    for (let i = 0; i < trades.length; i++) {
-      const t = trades[i];
-      if (!t) continue;
-      const ts = t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
-      if (!ts) continue;
-
-      const pnl = Number(t.pnl || 0);
-      if (ts >= todayStart) today += pnl;
-      if (ts >= sevenDaysAgo) d7 += pnl;
-      if (ts >= thirtyDaysAgo) d30 += pnl;
+  const handleSelectTimeframe = (nextTf) => {
+    if (typeof onTimeframeChange === 'function') {
+      onTimeframeChange(nextTf);
+    } else {
+      setInternalTimeframe(nextTf);
     }
+    setSelectedIndex(null);
+  };
 
-    return { today, d7, d30 };
-  }, [filteredHistory]);
+  const handleSelectScope = (nextScope) => {
+    if (nextScope === 'session' && !hasSession) return;
+    if (typeof onScopeChange === 'function') {
+      onScopeChange(nextScope);
+    }
+    setSelectedIndex(null);
+  };
+
+  const activeScope = scope === 'session' && hasSession ? 'session' : 'all';
+  const scopeText = activeScope === 'session' ? sessionLabel : 'All Sessions';
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-4 sm:p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
+    <div className="bg-surface border border-border rounded-2xl p-3.5 sm:p-5 shadow-md shadow-black/20 flex flex-col gap-3.5 overflow-hidden w-full">
       <div
         role="button"
         tabIndex={0}
@@ -313,32 +239,42 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setIsChartExpanded(!isChartExpanded))}
         aria-expanded={isChartExpanded}
         aria-controls="periodic-chart-content"
-        className="flex items-center justify-between gap-3 sm:gap-4 cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
+        className="flex items-center justify-between gap-2.5 sm:gap-4 cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
       >
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
           <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
             <BarChart3 size={16} />
           </div>
-          <div className="flex items-center justify-between flex-wrap gap-2 min-w-0 flex-1 pr-2">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-3 min-w-0 flex-1 pr-1 sm:pr-2">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <h3 className="text-xs sm:text-sm font-bold tracking-tight text-text truncate group-hover:text-accent transition-colors">
                 Periodic Performance
               </h3>
-              <span className="text-[10px] text-dim font-bold uppercase tracking-widest shrink-0">
-                Net: <span className={pnlClass(totalRevenue)}>{fmtUSD(totalRevenue)}</span>
+              <span aria-hidden="true" className="text-dim/40 text-xs">·</span>
+              <span className={cn(
+                "text-[11px] font-medium shrink-0",
+                activeScope === 'session' ? "text-accent" : "text-dim"
+              )}>
+                {scopeText}
+              </span>
+              <span aria-hidden="true" className="text-dim/40 text-xs">·</span>
+              <span className="text-[11px] text-dim font-medium shrink-0 tabular-nums">
+                Net <strong className={cn("font-mono font-semibold", pnlClass(totalRevenue))}>{fmtUSD(totalRevenue)}</strong>
               </span>
             </div>
 
-            {/* Ultra-Compact Period Badges */}
-            <div className="flex items-center gap-1 font-mono text-[8.5px] xs:text-[9px] font-bold uppercase shrink-0">
-              <span className={cn("px-1.5 py-0.5 rounded border leading-none shrink-0", periodBadges.today >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                24H: {fmtUSD(periodBadges.today)}
+            {/* Clean Midnight-Aligned Quick Period Totals */}
+            <div className="flex items-center gap-2.5 font-mono text-[10px] font-semibold shrink-0 tabular-nums flex-wrap">
+              <span className="text-dim">
+                TODAY <span className={pnlClass(periodBadges.today)}>{fmtUSD(periodBadges.today)}</span>
               </span>
-              <span className={cn("px-1.5 py-0.5 rounded border leading-none shrink-0 hidden xs:inline-block", periodBadges.d7 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                7D: {fmtUSD(periodBadges.d7)}
+              <span aria-hidden="true" className="text-dim/30">·</span>
+              <span className="text-dim">
+                7D <span className={pnlClass(periodBadges.d7)}>{fmtUSD(periodBadges.d7)}</span>
               </span>
-              <span className={cn("px-1.5 py-0.5 rounded border leading-none shrink-0 hidden sm:inline-block", periodBadges.d30 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                30D: {fmtUSD(periodBadges.d30)}
+              <span aria-hidden="true" className="text-dim/30 hidden sm:inline">·</span>
+              <span className="text-dim hidden sm:inline">
+                30D <span className={pnlClass(periodBadges.d30)}>{fmtUSD(periodBadges.d30)}</span>
               </span>
             </div>
           </div>
@@ -355,7 +291,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
                 setSelectedStrategy(e.target.value);
                 setSelectedIndex(null);
               }}
-              className="hidden sm:block h-7 px-2 rounded-lg bg-background/70 border border-border/50 text-[10px] font-mono font-bold text-text focus:outline-none focus:border-accent max-w-[160px] truncate cursor-pointer"
+              className="hidden sm:block h-8 px-2.5 rounded-lg bg-background/70 border border-border/50 text-[10px] font-mono font-semibold text-text focus:outline-none focus:border-accent max-w-[160px] truncate cursor-pointer"
             >
               <option value="ALL">All Strategies</option>
               {strategyOptions.map(label => (
@@ -364,7 +300,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
             </select>
           )}
           <div className={cn(
-            "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+            "w-8 h-8 sm:w-7 sm:h-7 rounded-lg border border-border/50 bg-surface/60 text-dim group-hover:text-accent group-hover:border-accent/40 transition-colors flex items-center justify-center shrink-0",
             isChartExpanded && "text-accent border-accent/40 bg-accent/5 rotate-180"
           )}>
             <ChevronLeft size={14} className="-rotate-90" />
@@ -380,12 +316,48 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="overflow-hidden flex flex-col gap-4 pt-2 border-t border-border/20"
+            className="overflow-hidden flex flex-col gap-3 sm:gap-3.5 pt-3 border-t border-border/20"
           >
-            {/* Multi-Horizon Granularity & Strategy Filter Controls */}
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[9px] text-dim font-black uppercase tracking-widest">Timeframe Horizon:</span>
+            {/* Mobile-First Controls: Scope Toggle + Strategy Filter + Adaptive Timeframe Horizon */}
+            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto min-w-0">
+                {/* Clean Segmented Scope Toggle */}
+                <div
+                  role="group"
+                  aria-label="Periodic performance scope"
+                  className="grid grid-cols-2 sm:inline-flex items-center gap-1 p-1 rounded-xl bg-background/60 border border-border/50 w-full sm:w-auto min-w-0"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={activeScope === 'all'}
+                    onClick={(e) => { e.stopPropagation(); handleSelectScope('all'); }}
+                    className={cn(
+                      "min-h-[36px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-bold tracking-tight transition-colors focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer whitespace-nowrap min-w-0 truncate flex items-center justify-center",
+                      activeScope === 'all'
+                        ? "bg-accent text-white shadow-sm shadow-accent/20"
+                        : "text-dim hover:text-text hover:bg-white/5"
+                    )}
+                  >
+                    All Sessions
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={activeScope === 'session'}
+                    disabled={!hasSession}
+                    onClick={(e) => { e.stopPropagation(); handleSelectScope('session'); }}
+                    className={cn(
+                      "min-h-[36px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-bold tracking-tight transition-colors focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap min-w-0 truncate flex items-center justify-center",
+                      !hasSession
+                        ? "text-dim/40 cursor-not-allowed"
+                        : activeScope === 'session'
+                          ? "bg-accent text-white shadow-sm shadow-accent/20 cursor-pointer"
+                          : "text-dim hover:text-text hover:bg-white/5 cursor-pointer"
+                    )}
+                  >
+                    {sessionLabel}
+                  </button>
+                </div>
+
                 {strategyOptions.length > 0 && (
                   <select
                     aria-label="Filter periodic performance by strategy"
@@ -396,7 +368,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
                       setSelectedStrategy(e.target.value);
                       setSelectedIndex(null);
                     }}
-                    className="sm:hidden h-7 px-2 rounded-lg bg-background/70 border border-border/50 text-[10px] font-mono font-bold text-text focus:outline-none focus:border-accent max-w-[160px] truncate cursor-pointer"
+                    className="sm:hidden w-full min-h-[38px] px-3 rounded-xl bg-background/70 border border-border/50 text-xs font-mono font-bold text-text focus:outline-none focus:border-accent truncate cursor-pointer"
                   >
                     <option value="ALL">All Strategies</option>
                     {strategyOptions.map(label => (
@@ -405,7 +377,8 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
                   </select>
                 )}
               </div>
-              <div className="flex items-center gap-1 sm:gap-1.5 bg-background/50 border border-border/40 p-1 rounded-xl overflow-x-auto no-scrollbar shrink-0">
+
+              <div className="grid grid-cols-5 sm:inline-flex items-center gap-1 bg-background/60 border border-border/50 p-1 rounded-xl w-full sm:w-auto shrink-0">
                 {[
                   { id: '7D', shortLabel: '7D', fullLabel: '7 Days' },
                   { id: '14D', shortLabel: '14D', fullLabel: '14 Days' },
@@ -416,11 +389,12 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
                   <button
                     key={tf.id}
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setTimeframe(tf.id); }}
+                    aria-pressed={timeframe === tf.id}
+                    onClick={(e) => { e.stopPropagation(); handleSelectTimeframe(tf.id); }}
                     className={cn(
-                      "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] sm:text-[9.5px] font-black uppercase tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer whitespace-nowrap shrink-0",
+                      "min-h-[36px] sm:min-h-[30px] px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-[10.5px] font-bold tracking-tight transition-colors focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer whitespace-nowrap shrink-0 flex items-center justify-center",
                       timeframe === tf.id
-                        ? "bg-accent text-white shadow-md shadow-accent/20"
+                        ? "bg-accent text-white shadow-sm shadow-accent/20"
                         : "text-dim hover:text-text hover:bg-white/5"
                     )}
                   >
@@ -431,23 +405,24 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
               </div>
             </div>
 
-            {/* Reserved Period Detail Banner (Zero CLS on hover/click) */}
-            <div className="min-h-[38px] bg-accent/5 border border-accent/20 px-3 py-2 rounded-xl flex items-center justify-between gap-3 text-xs font-mono flex-wrap transition-all">
+            {/* Reserved Period Detail Banner (Fixed height on mobile & desktop for 0.000 CLS on hover/select) */}
+            <div className="min-h-[38px] bg-accent/5 border border-accent/20 px-3 py-2 rounded-xl h-[58px] sm:h-[42px] flex flex-col justify-center sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-3 text-xs font-mono overflow-hidden transition-colors">
         {(() => {
           const activeIdx = hoveredIndex !== null ? hoveredIndex : selectedIndex;
           const activeBucket = activeIdx !== null ? buckets[activeIdx] : null;
 
           if (!activeBucket) {
             return (
-              <div className="flex items-center justify-between w-full text-dim/70 font-sans text-[10px] sm:text-xs font-bold uppercase tracking-wider">
-                <span className="flex items-center gap-1.5">
-                  <Info size={12} className="text-accent/60 shrink-0" />
-                  Hover or tap a bar to inspect period breakdown
+              <>
+                <span className="flex items-center gap-1.5 text-dim/80 font-sans text-[11px] font-medium truncate leading-tight">
+                  <Info size={12} className="text-accent/70 shrink-0" />
+                  <span className="truncate">Hover or tap a bar to inspect period breakdown</span>
                 </span>
-                <span className="font-mono text-[9.5px] text-dim/80 hidden sm:inline">
-                  {buckets.length} Periods ({timeframe})
+                <span className="font-mono text-[10px] text-dim/75 flex items-center gap-1.5 shrink-0 tabular-nums whitespace-nowrap leading-tight">
+                  {isLoadingHistory && <RefreshCw size={10} className="animate-spin text-accent shrink-0" />}
+                  {buckets.length} Periods ({timeframe}) · {scopeText} · {periodTradesCount} closed
                 </span>
-              </div>
+              </>
             );
           }
 
@@ -455,23 +430,24 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
 
           return (
             <>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                <span className="font-black uppercase tracking-wider text-accent">
-                  {activeBucket.label} ({activeBucket.subLabel})
+              <div className="flex items-center gap-2 min-w-0 leading-tight">
+                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", activeBucket.pnl > 0 ? "bg-green" : activeBucket.pnl < 0 ? "bg-red" : "bg-accent")} />
+                <span className="font-bold uppercase tracking-wide text-text text-[11px] truncate">
+                  {activeBucket.label} <span className="text-dim font-medium">({activeBucket.subLabel})</span>
                 </span>
               </div>
-              <div className="flex items-center gap-3 font-bold flex-wrap">
+              <div className="flex items-center gap-2 sm:gap-2.5 text-[11px] font-medium tabular-nums whitespace-nowrap overflow-hidden leading-tight">
                 <span>
-                  Net P&L: <span className={pnlClass(activeBucket.pnl)}>{activeBucket.pnl >= 0 ? '+' : ''}{fmtUSD(activeBucket.pnl)} ({activePct >= 0 ? '+' : ''}{activePct.toFixed(2)}%)</span>
+                  Net <strong className={cn("font-semibold", pnlClass(activeBucket.pnl))}>{activeBucket.pnl >= 0 ? '+' : ''}{fmtUSD(activeBucket.pnl)}</strong>{' '}
+                  <span className={cn("text-[10px] opacity-85", pnlClass(activeBucket.pnl))}>({activePct >= 0 ? '+' : ''}{activePct.toFixed(2)}%)</span>
                 </span>
-                <span className="text-dim/60">•</span>
+                <span aria-hidden="true" className="text-dim/35">·</span>
                 <span className="text-dim">
-                  Trades: <strong className="text-text">{activeBucket.tradesCount}</strong>
+                  Trades <strong className="text-text font-semibold">{activeBucket.tradesCount}</strong>
                 </span>
-                <span className="text-dim/60">•</span>
+                <span aria-hidden="true" className="text-dim/35">·</span>
                 <span className="text-dim">
-                  Win Rate: <strong className="text-text">{activeBucket.tradesCount > 0 ? Math.round((activeBucket.winCount / activeBucket.tradesCount) * 100) : 0}%</strong>
+                  Win <strong className="text-text font-semibold">{activeBucket.tradesCount > 0 ? Math.round((activeBucket.winCount / activeBucket.tradesCount) * 100) : 0}%</strong>
                 </span>
               </div>
             </>
@@ -480,27 +456,30 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
             </div>
 
       {/* Bar Canvas Container with Responsive Scroll */}
-      <div className="relative pt-4 pb-2 w-full overflow-x-auto no-scrollbar">
+      <div className="relative pt-3 pb-1 w-full overflow-x-auto no-scrollbar">
         {/* Background Gridlines */}
-        <div className="absolute inset-x-0 top-4 bottom-8 flex flex-col justify-between pointer-events-none opacity-20">
+        <div className="absolute inset-x-0 top-10 bottom-10 flex flex-col justify-between pointer-events-none opacity-25">
           <div className="border-b border-dashed border-border/60 w-full" />
           <div className="border-b border-dashed border-border/60 w-full" />
           <div className="border-b border-dashed border-border/60 w-full" />
         </div>
 
-        <div className="flex items-end justify-between h-[180px] px-0.5 sm:px-3 relative z-10 gap-1 xs:gap-1.5 sm:gap-3 min-w-[280px]">
+        <div className="flex items-end justify-between h-[196px] px-0.5 sm:px-2 relative z-10 gap-1 sm:gap-2.5 min-w-[280px]">
           {buckets.map((b, idx) => {
-            const isPos = b.pnl >= 0;
-            const heightPct = Math.min(100, Math.max(8, (Math.abs(b.pnl) / maxVal) * 100));
+            const isFlat = b.pnl === 0;
+            const isPos = b.pnl > 0;
+            const heightPct = isFlat ? 3 : Math.min(100, Math.max(8, (Math.abs(b.pnl) / maxVal) * 100));
             const isHovered = hoveredIndex === idx;
+            const isSelected = selectedIndex === idx;
+            const isActive = isHovered || isSelected;
             const winRate = b.tradesCount > 0 ? Math.round((b.winCount / b.tradesCount) * 100) : 0;
             const barPct = balance > 0 ? (b.pnl / balance) * 100 : 0;
 
             const tooltipCard = (
-              <div className="flex flex-col items-center text-center py-0.5 px-1 font-mono">
-                <span className="text-[10px] font-black uppercase text-accent tracking-wider">{b.label} ({b.subLabel})</span>
+              <div className="flex flex-col items-center text-center py-0.5 px-1 font-mono tabular-nums">
+                <span className="text-[10px] font-bold uppercase text-accent tracking-wider">{b.label} ({b.subLabel})</span>
                 <span className={cn("text-xs font-bold my-0.5", pnlClass(b.pnl))}>{b.pnl >= 0 ? '+' : ''}{fmtUSD(b.pnl)} ({barPct >= 0 ? '+' : ''}{barPct.toFixed(2)}%)</span>
-                <span className="text-[9px] text-dim font-bold">{b.tradesCount} trades ({winRate}% WR)</span>
+                <span className="text-[9px] text-dim font-medium">{b.tradesCount} trades ({winRate}% WR)</span>
               </div>
             );
             return (
@@ -510,8 +489,8 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
               >
                 <div
                   className={cn(
-                    "flex-1 min-w-[20px] max-w-[56px] flex flex-col items-center h-full justify-end group relative cursor-pointer rounded-xl transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none p-0.5",
-                    isHovered && "bg-white/[0.04]"
+                    "flex-1 min-w-[22px] max-w-[56px] flex flex-col items-center h-full justify-end group relative cursor-pointer rounded-xl transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none p-1",
+                    isActive && "bg-white/[0.04]"
                   )}
                   onMouseEnter={() => setHoveredIndex(idx)}
                   onMouseLeave={() => setHoveredIndex(null)}
@@ -520,43 +499,45 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, co
                   role="region"
                   aria-label={`${b.label} (${b.subLabel}): ${fmtUSD(b.pnl)} (${barPct >= 0 ? '+' : ''}${barPct.toFixed(2)}%), ${b.tradesCount} trades, win rate ${winRate}%`}
                 >
-                  {/* Bar Value Annotation on Top */}
+                  {/* Bar Value Annotation on Top (constant font weight & size = zero reflow on hover) */}
                   <div className={cn(
-                    "text-[7.5px] xs:text-[8.5px] sm:text-[9.5px] font-mono font-black mb-1.5 transition-all leading-none truncate w-full text-center flex flex-col items-center gap-0.5",
-                    isHovered ? "opacity-100 scale-110 text-accent font-bold" : "opacity-75 text-dim",
-                    pnlClass(b.pnl)
+                    "text-[8px] sm:text-[9.5px] font-mono font-semibold mb-1.5 transition-opacity duration-150 leading-none truncate w-full text-center flex flex-col items-center gap-0.5 tabular-nums",
+                    isActive ? "opacity-100" : "opacity-75",
+                    isFlat ? "text-dim/60" : pnlClass(b.pnl)
                   )}>
-                    <span>{b.pnl === 0 ? '$0' : fmtUSD(b.pnl)}</span>
+                    <span className="truncate w-full">{isFlat ? '$0' : fmtUSD(b.pnl)}</span>
                     <span className="text-[7px] opacity-80 font-normal">({barPct >= 0 ? '+' : ''}{barPct.toFixed(1)}%)</span>
                   </div>
 
                   {/* Bar Container */}
-                  <div className="w-full max-w-[48px] h-[130px] flex items-end justify-center rounded-xl bg-background/30 p-0.5 sm:p-1 border border-border/20 group-hover:border-accent/40 transition-all">
+                  <div className={cn(
+                    "w-full max-w-[44px] h-[126px] flex items-end justify-center rounded-lg bg-background/40 p-1 border transition-colors duration-150",
+                    isActive ? "border-accent/50 bg-background/60" : "border-border/30"
+                  )}>
                     <motion.div
                       initial={{ height: 0 }}
                       animate={{ height: `${heightPct}%` }}
                       transition={{ type: "spring", stiffness: 300, damping: 25 }}
                       className={cn(
-                        "w-full rounded-lg transition-all duration-300 relative overflow-hidden",
-                        isPos
-                          ? "bg-gradient-to-t from-accent/80 via-accent to-green shadow-[0_0_15px_rgba(91,111,255,0.2)]"
-                          : "bg-gradient-to-t from-red/80 via-red to-red-400 shadow-[0_0_15px_rgba(255,68,102,0.2)]",
-                        isHovered && "brightness-125 scale-x-105"
+                        "w-full rounded-[5px] transition-colors duration-150 relative overflow-hidden",
+                        isFlat
+                          ? "bg-border/60"
+                          : isPos
+                            ? cn("bg-gradient-to-t from-accent/85 to-green border-t border-white/25", isActive && "brightness-110")
+                            : cn("bg-gradient-to-t from-red/85 to-red-400 border-t border-white/20", isActive && "brightness-110")
                       )}
-                    >
-                      <div className="absolute inset-x-0 top-0 h-1 bg-white/40" />
-                    </motion.div>
+                    />
                   </div>
 
-                  {/* Label */}
+                  {/* Label (constant font-semibold = zero horizontal glyph jitter on hover) */}
                   <div className="flex flex-col items-center mt-2 leading-tight w-full">
                     <span className={cn(
-                      "text-[8.5px] xs:text-[9.5px] sm:text-xs font-bold uppercase tracking-wider transition-colors font-mono truncate w-full text-center",
-                      isHovered ? "text-accent font-black" : "text-dim"
+                      "text-[9px] sm:text-[11px] font-semibold uppercase tracking-wide transition-colors duration-150 font-mono truncate w-full text-center",
+                      isActive ? "text-text" : "text-dim"
                     )}>
                       {b.label}
                     </span>
-                    <span className="text-[7px] xs:text-[7.5px] text-dim/60 font-mono hidden xs:inline truncate w-full text-center">
+                    <span className="text-[7.5px] text-dim/60 font-mono hidden sm:inline truncate w-full text-center">
                       {b.subLabel}
                     </span>
                   </div>
@@ -1557,6 +1538,14 @@ export function DashboardView({ initialStrategy }) {
   const [pausingMap, setPausingMap] = useState({})
   const [loading, setLoading] = useState(false)
   const [scannerFocusLabel, setScannerFocusLabel] = useState(null)
+  const [periodicScope, setPeriodicScope] = useState('all')
+  const [periodicTimeframe, setPeriodicTimeframe] = useState('7D')
+  const [nowTick, setNowTick] = useState(() => Date.now())
+
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
 
   const {
     sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, totalRiskPct,
@@ -1566,7 +1555,7 @@ export function DashboardView({ initialStrategy }) {
     updateStats, analytics, stats, lastUdsBalanceReason, lastUdsBalanceTs,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
-    nextSlotTs, fetchTradeHistory, fetchAnalytics, tradeHistory
+    nextSlotTs, fetchTradeHistory, fetchAnalytics, tradeHistory, sessionTradeHistory, sessionTradeHistoryId, tradeHistoryCounts, sessionTradeHistoryCounts
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -1618,7 +1607,11 @@ export function DashboardView({ initialStrategy }) {
     nextSlotTs: state.nextSlotTs,
     fetchTradeHistory: state.fetchTradeHistory,
     fetchAnalytics: state.fetchAnalytics,
-    tradeHistory: state.tradeHistory
+    tradeHistory: state.tradeHistory,
+    sessionTradeHistory: state.sessionTradeHistory,
+    sessionTradeHistoryId: state.sessionTradeHistoryId,
+    tradeHistoryCounts: state.tradeHistoryCounts,
+    sessionTradeHistoryCounts: state.sessionTradeHistoryCounts
   }), shallow)
 
   useEffect(() => {
@@ -1630,11 +1623,17 @@ export function DashboardView({ initialStrategy }) {
   }, [showConfig, selectedConfig, config]);
 
   const safeVariantStats = variantStats || {}
+  const activeTradingMode = config?.trading_mode || (config?.paper_mode === false ? 'live' : 'paper');
 
   const currentStrategy = useMemo(() => ({
     sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount,
     strategy_label: config.strategy_label || 'Momentum Strategy'
   }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount, config.strategy_label])
+
+  const validTradeHistory = useMemo(() => {
+    const hist = tradeHistory || [];
+    return hist.filter(t => isClosedValidTrade(t, activeTradingMode));
+  }, [tradeHistory, activeTradingMode]);
 
   const { lastSession, lastTrade } = useMemo(() => {
     // BOLT OPTIMIZATION: Use O(N) single-pass lookup to find the most recent session instead of sorting,
@@ -1652,20 +1651,38 @@ export function DashboardView({ initialStrategy }) {
         }
       }
     }
-    const lt = (tradeHistory && tradeHistory.length > 0) ? tradeHistory[0] : null;
+    const lt = validTradeHistory.length > 0 ? validTradeHistory[0] : null;
     return { lastSession: ls, lastTrade: lt };
-  }, [sessionList, tradeHistory]);
+  }, [sessionList, validTradeHistory]);
+
+  const effectivePeriodicSessionId = strategyId || lastSession?.id || null;
+
+  const sessionScopedHistory = useMemo(() => {
+    if (!strategyId) return [];
+    if (sessionTradeHistoryId === strategyId) {
+      return (sessionTradeHistory || []).filter(t => isClosedValidTrade(t, activeTradingMode));
+    }
+    return validTradeHistory.filter(t => (t.sessionId || t.session_id) === strategyId);
+  }, [strategyId, sessionTradeHistoryId, sessionTradeHistory, validTradeHistory, activeTradingMode]);
+
+  const periodicTradeHistory = useMemo(() => {
+    if (periodicScope === 'session' && effectivePeriodicSessionId) {
+      if (sessionTradeHistoryId === effectivePeriodicSessionId) {
+        return sessionTradeHistory || [];
+      }
+      return validTradeHistory.filter(t => (t.sessionId || t.session_id) === effectivePeriodicSessionId);
+    }
+    return validTradeHistory;
+  }, [periodicScope, effectivePeriodicSessionId, sessionTradeHistoryId, sessionTradeHistory, validTradeHistory]);
 
   // BOLT OPTIMIZATION: Loop-fused single-pass traversal (no intermediate array allocations)
-  // Combines activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, and maxRR
-  // to avoid redundant iterations and eliminate callback closure allocations on high-frequency ticks.
   const { netFunding, netComm, lastFundingFee, lastRealizedFee } = useMemo(() => {
     let feeSum = stats?.totalRealizedFee || 0;
     let fundingSum = stats?.totalFundingFee || 0;
     let lastFunding = null;
     let lastFee = null;
 
-    const hist = tradeHistory || [];
+    const hist = validTradeHistory;
     for (let i = 0; i < hist.length; i++) {
       const rf = Number(hist[i].realized_fee) || 0;
       const ff = Number(hist[i].funding_fee) || 0;
@@ -1686,10 +1703,10 @@ export function DashboardView({ initialStrategy }) {
     }
 
     return { netFunding: fundingSum, netComm: feeSum, lastFundingFee: lastFunding, lastRealizedFee: lastFee };
-  }, [stats?.totalFundingFee, stats?.totalRealizedFee, tradeHistory, activeTrades]);
+  }, [stats?.totalFundingFee, stats?.totalRealizedFee, validTradeHistory, activeTrades]);
 
   const stratMetricsMap = useMemo(() => {
-    const history = tradeHistory || [];
+    const history = strategyId ? sessionScopedHistory : validTradeHistory;
     const grouped = new Map();
 
     for (let i = 0; i < history.length; i++) {
@@ -1701,12 +1718,11 @@ export function DashboardView({ initialStrategy }) {
       grouped.get(label).push(t);
     }
 
-    const tradingMode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
     const storeBal = useTradingStore.getState().balance;
     const storeTotalPnl = useTradingStore.getState().totalPnl || 0;
-    const startingBal = tradingMode === 'paper'
+    const startingBal = activeTradingMode === 'paper'
       ? (config?.paper_starting_balance || 10000)
-      : (tradingMode === 'testnet'
+      : (activeTradingMode === 'testnet'
           ? (config?.testnet_starting_balance && config?.testnet_starting_balance !== 10000
               ? config.testnet_starting_balance
               : (storeBal ? Math.max(1, storeBal - storeTotalPnl) : 10000))
@@ -1720,7 +1736,7 @@ export function DashboardView({ initialStrategy }) {
     }
 
     return map;
-  }, [tradeHistory, config]);
+  }, [strategyId, sessionScopedHistory, validTradeHistory, activeTradingMode, config]);
 
   const { activePnlMap, activeRiskMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, peakActivePnl, minActivePnl, oldestActiveEntryTs, latestActiveUpdateTs, maxRR } = useMemo(() => {
     const strategyLabel = currentStrategy.strategy_label;
@@ -1809,11 +1825,11 @@ export function DashboardView({ initialStrategy }) {
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
 
   const { todaysPnl, todaysPnlPct } = useMemo(() => {
-    const now = new Date();
+    const now = new Date(nowTick);
     const startOfDayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
     let closedTodayPnl = 0;
-    const history = tradeHistory || [];
+    const history = validTradeHistory;
     for (let i = 0; i < history.length; i++) {
       const t = history[i];
       if (!t) continue;
@@ -1828,7 +1844,7 @@ export function DashboardView({ initialStrategy }) {
     const pct = startOfDayBalance > 0 ? (netTodayPnl / startOfDayBalance) * 100 : 0;
 
     return { todaysPnl: netTodayPnl, todaysPnlPct: pct };
-  }, [tradeHistory, totalActivePnl, balance]);
+  }, [validTradeHistory, totalActivePnl, balance, nowTick]);
 
   const pendingScannerTriggers = useMemo(() => {
     let count = 0;
@@ -1874,13 +1890,50 @@ export function DashboardView({ initialStrategy }) {
   }, [showScanner]);
   useEffect(() => {
     if (typeof fetchSessions === 'function') fetchSessions();
-    if (typeof fetchTradeHistory === 'function') fetchTradeHistory(strategyId || 'all');
     if (typeof fetchAnalytics === 'function') fetchAnalytics();
 
     const toggleScanner = () => setShowScanner(prev => !prev);
     window.addEventListener('toggle-scanner', toggleScanner);
     return () => window.removeEventListener('toggle-scanner', toggleScanner);
-  }, [fetchSessions, fetchTradeHistory, fetchAnalytics, config?.paper_mode, strategyId]);
+  }, [fetchSessions, fetchAnalytics, config?.paper_mode, activeTradingMode, strategyId]);
+
+  const lastPeriodicFetchRef = React.useRef({ key: null, limit: 0 });
+  const lastSessionSeedRef = React.useRef({ sid: null, limit: 0 });
+
+  useEffect(() => {
+    if (typeof fetchTradeHistory !== 'function') return;
+    const isSessionScope = periodicScope === 'session' && effectivePeriodicSessionId;
+    const targetSid = isSessionScope ? effectivePeriodicSessionId : 'all';
+    const knownCounts = isSessionScope
+      ? (sessionTradeHistoryId === effectivePeriodicSessionId ? sessionTradeHistoryCounts : null)
+      : tradeHistoryCounts;
+
+    const { limit } = resolveAdaptivePeriodicLimit(periodicTimeframe, knownCounts);
+    const fetchKey = `${activeTradingMode}:${targetSid}:${periodicTimeframe}`;
+
+    if (lastPeriodicFetchRef.current.key !== fetchKey || limit > lastPeriodicFetchRef.current.limit) {
+      lastPeriodicFetchRef.current = { key: fetchKey, limit };
+      fetchTradeHistory(targetSid, limit);
+    }
+
+    if (!isSessionScope && effectivePeriodicSessionId) {
+      const sessCounts = sessionTradeHistoryId === effectivePeriodicSessionId ? sessionTradeHistoryCounts : null;
+      const { limit: sessLimit } = resolveAdaptivePeriodicLimit(periodicTimeframe, sessCounts);
+      if (lastSessionSeedRef.current.sid !== effectivePeriodicSessionId || sessLimit > lastSessionSeedRef.current.limit) {
+        lastSessionSeedRef.current = { sid: effectivePeriodicSessionId, limit: sessLimit };
+        fetchTradeHistory(effectivePeriodicSessionId, sessLimit);
+      }
+    }
+  }, [fetchTradeHistory, activeTradingMode, effectivePeriodicSessionId, periodicTimeframe, periodicScope, tradeHistoryCounts, sessionTradeHistoryCounts, sessionTradeHistoryId]);
+
+  const handlePeriodicScopeChange = React.useCallback((nextScope) => {
+    const normalizedScope = nextScope === 'session' && effectivePeriodicSessionId ? 'session' : 'all';
+    setPeriodicScope(normalizedScope);
+  }, [effectivePeriodicSessionId]);
+
+  const handlePeriodicTimeframeChange = React.useCallback((nextTf) => {
+    setPeriodicTimeframe(nextTf);
+  }, []);
 
   const addAlert = useTradingStore(state => state.addAlert);
 
@@ -2544,7 +2597,7 @@ export function DashboardView({ initialStrategy }) {
                   const baseLabel = currentStrategy.strategy_label;
                   const baseMetric = stratMetricsMap.get(baseLabel);
                   const baseTotalPnl = safeVariantStats[baseLabel]?.totalPnl ?? (baseMetric ? baseMetric.totalPnl + (activePnlMap[baseLabel] || 0) : (activeVariants.length > 0 ? (activePnlMap[baseLabel] || 0) : currentStrategy.totalPnl));
-                  const baseEntryCount = safeVariantStats[baseLabel]?.entryCount ?? (baseMetric ? (baseMetric.wins + baseMetric.losses) : (activeVariants.length > 0 ? (activeTradeCountsMap[baseLabel] || 0) : currentStrategy.entryCount));
+                  const baseEntryCount = safeVariantStats[baseLabel]?.entryCount ?? (baseMetric ? (baseMetric.count ?? (baseMetric.wins + (baseMetric.losses || 0))) : (activeVariants.length > 0 ? (activeTradeCountsMap[baseLabel] || 0) : currentStrategy.entryCount));
                   const baseHitCount = safeVariantStats[baseLabel]?.hitCount ?? (baseMetric ? baseMetric.wins : (activeVariants.length > 0 ? 0 : currentStrategy.hitCount));
 
                   return (
@@ -2585,6 +2638,8 @@ export function DashboardView({ initialStrategy }) {
                         const variantConfig = { ...config, ...variant };
                         const stratMetric = stratMetricsMap.get(label);
                         const variantTotalPnl = safeVariantStats[label]?.totalPnl ?? (stratMetric ? stratMetric.totalPnl + (activePnlMap[label] || 0) : (activePnlMap[label] || 0));
+                        const variantEntryCount = safeVariantStats[label]?.entryCount ?? (stratMetric ? (stratMetric.count ?? (stratMetric.wins + (stratMetric.losses || 0))) : (activeTradeCountsMap[label] || 0));
+                        const variantHitCount = safeVariantStats[label]?.hitCount ?? (stratMetric ? stratMetric.wins : 0);
                         return (
                           <StrategyCard
                             key={label}
@@ -2593,6 +2648,8 @@ export function DashboardView({ initialStrategy }) {
                               strategy_label: label,
                               ...safeVariantStats[label],
                               totalPnl: variantTotalPnl,
+                              entryCount: variantEntryCount,
+                              hitCount: variantHitCount,
                               activePnl: activePnlMap[label] || 0,
                               activeEstPnl: activeEstPnlToRealizeMap[label] || 0,
                               activeTradeCount: activeTradeCountsMap[label] || 0,
@@ -2674,7 +2731,19 @@ export function DashboardView({ initialStrategy }) {
 
         {/* Full-Width Secondary Drawers: Periodic P&L + Collapsible Session Logs */}
         <div className="flex flex-col gap-3 w-full">
-          <MonthlyRevenueChart tradeHistory={tradeHistory} balance={balance} config={config} />
+          <MonthlyRevenueChart
+            tradeHistory={periodicTradeHistory}
+            balance={balance}
+            config={config}
+            scope={periodicScope}
+            onScopeChange={handlePeriodicScopeChange}
+            timeframe={periodicTimeframe}
+            onTimeframeChange={handlePeriodicTimeframeChange}
+            hasSession={Boolean(effectivePeriodicSessionId)}
+            sessionLabel={sessionActive ? 'This Session' : (lastSession ? 'Last Session' : 'Session')}
+            nowTick={nowTick}
+            isLoadingHistory={isSyncing}
+          />
 
           <div className="bg-surface border border-border rounded-xl px-3 py-2.5 sm:px-3.5 shadow-sm flex flex-col gap-2.5 overflow-hidden w-full">
             <div

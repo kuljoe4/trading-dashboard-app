@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, OneToMany } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, OneToMany, Index } from 'typeorm';
 import { TradeEntity } from './Trade.entity';
 
 @Entity()
@@ -6,6 +6,7 @@ export class Session {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Index()
   @Column({ default: true })
   running: boolean;
 
@@ -24,6 +25,7 @@ export class Session {
   @Column({ type: 'varchar', nullable: true })
   strategyLabel: string | null;
 
+  @Index()
   @CreateDateColumn()
   startTime: Date;
 

@@ -129,17 +129,18 @@ describe("SessionController", () => {
       );
     });
 
-    it("should parse and allow valid limit parameter", async () => {
-      await controller.getHistory("all", new LimitPipe(5000).transform("250", { type: 'query' } as any) as any);
-      expect(sessionService.getHistory).toHaveBeenCalledWith("all", 250);
+    it("should parse and allow valid limit parameter up to 50000", async () => {
+      await controller.getHistory("all", new LimitPipe(50000).transform("12000", { type: 'query' } as any) as any);
+      expect(sessionService.getHistory).toHaveBeenCalledWith("all", 12000);
+      expect(new LimitPipe(50000).transform("50000", { type: 'query' } as any)).toBe(50000);
     });
 
     it("should reject invalid limit format (non-numeric, negative, or out-of-bounds)", async () => {
-      expect(() => new LimitPipe(5000).transform("abc", { type: 'query' } as any)).toThrow(BadRequestException);
-      expect(() => new LimitPipe(5000).transform("-10", { type: 'query' } as any)).toThrow(BadRequestException);
-      expect(() => new LimitPipe(5000).transform("0", { type: 'query' } as any)).toThrow(BadRequestException);
-      expect(() => new LimitPipe(5000).transform("100000", { type: 'query' } as any)).toThrow(BadRequestException);
-      expect(() => new LimitPipe(5000).transform("123456789012", { type: 'query' } as any)).toThrow(BadRequestException);
+      expect(() => new LimitPipe(50000).transform("abc", { type: 'query' } as any)).toThrow(BadRequestException);
+      expect(() => new LimitPipe(50000).transform("-10", { type: 'query' } as any)).toThrow(BadRequestException);
+      expect(() => new LimitPipe(50000).transform("0", { type: 'query' } as any)).toThrow(BadRequestException);
+      expect(() => new LimitPipe(50000).transform("50001", { type: 'query' } as any)).toThrow(BadRequestException);
+      expect(() => new LimitPipe(50000).transform("123456789012", { type: 'query' } as any)).toThrow(BadRequestException);
     });
   });
 

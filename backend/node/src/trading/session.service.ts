@@ -2881,9 +2881,11 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     return { status: "deleted", affected: result.affected };
   }
 
-  async listSessions() {
-    // WISP OPTIMIZATION: Sparse column selection prevents loading unused columns, while mapping config blocks keeps only minimum properties needed by the UI to reduce network transit weight.
-    const sessions = await this.sessionRepository.find({
+  async listSessions(limit?: number, includeCounts = false) {
+    // WISP OPTIMIZATION: Sparse column selection prevents loading unused columns, while adaptive limits + SQL counts avoid truncating older sessions or over-fetching.
+    const takeLimit = typeof limit === "number" && limit > 0 ? Math.min(limit, 500) : 20;
+
+    const findPromise = this.sessionRepository.find({
       select: [
         "id",
         "running",
@@ -2897,10 +2899,24 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         "config"
       ],
       order: { startTime: "DESC" },
-      take: 20,
+      take: takeLimit,
     });
 
-    return sessions.map(session => {
+    let countPromise: Promise<any> = Promise.resolve(null);
+    if (includeCounts && typeof (this.sessionRepository as any).createQueryBuilder === "function") {
+      countPromise = (this.sessionRepository as any)
+        .createQueryBuilder("session")
+        .select("COUNT(*)", "total")
+        .addSelect("SUM(CASE WHEN (session.tradingMode = 'paper' OR (session.tradingMode IS NULL AND session.paperMode = true)) THEN 1 ELSE 0 END)", "paper")
+        .addSelect("SUM(CASE WHEN session.tradingMode = 'testnet' THEN 1 ELSE 0 END)", "testnet")
+        .addSelect("SUM(CASE WHEN (session.tradingMode = 'live' OR (session.tradingMode IS NULL AND session.paperMode = false)) THEN 1 ELSE 0 END)", "live")
+        .getRawOne()
+        .catch(() => null);
+    }
+
+    const [sessions, countRow] = await Promise.all([findPromise, countPromise]);
+
+    const normalized = (sessions || []).map(session => {
       const fallbackMode = session.tradingMode || (session.paperMode === false ? "live" : "paper");
       const fallbackPaper = fallbackMode === "paper";
       session.config = {
@@ -2912,6 +2928,31 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       };
       return session;
     });
+
+    if (!includeCounts) {
+      return normalized;
+    }
+
+    const totalCount = countRow ? (Number(countRow.total ?? 0) || 0) : normalized.length;
+    const sessionCounts = countRow
+      ? {
+          total: totalCount,
+          paper: Number(countRow.paper ?? 0) || 0,
+          testnet: Number(countRow.testnet ?? 0) || 0,
+          live: Number(countRow.live ?? 0) || 0,
+        }
+      : {
+          total: normalized.length,
+          paper: normalized.filter(s => (s.tradingMode || (s.paperMode === false ? "live" : "paper")) === "paper").length,
+          testnet: normalized.filter(s => s.tradingMode === "testnet").length,
+          live: normalized.filter(s => (s.tradingMode || (s.paperMode === false ? "live" : "paper")) === "live").length,
+        };
+
+    return {
+      sessions: normalized,
+      totalCount,
+      sessionCounts,
+    };
   }
 
   async stopSession(ip?: string, userAgent?: string) {
@@ -3111,7 +3152,121 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     const filterId =
       sessionId === "all" ? undefined : sessionId || this.currentSessionId;
 
-    const takeLimit = typeof limit === 'number' && limit > 0 ? Math.min(limit, 5000) : 1000;
+    const takeLimit = typeof limit === 'number' && limit > 0 ? Math.min(limit, 50000) : 1000;
+    const validClosedStatuses = TERMINAL_STATUSES.filter((s) => s !== "ENTRY_FAILED");
+    const nowMs = Date.now();
+    // +1 day cushion guarantees server UTC counts cover the user's local calendar window regardless of timezone offset
+    const cutoff7d = new Date(nowMs - 8 * 86400_000);
+    const cutoff14d = new Date(nowMs - 15 * 86400_000);
+    const cutoff30d = new Date(nowMs - 31 * 86400_000);
+    const cutoff6m = new Date(nowMs - 186 * 86400_000);
+    const cutoff1y = new Date(nowMs - 367 * 86400_000);
+
+    if (typeof (this.tradeRepository as any).createQueryBuilder === "function") {
+      const qb = (this.tradeRepository as any)
+        .createQueryBuilder("trade")
+        .leftJoin("trade.session", "session")
+        .select([
+          "trade.id",
+          "trade.symbol",
+          "trade.direction",
+          "trade.entry_price",
+          "trade.qty",
+          "trade.initial_sl",
+          "trade.current_sl",
+          "trade.max_rr_achieved",
+          "trade.min_rr_achieved",
+          "trade.exit_rr",
+          "trade.entry_ts",
+          "trade.tp",
+          "trade.pnl",
+          "trade.realized_fee",
+          "trade.funding_fee",
+          "trade.status",
+          "trade.exit_ts",
+          "trade.exit_price",
+          "trade.entry_signal_type",
+          "trade.entry_signal_reason",
+          "trade.entry_reason",
+          "trade.entry_signal_snapshot",
+          "trade.initial_risk_usdt",
+          "trade.exit_reason",
+          "trade.exit_signal_type",
+          "trade.exit_signal_reason",
+          "trade.pnl_pct",
+          "trade.entry_daily_change_pct",
+          "trade.sessionId",
+          "trade.strategy_label",
+          "trade.is_reconciliation",
+          "trade.is_knife",
+          "trade.is_martingale",
+          "trade.martingale_multiplier",
+          "trade.martingale_step",
+          "trade.martingale_threshold_reset",
+          "session.id",
+          "session.tradingMode",
+          "session.paperMode",
+        ])
+        .where("trade.status IN (:...statuses)", { statuses: validClosedStatuses });
+
+      if (filterId) {
+        qb.andWhere("trade.sessionId = :filterId", { filterId });
+      }
+
+      const countQb = (this.tradeRepository as any)
+        .createQueryBuilder("trade")
+        .select("COUNT(*)", "total")
+        .addSelect("SUM(CASE WHEN trade.exit_ts >= :d7 THEN 1 ELSE 0 END)", "d7")
+        .addSelect("SUM(CASE WHEN trade.exit_ts >= :d14 THEN 1 ELSE 0 END)", "d14")
+        .addSelect("SUM(CASE WHEN trade.exit_ts >= :d30 THEN 1 ELSE 0 END)", "d30")
+        .addSelect("SUM(CASE WHEN trade.exit_ts >= :m6 THEN 1 ELSE 0 END)", "m6")
+        .addSelect("SUM(CASE WHEN trade.exit_ts >= :y1 THEN 1 ELSE 0 END)", "y1")
+        .where("trade.status IN (:...statuses)", { statuses: validClosedStatuses })
+        .setParameters({
+          d7: cutoff7d,
+          d14: cutoff14d,
+          d30: cutoff30d,
+          m6: cutoff6m,
+          y1: cutoff1y,
+        });
+
+      if (filterId) {
+        countQb.andWhere("trade.sessionId = :filterId", { filterId });
+      }
+
+      const [rows, countRow] = await Promise.all([
+        qb.orderBy("trade.exit_ts", "DESC").take(takeLimit).getMany(),
+        typeof countQb.getRawOne === "function" ? countQb.getRawOne().catch(() => null) : Promise.resolve(null),
+      ]);
+
+      const trades = rows.map((t: any) => {
+        const sess = t.session;
+        const trading_mode = sess?.tradingMode || (sess?.paperMode === false ? "live" : "paper");
+        const paper_mode = sess?.paperMode ?? (trading_mode === "paper");
+        const { session: _session, ...rest } = t;
+        return {
+          ...rest,
+          trading_mode,
+          paper_mode,
+        };
+      });
+
+      const d30Count = Number(countRow?.d30 ?? 0) || 0;
+      const totalCount = countRow ? (Number(countRow.total ?? 0) || 0) : trades.length;
+      const closedCounts = countRow
+        ? {
+            total: totalCount,
+            '7D': Number(countRow.d7 ?? 0) || 0,
+            '14D': Number(countRow.d14 ?? 0) || 0,
+            '4W': d30Count,
+            '30D': d30Count,
+            '6M': Number(countRow.m6 ?? 0) || 0,
+            '1Y': Number(countRow.y1 ?? 0) || 0,
+          }
+        : undefined;
+
+      return { trades, totalCount, ...(closedCounts ? { closedCounts } : {}) };
+    }
 
     // WISP OPTIMIZATION: Sparse column selection prevents loading heavy JSON configurations like strategy_config and exit_signals_status, reducing memory and bandwidth.
     const closedTrades = await this.tradeRepository.find({
@@ -3154,14 +3309,14 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         "martingale_threshold_reset"
       ],
       where: {
-        status: In(TERMINAL_STATUSES as any),
+        status: In(validClosedStatuses as any),
         ...(filterId ? { sessionId: filterId } : {}),
       },
       order: { exit_ts: "DESC" },
       take: takeLimit,
     });
 
-    return { trades: closedTrades };
+    return { trades: closedTrades, totalCount: closedTrades.length };
   }
 
   async getAnalytics() {

@@ -25,7 +25,11 @@ const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => 
       detailRefreshTimeout = null;
     }
     if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
-    if (typeof get().fetchTradeHistory === 'function') get().fetchTradeHistory('all');
+    if (typeof get().fetchTradeHistory === 'function') {
+      get().fetchTradeHistory('all');
+      const activeSid = get().strategyId;
+      if (activeSid) get().fetchTradeHistory(activeSid);
+    }
     if (fetchSessions && typeof get().fetchSessions === 'function') get().fetchSessions();
     return;
   }
@@ -35,7 +39,11 @@ const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => 
     detailRefreshTimeout = null;
     lastDetailRefreshTs = Date.now();
     if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
-    if (typeof get().fetchTradeHistory === 'function') get().fetchTradeHistory('all');
+    if (typeof get().fetchTradeHistory === 'function') {
+      get().fetchTradeHistory('all');
+      const activeSid = get().strategyId;
+      if (activeSid) get().fetchTradeHistory(activeSid);
+    }
     if (fetchSessions && typeof get().fetchSessions === 'function') get().fetchSessions();
   }, 25);
 };
@@ -305,7 +313,11 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
   const rawMinRr = t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved ?? 0;
   const min_rr_achieved = resolveNonZeroMetric(rawMinRr, p.min_rr_achieved ?? 0, isMetricResuming);
 
-  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl, pnl_pct: pnlPct, rr, max_rr, est_pnl_to_realize, est_pnl_source: t.est_pnl_source ?? p.est_pnl_source ?? 'sl', exit_rr, min_rr_achieved, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], active_trade_events: t.active_trade_events || p.active_trade_events || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: max_rr, exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, entry_signal_snapshot: t.entry_signal_snapshot || p.entry_signal_snapshot, exit_estimation: t.exit_estimation !== undefined ? t.exit_estimation : p.exit_estimation, _fingerprint: f, exit_ts_ms, entry_ts_ms };
+  const rawTradingMode = t.trading_mode ?? t.tradingMode ?? p.trading_mode ?? p.tradingMode;
+  const resolvedPaperMode = t.paper_mode ?? t.paperMode ?? p.paper_mode ?? p.paperMode ?? (rawTradingMode ? rawTradingMode === 'paper' : true);
+  const resolvedTradingMode = rawTradingMode || (resolvedPaperMode ? 'paper' : 'live');
+
+  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl, pnl_pct: pnlPct, rr, max_rr, est_pnl_to_realize, est_pnl_source: t.est_pnl_source ?? p.est_pnl_source ?? 'sl', exit_rr, min_rr_achieved, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], active_trade_events: t.active_trade_events || p.active_trade_events || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: resolvedPaperMode, trading_mode: resolvedTradingMode, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: max_rr, exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, entry_signal_snapshot: t.entry_signal_snapshot || p.entry_signal_snapshot, exit_estimation: t.exit_estimation !== undefined ? t.exit_estimation : p.exit_estimation, _fingerprint: f, exit_ts_ms, entry_ts_ms };
 }
 
 const deepMerge = (target, source) => {
@@ -446,8 +458,8 @@ const defaultConfig = {
 
 export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, pausedStrategies: [], strategyGateStates: {}, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0, totalEstPnlToRealize: 0,
-  activeTrades: [], logs: [], logLimit: 50, logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
-  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, nextScanTs: null, scanIntervalMs: 15000, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
+  activeTrades: [], logs: [], logLimit: 50, logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], sessionTradeHistory: [], sessionTradeHistoryId: null, tradeHistoryCounts: null, sessionTradeHistoryCounts: null, historyLimit: 250, lifetimeAnalytics: null,
+  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, nextScanTs: null, scanIntervalMs: 15000, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], sessionListCounts: null, sessionListLimit: 20, monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
   apiStatus: { isBanned: false, isRateLimited: false, isGeoBlocked: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   effectivePeriodMs: undefined, jitterFactor: undefined,
@@ -709,6 +721,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         scannerResults: [],
         variantScannerResults: {},
         variantStats: {},
+        sessionTradeHistory: [],
+        sessionTradeHistoryId: null,
+        sessionTradeHistoryCounts: null,
         gateState: null,
         gateReason: null,
         hibernating: false,
@@ -727,7 +742,32 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       }
     }
   },
-  fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); const sessions = (r.data || []).map(s => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 })); set({ sessionList: sessions }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchSessions: async (limit) => {
+    set({ isSyncing: true });
+    try {
+      const stSnapshot = get();
+      const hasExplicitLimit = limit !== undefined && limit !== null && limit !== '';
+      const resolvedLimit = hasExplicitLimit
+        ? (limit === 'ALL' || limit === 'all' ? 500 : Math.min(Math.max(Number(limit) || 20, 1), 500))
+        : (stSnapshot.sessionListLimit || 20);
+      const r = await sessionAPI.list(resolvedLimit, true);
+      const payload = r?.data;
+      const rawList = Array.isArray(payload) ? payload : (Array.isArray(payload?.sessions) ? payload.sessions : []);
+      const sessions = rawList.map(s => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 }));
+      const nextCounts = !Array.isArray(payload) && payload?.sessionCounts && typeof payload.sessionCounts === 'object'
+        ? { ...payload.sessionCounts }
+        : (!Array.isArray(payload) && Number.isFinite(Number(payload?.totalCount))
+            ? { total: Number(payload.totalCount) }
+            : null);
+      set({
+        sessionList: sessions,
+        ...(nextCounts ? { sessionListCounts: nextCounts } : {}),
+        ...(hasExplicitLimit ? { sessionListLimit: resolvedLimit } : {}),
+      });
+    } catch (e) {} finally {
+      set({ isSyncing: false });
+    }
+  },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchAnalytics: async () => {
     try {
@@ -739,14 +779,31 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       console.warn('[Store] fetchAnalytics error:', e);
     }
   },
-  fetchTradeHistory: async (sid = 'all', limit = 100) => {
+  fetchTradeHistory: async (sid = 'all', limit) => {
     set({ isSyncing: true });
     try {
-      const parsedLimit = limit === 'ALL' || limit === 'all' ? 5000 : Math.min(Number(limit) || 100, 5000);
-      const r = await sessionAPI.history(sid, parsedLimit);
-      const incoming = (r.data.trades || []).map(t => normalizeTrade(t, null, false)).filter(Boolean);
+      const isAll = !sid || sid === 'all';
+      const hasExplicitLimit = limit !== undefined && limit !== null && limit !== '';
+      const stSnapshot = get();
+      const knownTotal = isAll
+        ? stSnapshot.tradeHistoryCounts?.total
+        : (stSnapshot.sessionTradeHistoryId === sid ? stSnapshot.sessionTradeHistoryCounts?.total : null);
+      const resolvedLimit = hasExplicitLimit
+        ? (limit === 'ALL' || limit === 'all' ? 50000 : Math.min(Math.max(Number(limit) || 250, 1), 50000))
+        : (knownTotal ? Math.min(Math.max(Number(knownTotal), 1), 50000) : (stSnapshot.historyLimit || 250));
+      const r = await sessionAPI.history(sid, resolvedLimit);
+      const rawTrades = r.data?.trades || [];
+      const rawCounts = r.data?.closedCounts;
+      const serverCounts = rawCounts && typeof rawCounts === 'object'
+        ? { ...rawCounts }
+        : (Number.isFinite(Number(r.data?.totalCount)) ? { total: Number(r.data.totalCount) } : null);
+      const incoming = rawTrades
+        .map(t => normalizeTrade(t, null, false))
+        .filter(t => t && t.status !== 'ENTRY_FAILED');
       set(st => {
-        const existing = st.tradeHistory || [];
+        const existing = isAll
+          ? (st.tradeHistory || [])
+          : (st.sessionTradeHistoryId === sid ? (st.sessionTradeHistory || []) : []);
         const incomingIds = new Set(incoming.map(t => t.id || `${t.symbol}-${t.exit_ts}`));
         const now = Date.now();
         const unpropagated = existing.filter(t => {
@@ -755,7 +812,21 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const ts = t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
           return now - ts < 30000;
         });
-        return { tradeHistory: [...unpropagated, ...incoming].slice(0, 5000) };
+        const effectiveCap = hasExplicitLimit ? resolvedLimit : Math.max(resolvedLimit, incoming.length + unpropagated.length);
+        const merged = [...unpropagated, ...incoming].slice(0, effectiveCap);
+        if (isAll) {
+          return {
+            tradeHistory: merged,
+            ...(serverCounts ? { tradeHistoryCounts: serverCounts } : {}),
+            ...(hasExplicitLimit ? { historyLimit: resolvedLimit } : {}),
+          };
+        }
+        return {
+          sessionTradeHistory: merged,
+          sessionTradeHistoryId: sid,
+          ...(serverCounts ? { sessionTradeHistoryCounts: serverCounts } : {}),
+          ...(hasExplicitLimit ? { historyLimit: resolvedLimit } : {}),
+        };
       });
     } catch (e) {} finally {
       set({ isSyncing: false });
@@ -887,7 +958,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
            return normalizeOpportunity(o, prevScannerMap.get(sym));
          }).filter(Boolean);
        }
-       if (Array.isArray(updates.tradeHistory)) merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t, null, false)).filter(Boolean);
+       if (Array.isArray(updates.tradeHistory)) {
+         const existingMap = new Map(currentTradeHistory.map(t => [t.id, t]));
+         updates.tradeHistory.forEach(raw => {
+           const n = normalizeTrade(raw, existingMap.get(raw?.id), false);
+           if (n && n.status !== 'OPEN' && n.status !== 'ENTRY_FAILED') existingMap.set(n.id, n);
+         });
+         merged.tradeHistory = Array.from(existingMap.values()).sort((a, b) => (b.exit_ts_ms || 0) - (a.exit_ts_ms || 0)).slice(0, 5000);
+       }
     }
 
     if (updates.config && !st.configSyncing) {
@@ -1358,10 +1436,31 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           // This allows session-specific updates without wiping global history.
           let nextHistory = currentTradeHistory;
           if (d.history && Array.isArray(d.history) && d.history.length > 0) {
-            const incoming = d.history.map(t => normalizeTrade(t, null, isResuming)).filter(Boolean);
             const m = new Map(currentTradeHistory.map(t => [t.id, t]));
-            incoming.forEach(t => m.set(t.id, t));
+            for (let i = 0; i < d.history.length; i++) {
+              const raw = d.history[i];
+              const prev = raw?.id ? m.get(raw.id) : null;
+              const n = normalizeTrade(raw, prev, isResuming);
+              if (n && n.status !== 'OPEN' && n.status !== 'ENTRY_FAILED') {
+                m.set(n.id, n);
+              }
+            }
             nextHistory = Array.from(m.values()).sort((a, b) => (b.exit_ts_ms || 0) - (a.exit_ts_ms || 0));
+          }
+
+          let nextSessionHistory = Array.isArray(st.sessionTradeHistory) ? st.sessionTradeHistory : [];
+          const resolvedSid = d.strategyId || st.strategyId;
+          if (resolvedSid && d.history && Array.isArray(d.history) && d.history.length > 0) {
+            const sm = new Map((st.sessionTradeHistoryId === resolvedSid ? nextSessionHistory : []).map(t => [t.id, t]));
+            for (let i = 0; i < d.history.length; i++) {
+              const raw = d.history[i];
+              const prev = raw?.id ? sm.get(raw.id) : null;
+              const n = normalizeTrade(raw, prev, isResuming);
+              if (n && n.status !== 'OPEN' && n.status !== 'ENTRY_FAILED' && (n.sessionId || n.session_id) === resolvedSid) {
+                sm.set(n.id, n);
+              }
+            }
+            nextSessionHistory = Array.from(sm.values()).sort((a, b) => (b.exit_ts_ms || 0) - (a.exit_ts_ms || 0));
           }
 
           let nextLogs = st.logs || [];
@@ -1425,6 +1524,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,
+            variantStats: stop ? {} : (d.variant_stats ?? st.variantStats),
             logs: nextLogs,
             scannerResults: Array.isArray(d.scannerResults) ? (() => {
               const prevOppMap = new Map((st.scannerResults || []).map(r => [r.symbol, r]));
@@ -1446,6 +1546,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             }, { ...(st.variantScannerResults || {}) }) : (st.variantScannerResults || {}),
             activeWindows: Array.isArray(d.activeWindows) ? d.activeWindows.map(w => ({...w})) : (Array.isArray(st.activeWindows) ? st.activeWindows : []),
             tradeHistory: nextHistory,
+            sessionTradeHistory: stop ? [] : nextSessionHistory,
+            sessionTradeHistoryId: stop ? null : (resolvedSid || st.sessionTradeHistoryId),
             gateState: d.gateState ?? st.gateState,
             nextSlotTs: d.nextSlotTs ?? st.nextSlotTs,
             hibernating: d.hibernating ?? st.hibernating,
@@ -1700,11 +1802,39 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
               trading_mode: rawClosed.trading_mode || (rawClosed.paper_mode || rawClosed.paperMode ? 'paper' : (st.config?.trading_mode || 'live')),
               paper_mode: rawClosed.paper_mode ?? rawClosed.paperMode ?? (st.config?.paper_mode ?? true),
             };
-            updatedHistory = [closedTradeObj, ...tradeHistory.filter(x => x.id !== closedTradeObj.id && (x.id || `${x.symbol}-${x.exit_ts}`) !== (closedTradeObj.id || `${closedTradeObj.symbol}-${closedTradeObj.exit_ts}`))].slice(0, 1000);
+            const alreadyInAll = closedTradeObj.id ? tradeHistory.some(x => x.id === closedTradeObj.id) : false;
+            const bumpClosedCounts = (counts) => {
+              if (!counts || typeof counts !== 'object' || alreadyInAll || closedTradeObj.is_reconciliation === true) return counts;
+              const next = { ...counts, total: (Number(counts.total) || 0) + 1 };
+              for (const k of ['7D', '14D', '4W', '30D', '6M', '1Y']) {
+                if (next[k] !== undefined) next[k] = (Number(next[k]) || 0) + 1;
+              }
+              return next;
+            };
+            updatedHistory = [closedTradeObj, ...tradeHistory.filter(x => x.id !== closedTradeObj.id && (x.id || `${x.symbol}-${x.exit_ts}`) !== (closedTradeObj.id || `${closedTradeObj.symbol}-${closedTradeObj.exit_ts}`))].slice(0, 50000);
+            const curSessionHist = Array.isArray(st.sessionTradeHistory) ? st.sessionTradeHistory : [];
+            const updatedSessionHistory = st.strategyId && (closedTradeObj.sessionId === st.strategyId || closedTradeObj.session_id === st.strategyId)
+              ? [closedTradeObj, ...curSessionHist.filter(x => x.id !== closedTradeObj.id && (x.id || `${x.symbol}-${x.exit_ts}`) !== (closedTradeObj.id || `${closedTradeObj.symbol}-${closedTradeObj.exit_ts}`))].slice(0, 50000)
+              : curSessionHist;
             setTimeout(() => {
               if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
-              if (typeof get().fetchTradeHistory === 'function') get().fetchTradeHistory('all');
+              if (typeof get().fetchTradeHistory === 'function') {
+                get().fetchTradeHistory('all');
+                if (get().strategyId) get().fetchTradeHistory(get().strategyId);
+              }
             }, 100);
+            return {
+              lastAuthoritativeUpdateTs: nowTs,
+              activeTrades: nextActive,
+              tradeHistory: updatedHistory,
+              sessionTradeHistory: updatedSessionHistory,
+              tradeHistoryCounts: bumpClosedCounts(st.tradeHistoryCounts),
+              sessionTradeHistoryCounts: st.strategyId && (closedTradeObj.sessionId === st.strategyId || closedTradeObj.session_id === st.strategyId)
+                ? bumpClosedCounts(st.sessionTradeHistoryCounts)
+                : st.sessionTradeHistoryCounts,
+              entryCount: d.stats?.entryCount ?? st.entryCount,
+              hitCount: d.stats?.hitCount ?? st.hitCount
+            };
           }
           return {
             lastAuthoritativeUpdateTs: nowTs,
@@ -1853,6 +1983,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       state.scannerResults = Array.isArray(state.scannerResults) ? state.scannerResults : [];
       state.variantScannerResults = state.variantScannerResults && typeof state.variantScannerResults === 'object' ? state.variantScannerResults : {};
       state.tradeHistory = Array.isArray(state.tradeHistory) ? state.tradeHistory : [];
+      state.sessionTradeHistory = Array.isArray(state.sessionTradeHistory) ? state.sessionTradeHistory : [];
       state.logs = Array.isArray(state.logs) ? state.logs : [];
       state.alerts = Array.isArray(state.alerts) ? state.alerts : [];
 

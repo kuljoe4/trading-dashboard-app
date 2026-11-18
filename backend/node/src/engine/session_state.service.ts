@@ -178,7 +178,7 @@ export class SessionStateService {
         this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
       }
 
-      const pnl = trade.pnl || 0;
+      const pnl = Number(trade.pnl) || 0;
       totalPnlAcc += pnl;
       totalRealizedFeeAcc += Number(trade.realized_fee) || 0;
       totalFundingFeeAcc += Number(trade.funding_fee) || 0;
@@ -613,18 +613,19 @@ export class SessionStateService {
     }
 
     const stats = this.cachedClosedTradesStats[label];
-    const applied = this.appliedStrategyPnL.get(trade.id) || 0;
-    const delta = roundEight((trade.pnl || 0) - applied);
+    const tradePnl = Number(trade.pnl) || 0;
+    const applied = Number(this.appliedStrategyPnL.get(trade.id)) || 0;
+    const delta = roundEight(tradePnl - applied);
 
-    stats.pnl = roundEight(stats.pnl + delta);
-    this.appliedStrategyPnL.set(trade.id, trade.pnl || 0);
+    stats.pnl = roundEight((Number(stats.pnl) || 0) + delta);
+    this.appliedStrategyPnL.set(trade.id, tradePnl);
 
     if (!trade.is_reconciliation) {
       if (!this.countedStrategyEntries.has(trade.id)) {
         stats.count++;
         this.countedStrategyEntries.add(trade.id);
       }
-      if ((trade.pnl || 0) > 0 && !this.countedStrategyHits.has(trade.id)) {
+      if (tradePnl > 0 && !this.countedStrategyHits.has(trade.id)) {
         stats.hits++;
         this.countedStrategyHits.add(trade.id);
       }
@@ -677,10 +678,10 @@ export class SessionStateService {
     const label = trade.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
 
     // Rollback Strategy Stats
-    const appliedStr = this.appliedStrategyPnL.get(trade.id) || 0;
+    const appliedStr = Number(this.appliedStrategyPnL.get(trade.id)) || 0;
     if (this.cachedClosedTradesStats[label]) {
       const stats = this.cachedClosedTradesStats[label];
-      stats.pnl = roundEight(stats.pnl - appliedStr);
+      stats.pnl = roundEight((Number(stats.pnl) || 0) - appliedStr);
 
       if (!trade.is_reconciliation) {
         if (this.countedStrategyEntries.has(trade.id)) {
@@ -696,8 +697,8 @@ export class SessionStateService {
     this.appliedStrategyPnL.delete(trade.id);
 
     // Rollback Global Stats
-    const appliedGl = this.appliedGlobalPnL.get(trade.id) || 0;
-    this.stats.totalPnl = roundEight(this.stats.totalPnl - appliedGl);
+    const appliedGl = Number(this.appliedGlobalPnL.get(trade.id)) || 0;
+    this.stats.totalPnl = roundEight((Number(this.stats.totalPnl) || 0) - appliedGl);
     this.appliedGlobalPnL.delete(trade.id);
 
     if (this.countedGlobalEntries.has(trade.id)) {

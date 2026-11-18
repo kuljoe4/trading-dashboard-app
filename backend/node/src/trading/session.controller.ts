@@ -217,8 +217,12 @@ export class SessionController {
   }
 
   @Get("list")
-  async listSessions() {
-    return this.sessionService.listSessions();
+  async listSessions(
+    @Query("limit", new LimitPipe(500)) limit?: number,
+    @Query("withCounts") withCounts?: string,
+  ) {
+    const includeCounts = withCounts === "1" || withCounts === "true";
+    return this.sessionService.listSessions(limit, includeCounts);
   }
 
   @Post("stop")
@@ -450,7 +454,7 @@ export class SessionController {
   @Get("history")
   async getHistory(
     @Query("sessionId", new SessionIdPipe()) sessionId?: string,
-    @Query("limit", new LimitPipe(5000)) limit?: number,
+    @Query("limit", new LimitPipe(50000)) limit?: number,
   ) {
     return this.sessionService.getHistory(sessionId as string, limit);
   }

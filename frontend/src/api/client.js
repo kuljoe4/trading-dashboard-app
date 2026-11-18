@@ -360,7 +360,12 @@ export const createSessionAPI = (apiInstance = api) => ({
   }, { timeout: 60000 }),
   stop: () => apiInstance.post('/session/stop'),
   status: (config) => apiInstance.get('/session/status', config),
-  list: () => apiInstance.get('/session/list'),
+  list: (limit, withCounts = true) => apiInstance.get('/session/list', {
+    params: {
+      ...(limit ? { limit } : {}),
+      ...(withCounts ? { withCounts: '1' } : {}),
+    }
+  }),
   update: (id, config) => apiInstance.patch(`/session/${id}`, { config: sanitizeSessionConfig(config) }),
   pause: (paused, strategyLabel) => apiInstance.post('/session/pause', { paused, strategyLabel }),
   delete: (id) => apiInstance.delete(`/session/${id}`),

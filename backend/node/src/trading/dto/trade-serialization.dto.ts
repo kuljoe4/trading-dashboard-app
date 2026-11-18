@@ -2,7 +2,11 @@ import { SessionConfig } from '../../models/SessionConfig';
 
 export interface TradeSerializationDto {
   id: string;
+  sessionId?: string;
   symbol: string;
+  status?: string;
+  entry_ts?: Date | string;
+  exit_ts?: Date | string;
   strategy_label: string;
   current_price: number;
   mark_price?: number;

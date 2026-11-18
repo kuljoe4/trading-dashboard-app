@@ -158,8 +158,11 @@ const state = {
       status: 'CLOSED',
       exit_reason: 'TP_HIT',
       strategy_label: 'Momentum Strategy',
+      trading_mode: 'paper',
+      paper_mode: true,
       timestamp: now - 3600000,
       closed_at: now - 1800000,
+      exit_ts: now - 1800000,
       realized_fee: 0.81,
       funding_fee: 0,
     },
@@ -178,8 +181,11 @@ const state = {
       status: 'CLOSED',
       exit_reason: 'TP_HIT',
       strategy_label: 'Momentum Strategy',
+      trading_mode: 'paper',
+      paper_mode: true,
       timestamp: now - 7200000,
       closed_at: now - 5400000,
+      exit_ts: now - 5400000,
       realized_fee: 0.77,
       funding_fee: 0,
     },
@@ -1047,6 +1053,8 @@ setInterval(() => {
         const closed = state.activeTrades.splice(closedIndices[i], 1)[0];
         closed.sessionId = closed.sessionId || state.strategyId || 'default-session';
         closed.exit_ts = closed.closed_at || ts;
+        closed.trading_mode = closed.trading_mode || state.config?.trading_mode || (state.config?.paper_mode ? 'paper' : 'live');
+        closed.paper_mode = closed.paper_mode ?? !!state.config?.paper_mode;
         state.balance = parseFloat((state.balance + closed.pnl).toFixed(2));
         state.tradeHistory.unshift(closed);
       }
@@ -1881,17 +1889,37 @@ app.post('/session/pause', (req, res) => {
 });
 
 app.get('/session/list', (req, res) => {
-  res.json([
+  const rawLimit = parseInt(req.query.limit as string, 10);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 500) : 20;
+  const withCounts = req.query.withCounts === '1' || req.query.withCounts === 'true';
+  const paperMode = state.config?.paper_mode !== false;
+  const tradingMode = state.config?.trading_mode || (paperMode ? 'paper' : 'live');
+  const sessions = [
     {
       id: state.strategyId || 'default-session',
       name: state.strategyLabel,
       strategy_label: state.strategyLabel,
+      strategyLabel: state.strategyLabel,
       startTime: new Date(Date.now() - 3600000).toISOString(),
       active: state.sessionActive,
-      paper_mode: state.config.paper_mode,
+      running: state.sessionActive,
+      paperMode,
+      paper_mode: paperMode,
+      tradingMode,
       config: state.config,
     },
-  ]);
+  ];
+  const sliced = sessions.slice(0, limit);
+  if (!withCounts) {
+    return res.json(sliced);
+  }
+  const sessionCounts = {
+    total: sessions.length,
+    paper: tradingMode === 'paper' ? 1 : 0,
+    testnet: tradingMode === 'testnet' ? 1 : 0,
+    live: tradingMode === 'live' ? 1 : 0,
+  };
+  res.json({ sessions: sliced, totalCount: sessions.length, sessionCounts });
 });
 
 app.patch('/session/:id', async (req, res) => {
@@ -2106,7 +2134,43 @@ app.get('/session/binance/rate-limit', (req, res) => {
 });
 
 app.get('/session/history', (req, res) => {
-  res.json({ trades: state.tradeHistory });
+  const sid = typeof req.query.sessionId === 'string' ? req.query.sessionId : 'all';
+  const rawLimit = parseInt(req.query.limit as string, 10);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50000) : 1000;
+  let filtered = state.tradeHistory.filter((t: any) => t && t.status !== 'ENTRY_FAILED');
+  if (sid && sid !== 'all') {
+    filtered = filtered.filter((t: any) => (t.sessionId || t.session_id) === sid);
+  }
+  const nowMs = Date.now();
+  const c7 = nowMs - 8 * 86400_000;
+  const c14 = nowMs - 15 * 86400_000;
+  const c30 = nowMs - 31 * 86400_000;
+  const c6m = nowMs - 186 * 86400_000;
+  const c1y = nowMs - 367 * 86400_000;
+  let total = 0, d7 = 0, d14 = 0, d30 = 0, m6 = 0, y1 = 0;
+  for (const t of filtered) {
+    if (t.is_reconciliation === true) continue;
+    total++;
+    const ts = t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+    if (ts >= c1y) {
+      y1++;
+      if (ts >= c6m) {
+        m6++;
+        if (ts >= c30) {
+          d30++;
+          if (ts >= c14) {
+            d14++;
+            if (ts >= c7) d7++;
+          }
+        }
+      }
+    }
+  }
+  res.json({
+    trades: filtered.slice(0, limit),
+    totalCount: total,
+    closedCounts: { total, '7D': d7, '14D': d14, '4W': d30, '30D': d30, '6M': m6, '1Y': y1 },
+  });
 });
 
 app.get('/session/logs', (req, res) => {
@@ -2132,6 +2196,8 @@ app.post('/session/trade/:symbol/close', (req, res) => {
     trade.exit_ts = trade.closed_at;
     trade.exit_price = trade.current_price;
     trade.sessionId = trade.sessionId || state.strategyId || 'default-session';
+    trade.trading_mode = trade.trading_mode || state.config?.trading_mode || (state.config?.paper_mode ? 'paper' : 'live');
+    trade.paper_mode = trade.paper_mode ?? !!state.config?.paper_mode;
     state.balance = parseFloat((state.balance + trade.pnl).toFixed(2));
     state.tradeHistory.unshift(trade);
     addLog(`Manually closed position for ${sym} at ${trade.exit_price} (PnL: $${trade.pnl})`);

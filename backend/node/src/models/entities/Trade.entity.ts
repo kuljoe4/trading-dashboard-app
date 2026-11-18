@@ -3,6 +3,8 @@ import { Session } from './Session.entity';
 
 @Entity()
 @Index(['sessionId', 'status'])
+@Index(['status', 'exit_ts'])
+@Index(['sessionId', 'status', 'exit_ts'])
 export class TradeEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

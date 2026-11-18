@@ -55,7 +55,7 @@ export const getSharpeStatus = (sharpe) => {
  */
 export const calculatePerformanceMetrics = (trades = [], sessionBalance) => {
   const count = trades.length;
-  if (count === 0) return { sharpe: 0, sortino: 0, profitFactor: 0, winRate: 0, wins: 0, totalPnl: 0, grossProfit: 0, grossLoss: 0 };
+  if (count === 0) return { sharpe: 0, sortino: 0, profitFactor: 0, winRate: 0, wins: 0, losses: 0, count: 0, totalPnl: 0, grossProfit: 0, grossLoss: 0 };
 
   // BOLT OPTIMIZATION: Single-pass pre-processing and loop fusion.
   // We pre-calculate numeric values and timestamps once, prioritizing pre-computed ms timestamps (exit_ts_ms, entry_ts_ms)
@@ -167,6 +167,8 @@ export const calculatePerformanceMetrics = (trades = [], sessionBalance) => {
     profitFactor,
     winRate: Math.round((wins / count) * 100),
     wins,
+    losses: count - wins,
+    count,
     totalPnl: sumPnL,
     grossProfit,
     grossLoss,

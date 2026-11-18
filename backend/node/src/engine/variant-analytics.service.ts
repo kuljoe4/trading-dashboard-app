@@ -30,12 +30,12 @@ export class VariantAnalyticsService {
         g = { pnl: 0, risk: 0, count: 0, hits: 0, estPnlToRealize: 0 };
         groups[l] = g;
       }
-      const pnl = t.pnl || 0;
+      const pnl = Number(t.pnl) || 0;
       g.pnl += pnl;
-      g.risk += t.risk_usdt || 0;
+      g.risk += Number(t.risk_usdt) || 0;
       g.count++;
       if (pnl > 0) g.hits++;
-      g.estPnlToRealize += t.est_pnl_to_realize || 0;
+      g.estPnlToRealize += Number(t.est_pnl_to_realize) || 0;
     }
 
     // 2. Direct key tracking via for...in loops to avoid Set, Object.keys(), and .forEach allocations
@@ -71,7 +71,7 @@ export class VariantAnalyticsService {
       const aHits = a ? a.hits : 0;
       const aEstPnl = a ? a.estPnlToRealize : 0;
 
-      const cPnl = c ? c.pnl : 0;
+      const cPnl = c ? (Number(c.pnl) || 0) : 0;
       const cCount = c ? c.count : 0;
       const cHits = c ? c.hits : 0;
 

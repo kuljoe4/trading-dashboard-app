@@ -473,5 +473,31 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
       const fp2 = scannerResultsFingerprint(makeResults(1700000015000));
       expect(fp1).toBe(fp2);
     });
+
+    it('serializeTrade minimal preserves sessionId, status, timestamps, trading_mode, and coerces string PnL', () => {
+      const closedTrade = new Trade();
+      closedTrade.id = 't-closed-1';
+      closedTrade.sessionId = 'sess-abc';
+      closedTrade.symbol = 'BTCUSDT';
+      closedTrade.status = 'CLOSED_TP';
+      closedTrade.direction = 'LONG';
+      closedTrade.entry_price = 50000;
+      closedTrade.exit_price = 51000;
+      closedTrade.qty = 0.1;
+      closedTrade.entry_ts = new Date('2026-07-10T10:00:00Z');
+      closedTrade.exit_ts = new Date('2026-07-10T11:00:00Z');
+      closedTrade.pnl = '99.50000000' as unknown as number;
+      closedTrade.pnl_pct = '1.99' as unknown as number;
+
+      const out = service.serializeTrade(closedTrade, { strategy_label: 'Momentum', paper_mode: true, trading_mode: 'paper' } as SessionConfig, undefined, true);
+      expect(out.sessionId).toBe('sess-abc');
+      expect(out.status).toBe('CLOSED_TP');
+      expect(out.entry_ts).toEqual(new Date('2026-07-10T10:00:00Z'));
+      expect(out.exit_ts).toEqual(new Date('2026-07-10T11:00:00Z'));
+      expect(out.paper_mode).toBe(true);
+      expect(out.trading_mode).toBe('paper');
+      expect(out.pnl).toBe(99.5);
+      expect(out.pnl_pct).toBe(1.99);
+    });
   });
 });

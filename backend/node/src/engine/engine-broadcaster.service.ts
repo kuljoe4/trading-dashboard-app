@@ -133,8 +133,8 @@ export class EngineBroadcasterService {
 
     if (isTerminal) {
       // DATA-CONSISTENCY: For terminal trades, use stored Net values to ensure fees are reflected in history
-      pnl = trade.pnl ?? 0;
-      pnlPct = trade.pnl_pct ?? 0;
+      pnl = Number(trade.pnl ?? 0) || 0;
+      pnlPct = Number(trade.pnl_pct ?? 0) || 0;
 
       const exitPrice = trade.exit_price ?? entry;
       const risk = Math.abs(entry - (trade.initial_sl ?? entry)) || 1;
@@ -202,7 +202,13 @@ export class EngineBroadcasterService {
     if (minimal) {
       return {
         id: trade.id,
+        sessionId: trade.sessionId,
         symbol: trade.symbol,
+        status: trade.status,
+        entry_ts: trade.entry_ts,
+        exit_ts: trade.exit_ts,
+        paper_mode: config?.paper_mode,
+        trading_mode: config?.trading_mode || (config?.paper_mode ? 'paper' : 'live'),
         strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
         current_price: roundTo(current ?? entry, 8),
         exit_price: trade.exit_price !== undefined ? roundTo(trade.exit_price, 8) : undefined,
@@ -228,7 +234,7 @@ export class EngineBroadcasterService {
         exit_signals_status: trade.exit_signals_status || {},
         entry_signal_snapshot: trade.entry_signal_snapshot,
         sl_adjustments: trade.sl_adjustments || [],
-      active_trade_events: trade.active_trade_events || [],
+        active_trade_events: trade.active_trade_events || [],
         entry_daily_change_pct: trade.entry_daily_change_pct,
         initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
         risk_usdt: trade.risk_usdt ?? 0,
@@ -597,7 +603,7 @@ export class EngineBroadcasterService {
         if (!variantGroups[label]) variantGroups[label] = { pnl: 0, risk: 0, count: 0, hits: 0, estPnlToRealize: 0 };
         const g = variantGroups[label];
         g.pnl = roundEight(g.pnl + pnlValue);
-        g.risk = roundEight(g.risk + (trade.risk_usdt || 0));
+        g.risk = roundEight(g.risk + (Number(trade.risk_usdt) || 0));
         g.count++;
         if (pnlValue > 0) g.hits++;
         g.estPnlToRealize = roundEight(g.estPnlToRealize + (maxEstPnlForTrade || 0));
@@ -678,14 +684,15 @@ export class EngineBroadcasterService {
         const l = strategyConfigs[i].strategy_label!;
         const a = variantGroups[l] || { pnl: 0, risk: 0, count: 0, hits: 0, estPnlToRealize: 0 };
         const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 };
+        const cPnl = Number(c.pnl) || 0;
         variantStats[l] = {
-            totalPnl: roundEight(c.pnl + a.pnl),
+            totalPnl: roundEight(cPnl + a.pnl),
             entryCount: c.count + a.count,
             hitCount: c.hits + a.hits,
             totalRiskPct: roundTo(balance > 0 ? (a.risk / balance) * 100 : 0, 2),
             activeTradeCount: a.count,
             totalSlUsed: roundTo(a.risk, 2),
-            totalEstPnlToRealize: roundTo(c.pnl + (a.estPnlToRealize || 0), 2)
+            totalEstPnlToRealize: roundTo(cPnl + (a.estPnlToRealize || 0), 2)
         };
       }
     }

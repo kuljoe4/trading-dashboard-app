@@ -417,7 +417,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     // DATA-CONSISTENCY: Initialize appliedPnL for resumed trades to prevent double-counting fees
     if (open && open.length > 0) {
       for (const t of open) {
-        this.appliedPnL.set(t.id, t.pnl || 0);
+        this.appliedPnL.set(t.id, Number(t.pnl) || 0);
       }
     }
 

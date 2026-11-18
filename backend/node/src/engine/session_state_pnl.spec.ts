@@ -80,4 +80,64 @@ describe('SessionStateService PnL Aggregation', () => {
     expect(strategyStats.count).toBe(2);
     expect(strategyStats.hits).toBe(1);
   });
+
+  it('should coerce PostgreSQL string decimal PnL values without producing NaN or 0 on resumed sessions', () => {
+    const config = {
+      strategy_label: 'Decimal Strategy',
+      paper_starting_balance: 10000,
+      trading_mode: 'paper'
+    } as SessionConfig;
+
+    const sessionId = 'session-decimal-1';
+    const history: Trade[] = [
+      {
+        id: 'pg-closed-1',
+        sessionId,
+        status: 'CLOSED_TP',
+        pnl: '12.34500000' as unknown as number,
+        strategy_label: 'Decimal Strategy'
+      } as Trade,
+      {
+        id: 'pg-closed-2',
+        sessionId,
+        status: 'CLOSED_SL',
+        pnl: '-4.20000000' as unknown as number,
+        strategy_label: 'Decimal Strategy'
+      } as Trade
+    ];
+    const openTrades: Trade[] = [
+      {
+        id: 'pg-open-1',
+        sessionId,
+        status: 'OPEN',
+        pnl: '1.50000000' as unknown as number,
+        strategy_label: 'Decimal Strategy'
+      } as Trade
+    ];
+
+    service.reset(config, history, 10000, sessionId, openTrades);
+
+    expect(service.stats.totalPnl).toBe(9.645);
+    expect(service.cachedClosedTradesStats['Decimal Strategy'].pnl).toBe(8.145);
+
+    service.addClosedTrade({
+      id: 'pg-closed-3',
+      sessionId,
+      status: 'CLOSED',
+      pnl: '3.10000000' as unknown as number,
+      strategy_label: 'Decimal Strategy'
+    } as Trade);
+
+    expect(service.cachedClosedTradesStats['Decimal Strategy'].pnl).toBe(11.245);
+
+    service.rollbackClosedTrade({
+      id: 'pg-closed-3',
+      sessionId,
+      status: 'CLOSED',
+      pnl: '3.10000000' as unknown as number,
+      strategy_label: 'Decimal Strategy'
+    } as Trade);
+
+    expect(service.cachedClosedTradesStats['Decimal Strategy'].pnl).toBe(8.145);
+  });
 });

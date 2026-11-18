@@ -1,0 +1,149 @@
+import '../store/mock-env.js';
+import { test, describe, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { useTradingStore, resolveNonZeroMetric, resolveVariantStats } from '../store/trading.js';
+import { sessionAPI } from '../api/client.js';
+import { filterHistorySessions, getNextAdaptiveTradeStep } from '../utils/periodicPerformance.js';
+
+describe('Trade History Adaptive Session Filtering & Resume PnL Integrity', () => {
+  beforeEach(() => {
+    useTradingStore.setState({
+      isRunning: false,
+      isResuming: false,
+      strategyId: null,
+      sessionList: [],
+      tradeHistory: [],
+      sessionTradeHistory: [],
+      totalPnl: 0,
+      unrealizedPnl: 0,
+      realizedPnl: 0,
+      sessionReturnPct: 0,
+      variantStats: {},
+    });
+  });
+
+  test('filterHistorySessions hides sessions without loaded trades by default and reveals them when toggled', () => {
+    const sessions = [
+      { id: 'sess-1', tradingMode: 'paper', strategy_label: 'Session 1', trades: [{ id: 't1', pnl: 15 }] },
+      { id: 'sess-2', tradingMode: 'paper', strategy_label: 'Session 2 (Empty)', trades: [] },
+      { id: 'sess-3', tradingMode: 'paper', strategy_label: 'Session 3', trades: [{ id: 't2', pnl: -4 }] },
+      { id: 'sess-4', tradingMode: 'paper', strategy_label: 'Session 4 (Empty)', trades: [] },
+    ];
+
+    const hiddenResult = filterHistorySessions({
+      sessions,
+      lifetimeMode: 'paper',
+      hideEmptySessions: true,
+    });
+    assert.equal(hiddenResult.modeMatchedSessions.length, 4);
+    assert.equal(hiddenResult.visibleSessions.length, 2);
+    assert.equal(hiddenResult.hiddenEmptyCount, 2);
+    assert.deepEqual(hiddenResult.visibleSessions.map((g) => g.id), ['sess-1', 'sess-3']);
+
+    const shownResult = filterHistorySessions({
+      sessions,
+      lifetimeMode: 'paper',
+      hideEmptySessions: false,
+    });
+    assert.equal(shownResult.visibleSessions.length, 4);
+    assert.equal(shownResult.hiddenEmptyCount, 0);
+  });
+
+  test('getNextAdaptiveTradeStep proposes higher trade fetch limits until ALL', () => {
+    const stepFrom250 = getNextAdaptiveTradeStep(250, 1200);
+    assert.equal(stepFrom250.canIncrease, true);
+    assert.equal(stepFrom250.nextLimit, 1000);
+    assert.equal(stepFrom250.remainingTrades, 950);
+
+    const stepFrom1000 = getNextAdaptiveTradeStep(1000, 1200);
+    assert.equal(stepFrom1000.canIncrease, true);
+    assert.equal(stepFrom1000.nextLimit, 1200);
+    assert.equal(stepFrom1000.isAll, true);
+
+    const stepWhenAllLoaded = getNextAdaptiveTradeStep(1200, 1200);
+    assert.equal(stepWhenAllLoaded.canIncrease, false);
+    assert.equal(stepWhenAllLoaded.isAll, true);
+  });
+
+  test('resolveNonZeroMetric and resolveVariantStats preserve last known PnL during resume/navigation', () => {
+    assert.equal(resolveNonZeroMetric(0, 148.75, true), 148.75);
+    assert.equal(resolveNonZeroMetric(null, -42.1, true), -42.1);
+    assert.equal(resolveNonZeroMetric(165.2, 148.75, true), 165.2);
+    assert.equal(resolveNonZeroMetric(0, 148.75, false), 0);
+
+    const prevStats = {
+      'Alpha 15m': {
+        totalPnl: 220.5,
+        realizedPnl: 180.0,
+        unrealizedPnl: 40.5,
+        returnPct: 22.05,
+        totalTrades: 8,
+      },
+    };
+    const zeroIncoming = {
+      'Alpha 15m': {
+        totalPnl: 0,
+        realizedPnl: 0,
+        unrealizedPnl: 0,
+        returnPct: 0,
+        totalTrades: 8,
+      },
+    };
+
+    const merged = resolveVariantStats(zeroIncoming, prevStats, true);
+    assert.equal(merged['Alpha 15m'].totalPnl, 220.5);
+    assert.equal(merged['Alpha 15m'].realizedPnl, 180.0);
+    assert.equal(merged['Alpha 15m'].unrealizedPnl, 40.5);
+    assert.equal(merged['Alpha 15m'].returnPct, 22.05);
+  });
+
+  test('updateConfig does not overwrite latest historical session metadata when strategyId does not match', () => {
+    useTradingStore.setState({
+      strategyId: null,
+      sessionList: [
+        {
+          id: 'hist-sess-99',
+          strategy_label: 'Breakout 1h Pro',
+          scan_interval: '1h',
+          config: { strategy_label: 'Breakout 1h Pro', scan_interval: '1h' },
+        },
+      ],
+    });
+
+    useTradingStore.getState().updateConfig({
+      strategy_label: 'Momentum Strategy',
+      scan_interval: '5m',
+    });
+
+    const latest = useTradingStore.getState().sessionList[0];
+    assert.equal(latest.strategy_label, 'Breakout 1h Pro');
+    assert.equal(latest.scan_interval, '1h');
+  });
+
+  test('fetchTradeHistory retains previously loaded older trades when a smaller dashboard limit is fetched', async () => {
+    const olderTrades = Array.from({ length: 10 }, (_, idx) => ({
+      id: `trade-${idx + 1}`,
+      symbol: 'BTCUSDT',
+      pnl: idx + 1,
+      exit_time: 1700000000000 - idx * 60000,
+    }));
+    useTradingStore.setState({ tradeHistory: olderTrades });
+
+    const origHistory = sessionAPI.history;
+    sessionAPI.history = async () => ({
+      data: {
+        trades: olderTrades.slice(0, 3).map((t) => ({ ...t, pnl: t.pnl + 100 })),
+      },
+    });
+
+    try {
+      await useTradingStore.getState().fetchTradeHistory('all', 3);
+      const currentTrades = useTradingStore.getState().tradeHistory;
+      assert.equal(currentTrades.length, 10, 'Should preserve all 10 loaded trades while updating newest 3');
+      assert.equal(currentTrades[0].pnl, 101);
+      assert.equal(currentTrades[9].id, 'trade-10');
+    } finally {
+      sessionAPI.history = origHistory;
+    }
+  });
+});

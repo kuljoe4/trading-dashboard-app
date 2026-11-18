@@ -415,7 +415,7 @@ export const smartOptimizerAPI = {
 
 export const healthAPI = {
   getStartupChecklist: (fresh = false) => api.get(`/session/startup-checklist${fresh ? '?fresh=true' : ''}`),
-  getBinanceHealth: (fresh = false) => api.get(`/healthz/binance${fresh ? '?fresh=true' : ''}`),
+  getBinanceHealth: (fresh = false) => api.get(`/session/binance-health${fresh ? '?fresh=true' : ''}`),
 }
 
 export const formatApiErrorMessage = (error, fallback = 'Request failed') => {

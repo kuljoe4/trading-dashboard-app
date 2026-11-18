@@ -560,7 +560,12 @@ export class ExitEstimationService {
     const val = Number(signalDetail?.value ?? currentPrice);
 
     if (thresh > 0) {
-      if (signalDetail?.threshold_is_price && (isLong ? val <= thresh : val >= thresh)) {
+      if (
+        signalDetail?.threshold_is_price &&
+        signalDetail?.fired !== false &&
+        signalDetail?.status !== 'approaching' &&
+        (isLong ? val <= thresh : val >= thresh)
+      ) {
         const { estPnl, estR } = computePnLAndR(currentPrice);
         return {
           signalType,

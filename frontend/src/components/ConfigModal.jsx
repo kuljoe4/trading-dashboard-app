@@ -5621,7 +5621,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               onToggle={() => setOpenSectionId(openSectionId === 'scan_global' ? null : 'scan_global')}
               {...getSectionErrorInfo('scan_global')}
             >
-              <div className="mb-4">
+              <div className="mb-4 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <CollapsibleHelpTitle
+                    title="Discovery Scope & Mode"
+                    open={!!expandedHelpMap.scan_global_toggle}
+                    onToggle={() => toggleHelpKey('scan_global_toggle')}
+                    textClassName="text-[10px] font-black uppercase tracking-widest text-dim"
+                  />
+                </div>
+                {expandedHelpMap.scan_global_toggle && (
+                  <InfoDropdownBox>
+                    Choose whether this strategy scans the live Binance market dynamically (Top Volume, Gainers, Losers, or Solo #1 Mover) or restricts entries strictly to your Static Watchlist symbols.
+                  </InfoDropdownBox>
+                )}
                 <WatchlistScopeSelector
                   cfg={cfg}
                   setField={setField}

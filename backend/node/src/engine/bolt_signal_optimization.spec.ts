@@ -61,7 +61,7 @@ describe('SignalEngineService Optimization Benchmark', () => {
     const symbol = 'BTCUSDT';
     const interval = '1m';
     const period = 50;
-    const candles = [];
+    const candles: any[] = [];
     const now = Date.now();
 
     // Use a larger history to emphasize O(N)
@@ -118,7 +118,7 @@ describe('SignalEngineService Optimization Benchmark', () => {
     const symbol = 'BTCUSDT';
     const interval = '1m';
     const period = 20;
-    const candles = [];
+    const candles: any[] = [];
     const now = Date.now();
     for (let i = 0; i < 100; i++) {
       candles.push({ time: now - (100 - i) * 60000, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 });
@@ -130,8 +130,10 @@ describe('SignalEngineService Optimization Benchmark', () => {
         signal_params: { entry_ema_period: period.toString() }
     } as any;
 
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
     const res1 = signalEngine.checkEntry(symbol, config, interval, 'LONG');
     const res2 = signalEngine.checkEntry(symbol, config, interval, 'LONG');
+    nowSpy.mockRestore();
 
     expect(res1).toEqual(res2);
     expect(res1.details?.ema.value).toBeGreaterThan(0);
@@ -206,7 +208,7 @@ describe('SignalEngineService Optimization Benchmark', () => {
     const now = Date.now();
 
     // Create identical candle arrays with enough for warmup (period * 2 = 40)
-    const candles1 = [];
+    const candles1: any[] = [];
     for (let i = 0; i < 50; i++) {
         candles1.push({ time: now - (50 - i) * 60000, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 });
     }

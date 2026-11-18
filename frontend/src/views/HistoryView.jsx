@@ -5,7 +5,7 @@ import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, getRrRecommendationStatus, calculatePerformanceMetrics } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
-import { resolveAdaptiveHistoryTradeLimit, resolveAdaptiveSessionLimit } from '../utils/periodicPerformance'
+import { resolveAdaptiveHistoryTradeLimit, resolveAdaptiveSessionLimit, filterHistorySessions, getNextAdaptiveTradeStep } from '../utils/periodicPerformance'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader, Btn } from '../components/ui/primitives'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
@@ -2134,6 +2134,20 @@ export const HistoryView = () => {
     return saved ? saved === 'true' : false; // Default collapsed for ultra-dense flow
   });
 
+  // Hide sessions without loaded trade stats by default so history focuses on actionable sessions
+  const [hideEmptySessions, setHideEmptySessions] = useState(() => {
+    const saved = localStorage.getItem('history_hide_empty_sessions');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const handleToggleHideEmptySessions = React.useCallback(() => {
+    setHideEmptySessions(prev => {
+      const next = !prev;
+      localStorage.setItem('history_hide_empty_sessions', String(next));
+      return next;
+    });
+  }, []);
+
   const handleToggleAnalytics = () => {
     setAnalyticsExpanded(prev => {
       const next = !prev;
@@ -2296,24 +2310,16 @@ export const HistoryView = () => {
   }, [sessionList, tradeHistory]);
 
 
-  const { sessionsToRender, filteredSessionsCount } = useMemo(() => {
-    const term = search.toLowerCase().trim()
-    const termUpper = term.toUpperCase()
-    let filtered = allSessionsWithTrades
-      .filter(s => {
-        // Mode filter
-        const sessionMode = s.paperMode ? 'paper' : (s.config?.trading_mode || 'live');
-        if (sessionMode !== lifetimeMode) return false;
+  const { sessionsToRender, filteredSessionsCount, hiddenEmptyCount, modeMatchedSessionsCount } = useMemo(() => {
+    const { visibleSessions: filteredVisible, modeMatchedSessions, hiddenEmptyCount: emptyCount } = filterHistorySessions({
+      sessions: allSessionsWithTrades,
+      lifetimeMode,
+      search,
+      hideEmptySessions,
+      strategyLabelResolver: strategyLabel,
+    });
 
-        // Search filter
-        if (!term) return true;
-        const label = strategyLabel(s).toLowerCase();
-        const matchesLabel = label.includes(term);
-        // BOLT OPTIMIZATION: Avoid expensive toLowerCase() string allocations inside the trades loop
-        const matchesSymbol = s.trades?.some(t => t.symbol?.includes(termUpper));
-        const matchesId = s.id.toLowerCase().includes(term);
-        return matchesLabel || matchesSymbol || matchesId;
-      });
+    let filtered = [...filteredVisible];
 
     if (sortBy === 'pnl') {
       filtered.sort((a, b) => Number(b.totalPnl || 0) - Number(a.totalPnl || 0));
@@ -2345,8 +2351,27 @@ export const HistoryView = () => {
     return {
       sessionsToRender: filtered.slice(0, Math.min(visibleSessions, sessionCap)),
       filteredSessionsCount: sessionCap,
+      hiddenEmptyCount: emptyCount,
+      modeMatchedSessionsCount: modeMatchedSessions.length,
     };
-  }, [allSessionsWithTrades, visibleSessions, sessionLimit, lifetimeMode, search, sortBy]);
+  }, [allSessionsWithTrades, visibleSessions, sessionLimit, lifetimeMode, search, sortBy, hideEmptySessions]);
+
+  const nextTradeStepInfo = useMemo(() => {
+    const currentLoaded = Array.isArray(tradeHistory) ? tradeHistory.length : 0;
+    const serverTotal = resolvedTradeLimitInfo.totalCount;
+    return getNextAdaptiveTradeStep(Math.max(currentLoaded, resolvedTradeLimitInfo.limit || 0), serverTotal);
+  }, [tradeHistory, resolvedTradeLimitInfo.limit, resolvedTradeLimitInfo.totalCount]);
+
+  const handleIncreaseAdaptiveTradeLimit = React.useCallback(() => {
+    if (timeRange !== 'ALL') {
+      setTimeRange('ALL');
+      localStorage.setItem('history_time_range', 'ALL');
+    }
+    const target = nextTradeStepInfo.isAll ? 'ALL' : nextTradeStepInfo.nextLimit;
+    setTradeLimit(target);
+    localStorage.setItem('history_trade_limit', String(target));
+    fetchTradeHistory('all', nextTradeStepInfo.nextLimit);
+  }, [timeRange, nextTradeStepInfo, fetchTradeHistory]);
 
   const handleExpandAll = () => {
     setExpandedSessionIds(new Set(sessionsToRender.map(s => s.id)));
@@ -2662,6 +2687,30 @@ export const HistoryView = () => {
                 </span>
                 <span aria-hidden="true" className="opacity-40">·</span>
                 <span>Sort: <strong className="text-text font-semibold">{sortBy === 'time' ? 'Recent' : sortBy === 'pnl' ? 'Best P&L' : 'Win Rate'}</strong></span>
+                {hiddenEmptyCount > 0 && (
+                  <>
+                    <span aria-hidden="true" className="opacity-40">·</span>
+                    <button
+                      type="button"
+                      onClick={handleToggleHideEmptySessions}
+                      className="text-amber hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
+                    >
+                      {hiddenEmptyCount} empty hidden (show)
+                    </button>
+                  </>
+                )}
+                {!hideEmptySessions && (
+                  <>
+                    <span aria-hidden="true" className="opacity-40">·</span>
+                    <button
+                      type="button"
+                      onClick={handleToggleHideEmptySessions}
+                      className="text-accent hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
+                    >
+                      Showing empty (hide)
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -2793,24 +2842,43 @@ export const HistoryView = () => {
               {/* High-level Micro-metrics summary */}
               {!analyticsExpanded && (
                 <div className="flex items-center gap-5 sm:gap-6 flex-wrap sm:ml-auto">
-                  <div className="flex flex-col">
-                    <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5 opacity-60">Net P&L</span>
-                    <span className={cn("text-xs font-black font-mono tracking-tighter", pnlClass(totalPnl))}>
-                      {fmtUSD(totalPnl)}
-                    </span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5 opacity-60">Win Rate</span>
-                    <span className="text-xs font-black font-mono text-text">
-                      {winRate}% <span className="text-[9px] opacity-40 font-bold ml-0.5">({wins}/{totalTrades})</span>
-                    </span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5 opacity-60">Sharpe</span>
-                    <span className="text-xs font-black font-mono text-accent">
-                      {Number(currentAnalytics?.sharpeRatio || 0).toFixed(2)}
-                    </span>
-                  </div>
+                  {loading && !currentAnalytics ? (
+                    <div className="flex items-center gap-5 sm:gap-6" aria-label="Loading lifetime analytics">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60">Net P&L</span>
+                        <span className="h-4 w-16 rounded bg-border/40 animate-pulse inline-block" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60">Win Rate</span>
+                        <span className="h-4 w-14 rounded bg-border/40 animate-pulse inline-block" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60">Sharpe</span>
+                        <span className="h-4 w-10 rounded bg-border/40 animate-pulse inline-block" />
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-col">
+                        <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5 opacity-60">Net P&L</span>
+                        <span className={cn("text-xs font-black font-mono tabular-nums tracking-tighter", pnlClass(totalPnl))}>
+                          {fmtUSD(totalPnl)}
+                        </span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5 opacity-60">Win Rate</span>
+                        <span className="text-xs font-black font-mono tabular-nums text-text">
+                          {winRate}% <span className="text-[9px] opacity-40 font-bold ml-0.5">({wins}/{totalTrades})</span>
+                        </span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5 opacity-60">Sharpe</span>
+                        <span className="text-xs font-black font-mono tabular-nums text-accent">
+                          {Number(currentAnalytics?.sharpeRatio || 0).toFixed(2)}
+                        </span>
+                      </div>
+                    </>
+                  )}
                   <span className="text-accent bg-accent/5 hover:bg-accent/10 border border-accent/20 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all hidden md:flex items-center gap-1">
                     Expand Insights
                     <ChevronRight size={12} className="group-hover:translate-x-0.5 transition-transform animate-pulse-slow" />
@@ -3225,34 +3293,73 @@ export const HistoryView = () => {
 
 
         <div>
-          {/* Modern Records Toolbar with Expand / Collapse All buttons */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-2.5 border-b border-border/15">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <SectionLabel className="mb-0">Session-Centric Records</SectionLabel>
-              <span className="text-[11px] text-dim font-mono tabular-nums">
-                {sessionsToRender.length} of {search ? filteredSessionsCount : (resolvedSessionLimitInfo.isKnown && sessionLimit === 'AUTO' ? resolvedSessionLimitInfo.modeCount : filteredSessionsCount)} sessions · {modeTrades.length} trades
-              </span>
-            </div>
-            {allSessionsWithTrades.length > 0 && (
-              <div className="flex items-center gap-2 self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={handleExpandAll}
-                  aria-label="Expand all trading session groups"
-                  className="min-h-[36px] sm:min-h-[30px] text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
-                >
-                  Expand All
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCollapseAll}
-                  aria-label="Collapse all trading session groups"
-                  className="min-h-[36px] sm:min-h-[30px] text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
-                >
-                  Collapse All
-                </button>
+          {/* Modern Records Toolbar with Expand / Collapse All & Adaptive Empty-Session Controls */}
+          <div className="flex flex-col gap-2.5 mb-4 pb-2.5 border-b border-border/15">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <SectionLabel className="mb-0">Session-Centric Records</SectionLabel>
+                <span className="text-[11px] text-dim font-mono tabular-nums">
+                  {sessionsToRender.length} of {filteredSessionsCount} sessions with stats
+                  {hiddenEmptyCount > 0 ? ` · ${hiddenEmptyCount} empty hidden` : ''}
+                  {' · '}
+                  {modeTrades.length} trades
+                </span>
               </div>
-            )}
+              {allSessionsWithTrades.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                  {(hiddenEmptyCount > 0 || !hideEmptySessions) && (
+                    <button
+                      type="button"
+                      onClick={handleToggleHideEmptySessions}
+                      aria-pressed={!hideEmptySessions}
+                      className={cn(
+                        "min-h-[44px] sm:min-h-[32px] text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center gap-1.5",
+                        !hideEmptySessions
+                          ? "border-accent/40 bg-accent/15 text-accent"
+                          : "border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim"
+                      )}
+                    >
+                      {hideEmptySessions ? <Eye size={12} /> : <EyeOff size={12} />}
+                      <span>{hideEmptySessions ? `Show Empty (${hiddenEmptyCount})` : 'Hide Empty'}</span>
+                    </button>
+                  )}
+                  {hiddenEmptyCount > 0 && nextTradeStepInfo.canIncrease && (
+                    <button
+                      type="button"
+                      onClick={handleIncreaseAdaptiveTradeLimit}
+                      className="min-h-[44px] sm:min-h-[32px] text-[10px] font-bold font-mono uppercase tracking-wider px-3 py-1.5 rounded-lg border border-accent/40 bg-accent/10 hover:bg-accent/20 text-accent transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center gap-1.5"
+                      title="Load more historical trades from the server to populate older sessions"
+                    >
+                      <span>
+                        {nextTradeStepInfo.isAll
+                          ? `Load All Trades${nextTradeStepInfo.remainingTrades ? ` (+${nextTradeStepInfo.remainingTrades})` : ''}`
+                          : `Increase Limit (${nextTradeStepInfo.nextLimit} Trades)`}
+                      </span>
+                    </button>
+                  )}
+                  {sessionsToRender.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleExpandAll}
+                        aria-label="Expand all trading session groups"
+                        className="min-h-[44px] sm:min-h-[32px] text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                      >
+                        Expand All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCollapseAll}
+                        aria-label="Collapse all trading session groups"
+                        className="min-h-[44px] sm:min-h-[32px] text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                      >
+                        Collapse All
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {allSessionsWithTrades.length === 0 && orphans.length === 0 ? (
@@ -3265,7 +3372,42 @@ export const HistoryView = () => {
           ) : (
             <div className="flex flex-col gap-3">
               <AnimatePresence mode="popLayout">
-                {search && sessionsToRender.length === 0 ? (
+                {sessionsToRender.length === 0 && hiddenEmptyCount > 0 ? (
+                  <motion.div
+                    key="history-empty-sessions-hidden"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="flex flex-col items-center justify-center py-12 px-4 text-center bg-surface/15 border border-border/40 border-dashed rounded-2xl gap-3"
+                  >
+                    <div className="text-xs font-bold text-text uppercase tracking-wider font-mono tabular-nums">
+                      {hiddenEmptyCount} {hiddenEmptyCount === 1 ? 'session has' : 'sessions have'} 0 trades in the current limit ({tradeLimit === 'AUTO' ? `Auto · ${resolvedTradeLimitInfo.limit}` : tradeLimit})
+                    </div>
+                    <p className="text-[11px] text-dim max-w-md leading-relaxed">
+                      Sessions without closed trades in the current fetch window are hidden by default to keep your history clean. Increase the trade limit to load older closed trades or reveal empty sessions.
+                    </p>
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 w-full sm:w-auto mt-1">
+                      {nextTradeStepInfo.canIncrease && (
+                        <button
+                          type="button"
+                          onClick={handleIncreaseAdaptiveTradeLimit}
+                          className="min-h-[44px] px-5 py-2.5 bg-accent text-white rounded-xl text-xs font-bold font-mono uppercase tracking-wider hover:bg-accent/90 transition-all cursor-pointer"
+                        >
+                          {nextTradeStepInfo.isAll
+                            ? `Load All Trades${nextTradeStepInfo.remainingTrades ? ` (${resolvedTradeLimitInfo.totalCount})` : ''}`
+                            : `Increase Trade Limit to ${nextTradeStepInfo.nextLimit}`}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleToggleHideEmptySessions}
+                        className="min-h-[44px] px-5 py-2.5 bg-surface/60 border border-border/60 text-text hover:border-accent/40 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
+                      >
+                        Show {hiddenEmptyCount} Empty {hiddenEmptyCount === 1 ? 'Session' : 'Sessions'}
+                      </button>
+                    </div>
+                  </motion.div>
+                ) : search && sessionsToRender.length === 0 ? (
                   <motion.div
                     key="history-no-results"
                     initial={{ opacity: 0, y: 10 }}

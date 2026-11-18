@@ -85,7 +85,7 @@ test('Presets & Variant UX Verification', async (t) => {
 
   await t.test('6. Preset sub-header ribbon in other tabs is ultra-dense, without redundant preset labels or links', () => {
     // Sub-header renders when section !== 'presets'
-    assert.match(configModalContent, /{section !== 'presets' && \(/);
+    assert.match(configModalContent, /section !== 'presets' && \(/);
 
     // Ultra-dense ribbon does NOT contain redundant "Preset:" label or "Presets →" link
     assert.doesNotMatch(

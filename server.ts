@@ -1254,7 +1254,14 @@ wss.on('connection', (ws: any) => {
     try {
       const data = JSON.parse(message.toString());
       if (data.type === 'set_active') {
+        const wasActive = ws.isActive;
         ws.isActive = data.active !== false;
+        if (!wasActive && ws.isActive) {
+          ws.send(JSON.stringify({
+            type: 'status',
+            ...getStatusSnapshot(),
+          }));
+        }
       }
       if (data.type === 'set_focus_mode') {
         ws.focusMode = data.enabled === true;
@@ -1454,7 +1461,7 @@ app.get(['/health', '/healthz'], async (req, res) => {
 });
 
 // Dedicated Binance connection diagnostic endpoints
-app.get(['/healthz/binance', '/health/binance', '/binance/health'], async (req, res) => {
+app.get(['/session/binance-health', '/monitoring/binance-health', '/healthz/binance', '/health/binance', '/binance/health'], async (req, res) => {
   try {
     const isFresh = req.query?.fresh === 'true' || req.query?.fresh === '1';
     const result = await getBinanceHealthStatus(isFresh);

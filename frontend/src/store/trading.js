@@ -27,8 +27,6 @@ const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => 
     if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
     if (typeof get().fetchTradeHistory === 'function') {
       get().fetchTradeHistory('all');
-      const activeSid = get().strategyId;
-      if (activeSid) get().fetchTradeHistory(activeSid);
     }
     if (fetchSessions && typeof get().fetchSessions === 'function') get().fetchSessions();
     return;
@@ -41,8 +39,6 @@ const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => 
     if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
     if (typeof get().fetchTradeHistory === 'function') {
       get().fetchTradeHistory('all');
-      const activeSid = get().strategyId;
-      if (activeSid) get().fetchTradeHistory(activeSid);
     }
     if (fetchSessions && typeof get().fetchSessions === 'function') get().fetchSessions();
   }, 25);
@@ -50,13 +46,42 @@ const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => 
 
 
 // Anti-flicker metric resolver: prevents transient 0/null/undefined payloads from zero-resetting active store values
-const resolveNonZeroMetric = (nextVal, currentVal, isResuming = false) => {
+export const resolveNonZeroMetric = (nextVal, currentVal, isResuming = false) => {
   if (nextVal !== undefined && nextVal !== null) {
     const num = toNumber(nextVal);
     if (num !== 0 || !isResuming || currentVal === 0) return num;
     return currentVal;
   }
   return currentVal ?? 0;
+};
+
+export const resolveVariantStats = (nextStats, currentStats, isResuming = false) => {
+  if (!nextStats || typeof nextStats !== 'object') return currentStats || {};
+  if (!currentStats || typeof currentStats !== 'object') return nextStats;
+  const merged = { ...currentStats };
+  for (const [label, next] of Object.entries(nextStats)) {
+    if (!next || typeof next !== 'object') continue;
+    const prev = currentStats[label];
+    if (!prev || typeof prev !== 'object') {
+      merged[label] = next;
+      continue;
+    }
+    merged[label] = {
+      ...prev,
+      ...next,
+      totalPnl: resolveNonZeroMetric(next.totalPnl, prev.totalPnl, isResuming),
+      realizedPnl: resolveNonZeroMetric(next.realizedPnl, prev.realizedPnl, isResuming),
+      activePnl: resolveNonZeroMetric(next.activePnl, prev.activePnl, isResuming),
+      unrealizedPnl: resolveNonZeroMetric(next.unrealizedPnl, prev.unrealizedPnl, isResuming),
+      returnPct: resolveNonZeroMetric(next.returnPct, prev.returnPct, isResuming),
+      totalEstPnlToRealize: resolveNonZeroMetric(next.totalEstPnlToRealize, prev.totalEstPnlToRealize, isResuming),
+      totalRiskPct: resolveNonZeroMetric(next.totalRiskPct, prev.totalRiskPct, isResuming),
+      totalSlUsed: resolveNonZeroMetric(next.totalSlUsed, prev.totalSlUsed, isResuming),
+      entryCount: Math.max(toNumber(next.entryCount, 0), isResuming ? toNumber(prev.entryCount, 0) : 0),
+      hitCount: Math.max(toNumber(next.hitCount, 0), isResuming ? toNumber(prev.hitCount, 0) : 0),
+    };
+  }
+  return merged;
 };
 
 const getObjectSource = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
@@ -515,6 +540,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   
   _subscriptions: { trades: new Map(), strategies: new Map(), scannerSymbols: new Map(), globalTrades: 0, scanner: 0 },
   _focusTimer: null,
+  _lastFocusChangeTs: 0,
   registerInterest: (type, id) => {
     const subs = { ...get()._subscriptions };
     if (type === 'trade') subs.trades.set(id, (subs.trades.get(id) || 0) + 1);
@@ -522,7 +548,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     else if (type === 'scanner_symbol') subs.scannerSymbols.set(id, (subs.scannerSymbols.get(id) || 0) + 1);
     else if (type === 'global_trades') subs.globalTrades++;
     else if (type === 'scanner') subs.scanner++;
-    set({ _subscriptions: subs });
+    set({ _subscriptions: subs, _lastFocusChangeTs: Date.now() });
     get()._syncFocusToBackend();
   },
   unregisterInterest: (type, id) => {
@@ -532,7 +558,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     else if (type === 'scanner_symbol') { const count = (subs.scannerSymbols.get(id) || 0) - 1; if (count <= 0) subs.scannerSymbols.delete(id); else subs.scannerSymbols.set(id, count); }
     else if (type === 'global_trades') subs.globalTrades = Math.max(0, subs.globalTrades - 1);
     else if (type === 'scanner') subs.scanner = Math.max(0, subs.scanner - 1);
-    set({ _subscriptions: subs });
+    set({ _subscriptions: subs, _lastFocusChangeTs: Date.now() });
     get()._syncFocusToBackend();
   },
   _syncFocusToBackend: () => {
@@ -550,6 +576,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, scannerSymbol }));
         } else {
           ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false, tradeId: null, strategyLabel: null, scannerSymbol: null }));
+          ws.send(JSON.stringify({ type: 'set_active', active: true }));
         }
       }
     }, 50) });
@@ -670,7 +697,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     console.log(`[Store] setThrottled: ${wasThrottled} -> ${t}. isSyncingOnResume will be: ${isSyncingOnResume}`);
     set({
       isThrottled: t,
-      isSyncingOnResume
+      isSyncingOnResume,
+      ...(wasThrottled && !t ? { _lastFocusChangeTs: Date.now() } : {}),
     });
 
     if (resumeSyncSafetyTimeout) {
@@ -701,7 +729,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       }, 2500);
     }
   },
-  setFocusMode: (f, tid = null, s = null, scannerSymbol = null) => { const ws = get().ws; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s, scannerSymbol })); },
+  setFocusMode: (f, tid = null, s = null, scannerSymbol = null) => { set({ _lastFocusChangeTs: Date.now() }); const ws = get().ws; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s, scannerSymbol })); },
   setSessionActive: (a, id) => {
     const wasActive = get().sessionActive;
     set({ sessionActive: a, strategyId: id });
@@ -753,16 +781,33 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       const r = await sessionAPI.list(resolvedLimit, true);
       const payload = r?.data;
       const rawList = Array.isArray(payload) ? payload : (Array.isArray(payload?.sessions) ? payload.sessions : []);
-      const sessions = rawList.map(s => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 }));
+      const incomingSessions = rawList.map(s => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 }));
       const nextCounts = !Array.isArray(payload) && payload?.sessionCounts && typeof payload.sessionCounts === 'object'
         ? { ...payload.sessionCounts }
         : (!Array.isArray(payload) && Number.isFinite(Number(payload?.totalCount))
             ? { total: Number(payload.totalCount) }
             : null);
-      set({
-        sessionList: sessions,
-        ...(nextCounts ? { sessionListCounts: nextCounts } : {}),
-        ...(hasExplicitLimit ? { sessionListLimit: resolvedLimit } : {}),
+      set(st => {
+        const existingList = Array.isArray(st.sessionList) ? st.sessionList : [];
+        const incomingIds = new Set(incomingSessions.map(s => s?.id).filter(Boolean));
+        const isTruncatedByLimit = incomingSessions.length >= resolvedLimit && existingList.length > incomingSessions.length;
+        const retainedOlder = isTruncatedByLimit
+          ? existingList.filter(s => s?.id && !incomingIds.has(s.id))
+          : [];
+        const effectiveCap = Math.min(500, Math.max(resolvedLimit, isTruncatedByLimit ? existingList.length : 0, incomingSessions.length));
+        const mergedSessions = [...incomingSessions, ...retainedOlder]
+          .sort((a, b) => {
+            const aActive = a.status === 'active' || a.running === true || !a.endTime;
+            const bActive = b.status === 'active' || b.running === true || !b.endTime;
+            if (aActive !== bActive) return aActive ? -1 : 1;
+            return (b.startTimeMs || 0) - (a.startTimeMs || 0);
+          })
+          .slice(0, effectiveCap);
+        return {
+          sessionList: mergedSessions,
+          ...(nextCounts ? { sessionListCounts: nextCounts } : {}),
+          ...(hasExplicitLimit ? { sessionListLimit: resolvedLimit } : {}),
+        };
       });
     } catch (e) {} finally {
       set({ isSyncing: false });
@@ -804,19 +849,54 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         const existing = isAll
           ? (st.tradeHistory || [])
           : (st.sessionTradeHistoryId === sid ? (st.sessionTradeHistory || []) : []);
-        const incomingIds = new Set(incoming.map(t => t.id || `${t.symbol}-${t.exit_ts}`));
+        const getKey = (t) => t.id || `${t.symbol}-${t.exit_ts}`;
+        const incomingIds = new Set(incoming.map(getKey));
         const now = Date.now();
-        const unpropagated = existing.filter(t => {
-          const key = t.id || `${t.symbol}-${t.exit_ts}`;
-          if (incomingIds.has(key)) return false;
+        const isTruncatedByLimit = incoming.length >= resolvedLimit && existing.length > incoming.length;
+        const unpropagated = [];
+        const retainedOlder = [];
+        for (let i = 0; i < existing.length; i++) {
+          const t = existing[i];
+          if (!t || t.status === 'ENTRY_FAILED') continue;
+          const key = getKey(t);
+          if (incomingIds.has(key)) continue;
           const ts = t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
-          return now - ts < 30000;
-        });
-        const effectiveCap = hasExplicitLimit ? resolvedLimit : Math.max(resolvedLimit, incoming.length + unpropagated.length);
-        const merged = [...unpropagated, ...incoming].slice(0, effectiveCap);
+          if (now - ts < 30000) {
+            unpropagated.push(t);
+          } else if (isTruncatedByLimit) {
+            retainedOlder.push(t);
+          }
+        }
+        const effectiveCap = Math.min(
+          50000,
+          Math.max(resolvedLimit, isTruncatedByLimit ? existing.length : 0, incoming.length + unpropagated.length)
+        );
+        const merged = [...unpropagated, ...incoming, ...retainedOlder]
+          .sort((a, b) => (b.exit_ts_ms || 0) - (a.exit_ts_ms || 0))
+          .slice(0, effectiveCap);
+
         if (isAll) {
+          const activeSid = st.strategyId;
+          const shouldSyncActiveSessionHistory = Boolean(
+            activeSid && (!st.sessionTradeHistoryId || st.sessionTradeHistoryId === activeSid)
+          );
+          let nextSessionTradeHistory = st.sessionTradeHistory;
+          if (shouldSyncActiveSessionHistory) {
+            const fromAll = merged.filter(t => (t.sessionId || t.session_id) === activeSid);
+            const existingSessionTrades = st.sessionTradeHistoryId === activeSid
+              ? (st.sessionTradeHistory || [])
+              : [];
+            const seenSessionKeys = new Set(fromAll.map(getKey));
+            const extraSessionTrades = existingSessionTrades.filter(t => t && !seenSessionKeys.has(getKey(t)));
+            nextSessionTradeHistory = [...fromAll, ...extraSessionTrades]
+              .sort((a, b) => (b.exit_ts_ms || 0) - (a.exit_ts_ms || 0))
+              .slice(0, 50000);
+          }
           return {
             tradeHistory: merged,
+            ...(shouldSyncActiveSessionHistory
+              ? { sessionTradeHistory: nextSessionTradeHistory, sessionTradeHistoryId: activeSid }
+              : {}),
             ...(serverCounts ? { tradeHistoryCounts: serverCounts } : {}),
             ...(hasExplicitLimit ? { historyLimit: resolvedLimit } : {}),
           };
@@ -903,10 +983,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
     // BOLT: Anti-Flicker & Metric Retention Guard across transient updates.
     if (sessionCurrentlyActive && updates.status !== 'stopped' && updates.running !== false) {
-       merged.totalPnl = resolveNonZeroMetric(nextPnl, st.totalPnl, isResuming);
-       merged.balance = resolveNonZeroMetric(updates.balance, st.balance, isResuming);
-       merged.totalRiskPct = resolveNonZeroMetric(updates.totalRiskPct, st.totalRiskPct, isResuming);
-       merged.totalSlUsed = resolveNonZeroMetric(updates.totalSlUsed, st.totalSlUsed, isResuming);
+       const guardZero = isResuming || st.isSyncingOnResume || ((Date.now() - (st._lastFocusChangeTs || 0)) < 1200);
+       merged.totalPnl = resolveNonZeroMetric(nextPnl, st.totalPnl, guardZero);
+       merged.realizedPnl = resolveNonZeroMetric(updates.realizedPnl ?? updates.realized_pnl, st.realizedPnl, guardZero);
+       merged.activePnl = resolveNonZeroMetric(updates.activePnl ?? updates.active_pnl, st.activePnl, guardZero);
+       merged.balance = resolveNonZeroMetric(updates.balance, st.balance, guardZero);
+       merged.totalRiskPct = resolveNonZeroMetric(updates.totalRiskPct, st.totalRiskPct, guardZero);
+       merged.totalSlUsed = resolveNonZeroMetric(updates.totalSlUsed, st.totalSlUsed, guardZero);
+       if (updates.variantStats !== undefined) {
+         merged.variantStats = resolveVariantStats(updates.variantStats, st.variantStats, guardZero);
+       }
     }
 
     if (isResuming && sessionCurrentlyActive) {
@@ -1054,8 +1140,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
     set((st) => {
       const nextConfig = deepMerge(st.config, c);
-      const nextSessionList = Array.isArray(st.sessionList) && st.sessionList.length > 0
-        ? st.sessionList.map((s, idx) => idx === 0 ? { ...s, strategy_label: nextConfig.strategy_label || s.strategy_label, config: deepMerge(s.config || {}, nextConfig) } : s)
+      const nextSessionList = Array.isArray(st.sessionList) && st.sessionList.length > 0 && st.strategyId
+        ? st.sessionList.map((s) => s.id === st.strategyId ? { ...s, strategy_label: nextConfig.strategy_label || s.strategy_label, config: deepMerge(s.config || {}, nextConfig) } : s)
         : st.sessionList;
       return {
         config: nextConfig,
@@ -1082,8 +1168,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       }
     } catch (e) {}
 
-    const nextSessionList = Array.isArray(st.sessionList) && st.sessionList.length > 0
-      ? st.sessionList.map((s, idx) => idx === 0 ? { ...s, strategy_label: newConfig.strategy_label || s.strategy_label, config: deepMerge(s.config || {}, newConfig) } : s)
+    const nextSessionList = Array.isArray(st.sessionList) && st.sessionList.length > 0 && st.strategyId
+      ? st.sessionList.map((s) => s.id === st.strategyId ? { ...s, strategy_label: newConfig.strategy_label || s.strategy_label, config: deepMerge(s.config || {}, newConfig) } : s)
       : st.sessionList;
 
     // Update local state immediately for instant feedback
@@ -1510,21 +1596,26 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             triggerDetailRefresh(get, sessionChanged, false);
           }
 
+          const guardZero = isResuming || ((nowTs - (st._lastFocusChangeTs || 0)) < 1200) || (nt.length > 0 && nt.every(t => toNumber(t.pnl) === 0) && currentActiveTrades.some(t => toNumber(t.pnl) !== 0));
+
           return {
             lastAuthoritativeUpdateTs: nowTs,
+            _lastFocusChangeTs: 0,
             sessionActive: nextActiveSession,
             sessionPaused: d.paused ?? st.sessionPaused,
             pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [],
             strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {},
             strategyId: d.strategyId || st.strategyId,
-            balance: resolveNonZeroMetric(d.balance, st.balance, isResuming),
-            totalPnl: resolveNonZeroMetric(nextPnl, st.totalPnl, isResuming),
-            totalRiskPct: resolveNonZeroMetric(d.totalRiskPct, st.totalRiskPct, isResuming),
-            totalSlUsed: resolveNonZeroMetric(d.totalSlUsed, st.totalSlUsed, isResuming),
+            balance: resolveNonZeroMetric(d.balance, st.balance, guardZero),
+            realizedPnl: resolveNonZeroMetric(d.realizedPnl ?? d.realized_pnl, st.realizedPnl, guardZero),
+            activePnl: resolveNonZeroMetric(d.activePnl ?? d.active_pnl, st.activePnl, guardZero),
+            totalPnl: resolveNonZeroMetric(nextPnl, st.totalPnl, guardZero),
+            totalRiskPct: resolveNonZeroMetric(d.totalRiskPct, st.totalRiskPct, guardZero),
+            totalSlUsed: resolveNonZeroMetric(d.totalSlUsed, st.totalSlUsed, guardZero),
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,
-            variantStats: stop ? {} : (d.variant_stats ?? st.variantStats),
+            variantStats: stop ? {} : resolveVariantStats(d.variant_stats, st.variantStats, guardZero),
             logs: nextLogs,
             scannerResults: Array.isArray(d.scannerResults) ? (() => {
               const prevOppMap = new Map((st.scannerResults || []).map(r => [r.symbol, r]));
@@ -1574,8 +1665,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           console.log(`[Store] Received tick. Clearing isSyncingOnResume.`);
         }
         set((st) => {
-          const isResuming = st.isSyncingOnResume;
-          const hasTargetedFocus = (st._subscriptions?.trades?.size || 0) > 0 || (st._subscriptions?.strategies?.size || 0) > 0;
+          const inFocusTransition = (nowTs - (st._lastFocusChangeTs || 0)) < 1200;
+          const isResuming = st.isSyncingOnResume || inFocusTransition;
+          const hasTargetedFocus = (st._subscriptions?.trades?.size || 0) > 0 || (st._subscriptions?.strategies?.size || 0) > 0 || inFocusTransition;
           const currentActiveTrades = Array.isArray(st.activeTrades) ? st.activeTrades : [];
           let nt = currentActiveTrades;
           if (Array.isArray(d.trades)) {
@@ -1611,20 +1703,23 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           }
 
           const nextPnl = d.total_pnl;
+          const isUnpricedResumeTick = st.isSyncingOnResume && (!Array.isArray(d.trades) || d.trades.length === 0) && nt.length > 0 && toNumber(nextPnl, 0) === 0 && toNumber(st.totalPnl, 0) !== 0;
 
           return {
             lastAuthoritativeUpdateTs: nowTs,
             balance: resolveNonZeroMetric(d.balance, st.balance, isResuming),
+            realizedPnl: resolveNonZeroMetric(d.realized_pnl ?? d.realizedPnl, st.realizedPnl, isResuming),
+            activePnl: resolveNonZeroMetric(d.active_pnl ?? d.activePnl, st.activePnl, isResuming),
             totalPnl: resolveNonZeroMetric(nextPnl, st.totalPnl, isResuming),
             totalRiskPct: resolveNonZeroMetric(d.total_risk_pct, st.totalRiskPct, isResuming),
             totalSlUsed: resolveNonZeroMetric(d.total_sl_used, st.totalSlUsed, isResuming),
             totalEstPnlToRealize: resolveNonZeroMetric(d.total_est_pnl_to_realize, st.totalEstPnlToRealize, isResuming),
-            entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [], strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {}, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, nextScanTs: d.next_scan_ts ?? st.nextScanTs, scanIntervalMs: d.scan_interval_ms ?? st.scanIntervalMs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
+            entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: resolveVariantStats(d.variant_stats, st.variantStats, isResuming), activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [], strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {}, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, nextScanTs: d.next_scan_ts ?? st.nextScanTs, scanIntervalMs: d.scan_interval_ms ?? st.scanIntervalMs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
             config: nextConfig,
             tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h,
             effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor,
             apiStatus: d.apiStatus || st.apiStatus,
-            isSyncingOnResume: false
+            isSyncingOnResume: isUnpricedResumeTick
           };
         });
       } else if (d.type === 'balance_update') {
@@ -1820,7 +1915,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
               if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
               if (typeof get().fetchTradeHistory === 'function') {
                 get().fetchTradeHistory('all');
-                if (get().strategyId) get().fetchTradeHistory(get().strategyId);
               }
             }, 100);
             return {

@@ -44,6 +44,7 @@ export const SignalGauge = React.memo(({
   etaCandles = null,
   estimatedPnl = null,
   estimatedR = null,
+  signalEstimation = null,
   insufficientData = false,
   thresholdIsPrice = false,
   isExit = false,
@@ -51,6 +52,10 @@ export const SignalGauge = React.memo(({
   className,
   compact = false,
 }) => {
+  const resolvedEstPnl = signalEstimation?.estimatedPnl ?? estimatedPnl;
+  const resolvedEstR = signalEstimation?.estimatedR ?? estimatedR;
+  const resolvedProx = signalEstimation?.proximity ?? proximity;
+  const resolvedEta = signalEstimation?.etaCandles ?? etaCandles;
   const s = signal || {
     label,
     value,
@@ -61,10 +66,10 @@ export const SignalGauge = React.memo(({
     rejected,
     status,
     description,
-    proximity,
-    etaCandles,
-    estimatedPnl,
-    estimatedR,
+    proximity: resolvedProx,
+    etaCandles: resolvedEta,
+    estimatedPnl: resolvedEstPnl,
+    estimatedR: resolvedEstR,
     insufficientData,
     threshold_is_price: thresholdIsPrice,
   };
@@ -76,8 +81,8 @@ export const SignalGauge = React.memo(({
   const isFired = s.fired !== undefined ? s.fired : fired;
   const isActive = s.active !== undefined ? s.active : active;
   const isRejected = s.rejected !== undefined ? s.rejected : (s.status === 'blocked' || rejected);
-  const finalProx = Math.min(100, Math.max(0, Math.round(s.proximity !== undefined ? s.proximity : proximity)));
-  const finalEta = s.etaCandles !== undefined ? s.etaCandles : etaCandles;
+  const finalProx = Math.min(100, Math.max(0, Math.round(s.proximity !== undefined ? s.proximity : resolvedProx)));
+  const finalEta = s.etaCandles !== undefined ? s.etaCandles : resolvedEta;
   const finalInsufficient = s.insufficientData !== undefined ? s.insufficientData : insufficientData;
   const isPrice = s.threshold_is_price !== undefined ? s.threshold_is_price : thresholdIsPrice;
   const sigKey = String(s.key || finalLabel || '').toLowerCase();

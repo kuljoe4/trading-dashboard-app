@@ -1635,7 +1635,12 @@ export class TradingSessionService implements OnApplicationShutdown {
     const currentBalance = this.getBalance();
     const serializedActiveTrades = this.positionTracker
       .activeList()
-      .map((t) => this.engineBroadcaster.serializeTrade(t, this.config!));
+      .map((t) => {
+        const livePrice = (typeof (this.tickerCache as any)?.getPrice === 'function'
+          ? (this.tickerCache as any).getPrice(t.symbol)
+          : undefined) ?? (t as any).last_price ?? (t as any).mark_price ?? undefined;
+        return this.engineBroadcaster.serializeTrade(t, this.config!, livePrice);
+      });
     const activePnl = serializedActiveTrades.reduce(
       (sum: number, t: any) => sum + (Number(t?.pnl) || 0),
       0,

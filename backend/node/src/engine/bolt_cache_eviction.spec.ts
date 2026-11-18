@@ -1,5 +1,5 @@
 import { SignalEngineService } from './signalEngine';
-import { KlineStoreService } from './kline_store.service';
+import { KlineStoreService, Candle } from './kline_store.service';
 
 describe('SignalEngineService Cache Eviction', () => {
   let signalEngine: SignalEngineService;
@@ -15,7 +15,7 @@ describe('SignalEngineService Cache Eviction', () => {
   it('should evict items from emaCache when it exceeds 1000 entries', () => {
     // Use enough candles to bypass early SMA fallback (period + 1)
     const period = 10;
-    const candles = [];
+    const candles: Candle[] = [];
     for (let i = 0; i < 20; i++) {
       candles.push({ time: i * 1000, open: 100, high: 105, low: 95, close: 100, volume: 1000 });
     }

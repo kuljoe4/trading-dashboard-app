@@ -169,7 +169,7 @@ describe('KlineStoreService', () => {
     it('preserves native 5m candles (e.g. 100 candles) instead of clobbering with downsampled 1m buffer', async () => {
       // Seed 100 5m candles
       const startTime = 1700000000000;
-      const htf5mCandles = [];
+      const htf5mCandles: any[] = [];
       for (let i = 0; i < 100; i++) {
         htf5mCandles.push([
           startTime + i * 300000,
@@ -183,7 +183,7 @@ describe('KlineStoreService', () => {
       await service.seedFromRest('LITUSDT', '5m', htf5mCandles);
 
       // Seed 200 1m candles (spans ~40 5m candles)
-      const m1Candles = [];
+      const m1Candles: any[] = [];
       for (let i = 0; i < 200; i++) {
         m1Candles.push([
           startTime + i * 60000,
@@ -206,14 +206,14 @@ describe('KlineStoreService', () => {
 
     it('synthesizeHigherInterval preserves richer native 1h buffer (25 candles) when 200 1m candles only cover 4 buckets', async () => {
       const baseTime = 1700000000000;
-      const h1Candles = [];
+      const h1Candles: any[] = [];
       for (let i = 0; i < 25; i++) {
         h1Candles.push([baseTime + i * 3600000, '10', '12', '8', '11', '5000']);
       }
       await service.seedFromRest('WLDUSDT', '1h', h1Candles);
 
       const m1Start = baseTime + 21 * 3600000;
-      const m1Candles = [];
+      const m1Candles: any[] = [];
       for (let i = 0; i < 200; i++) {
         m1Candles.push([m1Start + i * 60000, '10', '12', '8', '11', '100']);
       }

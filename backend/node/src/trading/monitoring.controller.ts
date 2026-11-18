@@ -178,7 +178,7 @@ export class MonitoringController {
    * specifically detecting geo-restriction blocks (HTTP 451/403) and providing
    * actionable fallback diagnostics.
    */
-  @Get(['healthz/binance', 'health/binance', 'binance/health'])
+  @Get(['session/binance-health', 'monitoring/binance-health', 'healthz/binance', 'health/binance', 'binance/health'])
   async getBinanceHealth(@Req() req: Request): Promise<BinanceHealthStatus> {
     const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
     if (isGeneralRateLimited(clientIp)) {

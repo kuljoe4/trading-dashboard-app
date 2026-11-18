@@ -214,9 +214,10 @@ describe('HTF Breakout / Previous-Day Breakout Signal (PDH / PDL Breakout)', () 
       };
 
       const res = signalEngine.checkEntry('TESTUSDT', config as any, '1h', 'LONG', 'entry', false);
-      // Fired because completed candle closed at 111 (> 110)
+      // Fired because completed candle closed at 111 (> 110); value reflects live candle close while closed_value tracks confirmed candle close
       expect(res.allFired).toBe(true);
-      expect(res.details?.htf_breakout.value).toBe(111);
+      expect(res.details?.htf_breakout.closed_value).toBe(111);
+      expect(res.details?.htf_breakout.value).toBe(108);
     });
 
     it('should support wick_break mode', () => {

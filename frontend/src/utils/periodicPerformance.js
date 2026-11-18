@@ -313,3 +313,79 @@ export function computePeriodBadges({ trades = [], nowTs = Date.now() } = {}) {
 
   return { today, d7, d30 };
 }
+
+export function getNextAdaptiveTradeStep(currentLoadedCount = 0, serverTotalCount = null) {
+  const loaded = Math.max(0, Number(currentLoadedCount) || 0);
+  const total = serverTotalCount !== null && serverTotalCount !== undefined && Number.isFinite(Number(serverTotalCount))
+    ? Math.max(0, Number(serverTotalCount))
+    : null;
+
+  if (total !== null && loaded >= total) {
+    return { canIncrease: false, nextLimit: loaded, stepDelta: 0, remainingTrades: 0, isAll: true };
+  }
+
+  const steps = [250, 1000, 2500, 5000, 10000, 50000];
+  let nextLimit = steps.find(s => s > loaded) || 50000;
+  if (total !== null && nextLimit >= total) {
+    nextLimit = Math.min(50000, Math.max(total, 1));
+  }
+
+  const remainingTrades = total !== null ? Math.max(0, total - loaded) : null;
+  const stepDelta = Math.max(0, nextLimit - loaded);
+  return {
+    canIncrease: stepDelta > 0,
+    nextLimit,
+    stepDelta,
+    remainingTrades,
+    isAll: total !== null ? nextLimit >= total : nextLimit >= 50000,
+  };
+}
+
+export function filterHistorySessions({
+  sessions = [],
+  lifetimeMode = 'paper',
+  search = '',
+  hideEmptySessions = true,
+  strategyLabelResolver = null,
+} = {}) {
+  const term = String(search || '').toLowerCase().trim();
+  const termUpper = term.toUpperCase();
+  const modeMatched = [];
+  const visible = [];
+  let hiddenEmptyCount = 0;
+
+  for (let i = 0; i < (sessions?.length || 0); i++) {
+    const s = sessions[i];
+    if (!s) continue;
+    const sessionMode = s.tradingMode
+      ? String(s.tradingMode).toLowerCase()
+      : (s.paperMode ? 'paper' : (s.config?.trading_mode || 'live'));
+    if (sessionMode !== String(lifetimeMode).toLowerCase()) continue;
+
+    if (term) {
+      const rawLabel = typeof strategyLabelResolver === 'function'
+        ? String(strategyLabelResolver(s) || '')
+        : String(s.strategy_label || s.config?.strategy_label || '');
+      const matchesLabel = rawLabel.toLowerCase().includes(term);
+      const matchesSymbol = Array.isArray(s.trades) && s.trades.some(t => String(t?.symbol || '').toUpperCase().includes(termUpper));
+      const matchesId = String(s.id || '').toLowerCase().includes(term);
+      if (!matchesLabel && !matchesSymbol && !matchesId) continue;
+    }
+
+    modeMatched.push(s);
+    const tradeCount = Array.isArray(s.trades) ? s.trades.length : 0;
+    const isEmpty = tradeCount === 0;
+    if (hideEmptySessions && isEmpty) {
+      hiddenEmptyCount++;
+      continue;
+    }
+    visible.push(s);
+  }
+
+  return {
+    visibleSessions: visible,
+    modeMatchedSessions: modeMatched,
+    hiddenEmptyCount,
+  };
+}
+

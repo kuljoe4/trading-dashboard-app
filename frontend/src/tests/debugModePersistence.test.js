@@ -27,12 +27,16 @@ if (typeof globalThis.sessionStorage === 'undefined') {
 }
 
 const { useTradingStore } = await import('../store/trading.js');
+const { sessionAPI } = await import('../api/client.js');
 
 describe('Debug Mode App Settings Persistence Standard', () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
+    sessionAPI.update = async () => ({ data: { ok: true } });
     useTradingStore.setState({
+      connectWS: () => {},
+      disconnectWS: () => {},
       config: {
         debug_mode: false,
       },

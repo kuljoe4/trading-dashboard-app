@@ -2596,7 +2596,11 @@ export function DashboardView({ initialStrategy }) {
                   const totalCards = 1 + activeVariants.length;
                   const baseLabel = currentStrategy.strategy_label;
                   const baseMetric = stratMetricsMap.get(baseLabel);
-                  const baseTotalPnl = safeVariantStats[baseLabel]?.totalPnl ?? (baseMetric ? baseMetric.totalPnl + (activePnlMap[baseLabel] || 0) : (activeVariants.length > 0 ? (activePnlMap[baseLabel] || 0) : currentStrategy.totalPnl));
+                  const baseComputedPnl = baseMetric ? baseMetric.totalPnl + (activePnlMap[baseLabel] || 0) : (activeVariants.length > 0 ? (activePnlMap[baseLabel] || 0) : currentStrategy.totalPnl);
+                  const rawBaseVariantPnl = safeVariantStats[baseLabel]?.totalPnl;
+                  const baseTotalPnl = (rawBaseVariantPnl !== undefined && rawBaseVariantPnl !== null && (rawBaseVariantPnl !== 0 || baseComputedPnl === 0))
+                    ? rawBaseVariantPnl
+                    : baseComputedPnl;
                   const baseEntryCount = safeVariantStats[baseLabel]?.entryCount ?? (baseMetric ? (baseMetric.count ?? (baseMetric.wins + (baseMetric.losses || 0))) : (activeVariants.length > 0 ? (activeTradeCountsMap[baseLabel] || 0) : currentStrategy.entryCount));
                   const baseHitCount = safeVariantStats[baseLabel]?.hitCount ?? (baseMetric ? baseMetric.wins : (activeVariants.length > 0 ? 0 : currentStrategy.hitCount));
 
@@ -2637,7 +2641,11 @@ export function DashboardView({ initialStrategy }) {
                         const label = variant.strategy_label || `Variant ${i + 1}`;
                         const variantConfig = { ...config, ...variant };
                         const stratMetric = stratMetricsMap.get(label);
-                        const variantTotalPnl = safeVariantStats[label]?.totalPnl ?? (stratMetric ? stratMetric.totalPnl + (activePnlMap[label] || 0) : (activePnlMap[label] || 0));
+                        const variantComputedPnl = stratMetric ? stratMetric.totalPnl + (activePnlMap[label] || 0) : (activePnlMap[label] || 0);
+                        const rawVariantPnl = safeVariantStats[label]?.totalPnl;
+                        const variantTotalPnl = (rawVariantPnl !== undefined && rawVariantPnl !== null && (rawVariantPnl !== 0 || variantComputedPnl === 0))
+                          ? rawVariantPnl
+                          : variantComputedPnl;
                         const variantEntryCount = safeVariantStats[label]?.entryCount ?? (stratMetric ? (stratMetric.count ?? (stratMetric.wins + (stratMetric.losses || 0))) : (activeTradeCountsMap[label] || 0));
                         const variantHitCount = safeVariantStats[label]?.hitCount ?? (stratMetric ? stratMetric.wins : 0);
                         return (

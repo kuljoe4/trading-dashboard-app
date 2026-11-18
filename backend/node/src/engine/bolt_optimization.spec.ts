@@ -99,9 +99,15 @@ describe('MomentumScannerService Unified Loop Optimization', () => {
   })
 
   it('correctly slices to MAX_RESULTS and attaches history', () => {
+    const topSymbols = Array.from({ length: 20 }, (_, i) => ({
+      symbol: `SYM${i}USDT`,
+      volume_24h: 10000 - i * 100,
+    }))
+    tickerCache.topByVolume.mockReturnValue(topSymbols)
+
     const config = {
       global_scanner_enabled: true,
-      symbols: Array.from({ length: 20 }, (_, i) => `SYM${i}USDT`),
+      symbols: [],
     }
 
     const candles = Array.from({ length: 30 }, (_, idx) => ({

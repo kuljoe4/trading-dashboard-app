@@ -31,6 +31,7 @@ import { Settings as SettingsEntity } from "../models/entities/Settings.entity";
 import { decrypt } from "../lib/crypto";
 import { ConfigValidationException } from "../lib/exceptions";
 import { BinanceClientFactory } from "../lib/binanceClientFactory";
+import { DerivativesTradingUsdsFutures } from "@binance/derivatives-trading-usds-futures";
 import { AnalyticsService } from "../engine/analytics.service";
 import { RrOptimizationService } from "../engine/rr-optimization.service";
 import { MarketFeedService } from "../engine/market_feed.service";
@@ -1150,7 +1151,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Instantiate Binance client if not in paper mode
-    let binanceClient = null;
+    let binanceClient: DerivativesTradingUsdsFutures | null = null;
     if (mode !== "paper") {
       const settings = await this.settingsRepository.findOne({
         where: { id: "default" },
@@ -1791,7 +1792,16 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       const localOpenTrades = this.tradingSessionService.getActiveTradesRaw();
       const localSymbols = new Set(localOpenTrades.map((t) => t.symbol));
 
-      const untracked = [];
+      const untracked: Array<{
+        symbol: string;
+        amount: number;
+        entryPrice: number;
+        markPrice: number;
+        notional: number;
+        startedByUs: boolean;
+        suggestedStrategyLabel: string | null;
+        currentSl: number | null;
+      }> = [];
       const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
       const ordersBySymbol = new Map<string, any[]>();
       for (const o of allOpenOrders) {
@@ -2228,8 +2238,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
         // RESEARCH: Attempt to discover existing SL/TP protection on exchange for this position
         let slPrice = 0;
-        let slId = undefined;
-        let slType = undefined;
+        let slId: string | undefined = undefined;
+        let slType: string | undefined = undefined;
         let tpPrice = 0;
 
         try {
@@ -2382,8 +2392,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           maxRrAchieved = roundEight(maxRrAchieved);
         }
 
-        let finalStopOrderId = slId;
-        let finalStopOrderType = slType;
+        let finalStopOrderId: string | undefined = slId;
+        let finalStopOrderType: string | undefined = slType;
         let finalSlPrice = manualCurrentSl !== undefined && manualCurrentSl !== null && manualCurrentSl > 0
           ? manualCurrentSl
           : (slPrice || initialSl);
@@ -2406,7 +2416,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
             } as any;
             const slResult = await this.orderManager.placeStopLoss(tempTrade, finalSlPrice, entryPrice);
             if (slResult && slResult.orderId) {
-              finalStopOrderId = slResult.orderId;
+              finalStopOrderId = String(slResult.orderId);
               finalStopOrderType = "algo";
               finalSlPrice = slResult.price;
               this.logger.log(`[Reconciliation] Successfully placed proactive SL on exchange for adopted ${exPos.symbol}: ${finalStopOrderId} @ ${finalSlPrice}`);
@@ -3345,7 +3355,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    let config = null;
+    let config: any = null;
     let balance = 10000;
 
     if (sessionId) {

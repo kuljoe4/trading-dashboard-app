@@ -458,7 +458,12 @@ export class SignalEngineService {
         }, 0)
       : this.getRequiredWarmupForInterval(config, interval, purpose, activeSignals);
 
-    if (requiredWarmup > 0 && candles.length < requiredWarmup) {
+    const onlyBreakoutSignals = activeSignals.every((s) => {
+      const bType = this.resolveBaseSignalType(s);
+      return bType === 'htf_breakout' || bType === 'prev_day_breakout';
+    });
+
+    if (requiredWarmup > 0 && candles.length < requiredWarmup && (minimal || !onlyBreakoutSignals)) {
       return {
         allFired: false,
         firedSignals: [],

@@ -89,8 +89,10 @@ test('smartStrategyNaming generates dynamic names for solo gainer, solo loser, a
 test('ConfigModal mounts SavePresetModal at root level outside section === presets so Save As works from any tab or scroll position', async () => {
   const fs = await import('node:fs');
   const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const configModalSource = fs.readFileSync(
-    path.resolve(process.cwd(), 'frontend/src/components/ConfigModal.jsx'),
+    path.resolve(__dirname, '../components/ConfigModal.jsx'),
     'utf8'
   );
 

@@ -102,7 +102,7 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
       const mF = p('macd_fast', 12);
       const mS = p('macd_slow', 26);
       const mSig = p('macd_signal', 9);
-      tokens.push(`MACD(${mF}/${mS}/${mSig})`);
+      tokens.push(`MACD Filter(${mF}/${mS}/${mSig})`);
     }
   } else if (baseType === 'engulfing') {
     const mode = p('engulfing_mode', config.engulfing_mode || 'range');
@@ -137,7 +137,7 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
     const mult = p('supertrend_multiplier', 3);
     const mode = p('supertrend_mode', 'trend');
     tokens.push(`ATR(${period})×${mult}`);
-    tokens.push(mode === 'crossover' ? 'Cross' : 'Trend');
+    tokens.push(mode === 'crossover' ? 'Crossover' : 'Trend');
   } else if (baseType === 'knife_catch') {
     const roc = p('knife_roc_threshold', 2.0);
     const wick = p('knife_wick_pct', 30.0);
@@ -153,11 +153,10 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
     const lb = p('htf_breakout_lookback', config.htf_breakout_lookback ?? 1);
     const buf = Number(p('htf_breakout_buffer_pct', config.htf_breakout_buffer_pct ?? 0));
     const maxExp = Number(p('htf_breakout_max_expansion_pct', config.htf_breakout_max_expansion_pct ?? 0));
-    const modeLabel = mode === 'closed_candle_confirm' ? 'Confirm Close' : mode === 'wick_break' ? 'Wick Break' : 'Close Break';
     const refLabel = refLvl === 'open_close_body' ? 'Body' : refLvl === 'close_only' ? 'Close' : 'H/L';
-    tokens.push(`${modeLabel} · ${refLabel}(${lb})`);
+    tokens.push(`${mode} · ${refLabel}(${lb})`);
     if (buf > 0) tokens.push(`Buf +${buf}%`);
-    if (maxExp > 0) tokens.push(`Cap ${maxExp}%`);
+    if (maxExp > 0) tokens.push(`MaxExp≤${maxExp}%`);
   } else if (baseType === 'trigger_candle_exit' || baseType === 'entry_candle_boundary') {
     const trigRaw = p('trigger_candle_exit_timeframe', config.trigger_candle_exit_timeframe || 'default');
     if (trigRaw && trigRaw !== 'default') timeframe = trigRaw;

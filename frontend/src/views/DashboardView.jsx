@@ -974,7 +974,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
                 type="button"
                 onClick={handleEditClick}
                 onMouseEnter={onEditMouseEnter}
-                className="p-1.5 hover:bg-white/5 text-dim hover:text-accent rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
+                className="w-7 h-7 flex items-center justify-center hover:bg-white/5 text-dim hover:text-accent rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
                 aria-label="Edit Strategy"
               >
                 <Edit3 size={12.5} />
@@ -989,7 +989,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
               aria-busy={isPausing}
               aria-disabled={isPausing}
               className={cn(
-                "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                "w-7 h-7 flex items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-accent outline-none",
                 isPausing ? "cursor-wait opacity-60 text-dim" : (paused ? "hover:bg-green/10 text-green cursor-pointer" : "hover:bg-amber/10 text-amber cursor-pointer")
               )}
               aria-label={isPausing ? (paused ? "Resuming Strategy Engine" : "Pausing Strategy Engine") : (paused ? "Resume Strategy Engine" : "Pause Strategy Engine")}
@@ -1000,11 +1000,11 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
         </div>
       </div>
 
-      {/* Compact 3-Column Metrics + Integrated Slot Capacity Runway */}
-      <div className="grid grid-cols-3 gap-2.5 items-center pt-2 border-t border-border/20 mt-auto">
+      {/* Compact 3-Column Metrics + Integrated Slot Capacity Runway (items-start + reserved subline eliminates live-tick height jumps) */}
+      <div className="grid grid-cols-3 gap-2.5 items-start pt-2 border-t border-border/20 mt-auto">
         <div className="flex flex-col min-w-0">
           <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Active P&amp;L</span>
-          <div className="flex items-baseline gap-1 mt-1 flex-wrap">
+          <div className="flex items-baseline gap-1 mt-1 flex-wrap min-h-[16px]">
             <span className="font-black font-mono tracking-tight leading-none text-xs sm:text-sm tabular-nums" style={{ color: pnlColor(s.activePnl) }}>
               {fmtUSD(s.activePnl)}
             </span>
@@ -1016,16 +1016,20 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
               })()}
             </span>
           </div>
-          {!isCompact && (activeEstPnl !== 0 || totalEstToRealize !== 0) && (
-            <span className="text-[8px] text-dim/60 font-mono truncate mt-0.5">
-              Est <span className="font-bold" style={{ color: pnlColor(activeEstPnl) }}>{fmtUSD(activeEstPnl)}</span> · Proj <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>{fmtUSD(totalEstToRealize)}</span>
+          {!isCompact && (
+            <span className="text-[8px] text-dim/60 font-mono truncate mt-0.5 min-h-[12px] tabular-nums">
+              {(activeEstPnl !== 0 || totalEstToRealize !== 0) ? (
+                <>Est <span className="font-bold" style={{ color: pnlColor(activeEstPnl) }}>{fmtUSD(activeEstPnl)}</span> · Proj <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>{fmtUSD(totalEstToRealize)}</span></>
+              ) : (
+                <span className="opacity-70">Target: +{Number(config.tp_ratio || 2).toFixed(1)}R</span>
+              )}
             </span>
           )}
         </div>
 
         <div className="flex flex-col min-w-0">
           <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Session Return</span>
-          <div className="flex items-baseline gap-1 mt-1 flex-wrap">
+          <div className="flex items-baseline gap-1 mt-1 flex-wrap min-h-[16px]">
             <span className="font-black font-mono tracking-tight leading-none text-xs sm:text-sm tabular-nums" style={{ color: pnlColor(s.totalPnl) }}>
               {fmtUSD(s.totalPnl)}
             </span>
@@ -1033,11 +1037,16 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
               ({sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%)
             </span>
           </div>
+          {!isCompact && (
+            <span className="text-[8px] text-dim/60 font-mono truncate mt-0.5 min-h-[12px] tabular-nums">
+              Realized: <span className="font-bold" style={{ color: pnlColor(closedPnl) }}>{fmtUSD(closedPnl)}</span>
+            </span>
+          )}
         </div>
 
         <div className="flex flex-col items-end text-right min-w-0">
-          <div className="flex items-center justify-end gap-1.5 w-full">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Slots</span>
+          <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Slots</span>
+          <div className="flex items-baseline justify-end gap-1 mt-1 w-full min-h-[16px]">
             <span className="font-black font-mono tracking-tight text-text/90 leading-none text-xs sm:text-sm tabular-nums">
               {activeCount}/{maxOpen}
             </span>
@@ -2257,10 +2266,11 @@ export function DashboardView({ initialStrategy }) {
           subTitle="Real-time strategy management & market oversight"
           sticky={true}
           hideMetricsNumbers={true}
+          mobileOneRow
         >
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap">
             {config.frequency_shaping_enabled && (
-                  <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-accent/10 border border-accent/20 rounded-xl text-[9px] font-bold text-accent uppercase tracking-widest">
+                  <div className="hidden xl:flex items-center gap-1.5 h-8 px-2.5 bg-accent/10 border border-accent/20 rounded-xl text-[9px] font-bold text-accent uppercase tracking-widest">
                     <Activity size={10} />
                     Frequency Guard
                   </div>
@@ -2268,10 +2278,11 @@ export function DashboardView({ initialStrategy }) {
 
                 <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
                   <button
+                    type="button"
                     onClick={() => setThrottled(!isThrottled)}
                     aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
                     className={cn(
-                      "px-2.5 py-1.5 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
+                      "h-8 min-w-[32px] px-2.5 rounded-xl border transition-colors active:scale-95 inline-flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
                       isThrottled
                         ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
                         : "bg-surface border-border/60 text-dim hover:text-accent hover:border-accent/40"
@@ -2290,7 +2301,7 @@ export function DashboardView({ initialStrategy }) {
                       type="button"
                       onClick={() => setConfirmStop(true)}
                       disabled={loading}
-                      className="p-1.5 bg-red/10 border border-red/20 text-red rounded-xl hover:bg-red/20 hover:scale-95 active:scale-90 transition-all focus-visible:ring-2 focus-visible:ring-red outline-none cursor-pointer"
+                      className="h-8 w-8 inline-flex items-center justify-center bg-red/10 border border-red/20 text-red rounded-xl hover:bg-red/20 active:scale-90 transition-colors focus-visible:ring-2 focus-visible:ring-red outline-none cursor-pointer"
                       aria-label="Terminate Session"
                     >
                       <XCircle size={14} />
@@ -2527,11 +2538,11 @@ export function DashboardView({ initialStrategy }) {
 
         {/* Primary Workspace: Active Strategy Cards Promoted to Top */}
         <div className="bg-surface border border-border rounded-xl p-3 sm:p-4 flex flex-col shadow-sm mb-3">
-          <div className="flex items-center justify-between mb-2.5">
+          <div className="flex items-center justify-between gap-2 mb-2.5 min-h-[30px]">
             <SectionLabel className="mb-0 flex items-center gap-1.5">
               <Zap size={13} className="text-accent" /> Active Strategy
             </SectionLabel>
-            <div className="flex items-center bg-background/60 border border-border/40 p-0.5 rounded-lg" role="tablist" aria-label="Strategy card view mode selection">
+            <div className="inline-flex items-center bg-background/60 border border-border/40 p-0.5 rounded-lg" role="tablist" aria-label="Strategy card view mode selection">
               <button
                 type="button"
                 role="tab"
@@ -2539,7 +2550,7 @@ export function DashboardView({ initialStrategy }) {
                 aria-controls="active-strategy-cards-container"
                 onClick={() => handleCardViewModeChange('detailed')}
                 className={cn(
-                  "px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  "h-6 sm:h-6 px-2.5 rounded-md text-[9px] font-black uppercase tracking-wider inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                   cardViewMode === 'detailed' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                 )}
                 aria-label="Detailed strategy cards view"
@@ -2553,7 +2564,7 @@ export function DashboardView({ initialStrategy }) {
                 aria-controls="active-strategy-cards-container"
                 onClick={() => handleCardViewModeChange('compact')}
                 className={cn(
-                  "px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  "h-6 sm:h-6 px-2.5 rounded-md text-[9px] font-black uppercase tracking-wider inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                   cardViewMode === 'compact' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                 )}
                 aria-label="Compact strategy cards view"
@@ -2567,7 +2578,7 @@ export function DashboardView({ initialStrategy }) {
                 aria-controls="active-strategy-cards-container"
                 onClick={() => handleCardViewModeChange('list')}
                 className={cn(
-                  "px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  "h-6 sm:h-6 px-2.5 rounded-md text-[9px] font-black uppercase tracking-wider inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                   cardViewMode === 'list' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                 )}
                 aria-label="List strategy cards view"

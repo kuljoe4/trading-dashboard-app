@@ -414,7 +414,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true, onInsp
         }
       }}
       className={cn(
-        "flex gap-3 sm:gap-4 p-3 sm:p-4 bg-surface border border-border/40 rounded-xl hover:border-accent/30 hover:bg-white/[0.02] hover:translate-x-1 transition-all group/trade shadow-sm relative overflow-hidden",
+        "flex gap-3 sm:gap-4 p-3 sm:p-4 bg-surface border border-border/40 rounded-xl hover:border-accent/30 hover:bg-white/[0.02] transition-colors group/trade shadow-sm relative overflow-hidden",
         onInspectTrade && "cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
       )}
     >
@@ -2540,7 +2540,7 @@ export const HistoryView = () => {
       <React.Suspense fallback={null}>
       <Sidebar />
       <div className={cn(
-        "max-w-[1200px] mx-auto px-4 pt-4 md:px-10 md:pt-10 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all",
+        "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all",
         healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
       )}>
         <ViewHeader
@@ -2548,6 +2548,7 @@ export const HistoryView = () => {
           title={activeViewTab === 'backtest' ? "Strategy Backtest Engine" : "Trade History"}
           subTitle={activeViewTab === 'backtest' ? "Multi-strategy resolution & historical simulation" : "Verified records of closed sessions & positions"}
           backAction={() => window.location.hash = '#/'}
+          hideMetricsNumbers
           mobileOneRow
         >
           <div className="flex items-center gap-2 shrink-0">
@@ -2821,19 +2822,19 @@ export const HistoryView = () => {
           >
             {/* Analytics Summary Bar (Visible when collapsed) */}
             <div className={cn(
-              "p-4 md:p-5 bg-surface/35 backdrop-blur-md border rounded-2xl transition-all shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer select-none",
+              "p-3.5 sm:p-4 md:p-5 min-h-[64px] bg-surface/35 backdrop-blur-md border rounded-2xl transition-colors shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 cursor-pointer select-none",
               analyticsExpanded ? "border-border/50 bg-surface/10 rounded-b-none" : "border-border/40 hover:border-accent/20 hover:bg-surface/50"
             )}>
-              <div className="flex items-center gap-3.5">
+              <div className="flex items-center gap-3 min-w-0">
                 <div className={cn(
-                  "w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300",
+                  "w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border transition-colors shrink-0",
                   analyticsExpanded ? "bg-accent/10 border-accent/20" : "bg-surface border-border group-hover:border-accent/30"
                 )}>
                   <BarChart3 size={18} className={cn(analyticsExpanded ? "text-accent" : "text-dim")} />
                 </div>
-                <div>
-                  <h3 className="text-xs md:text-sm font-black tracking-tight uppercase text-text">Lifetime Analytics & Insights</h3>
-                  <p className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5 opacity-80">
+                <div className="min-w-0">
+                  <h3 className="text-xs md:text-sm font-black tracking-tight uppercase text-text truncate">Lifetime Analytics & Insights</h3>
+                  <p className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5 opacity-80 truncate">
                     {analyticsExpanded ? "Click to collapse detailed performance stats & models" : "Click to expand detailed performance stats & models"}
                   </p>
                 </div>
@@ -2841,10 +2842,10 @@ export const HistoryView = () => {
 
               {/* High-level Micro-metrics summary */}
               {!analyticsExpanded && (
-                <div className="flex items-center gap-5 sm:gap-6 flex-wrap sm:ml-auto">
+                <div className="grid grid-cols-3 sm:flex items-center gap-3 sm:gap-6 w-full sm:w-auto sm:ml-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-border/20 min-h-[34px]">
                   {loading && !currentAnalytics ? (
-                    <div className="flex items-center gap-5 sm:gap-6" aria-label="Loading lifetime analytics">
-                      <div className="flex flex-col gap-1">
+                    <>
+                      <div className="flex flex-col gap-1" aria-label="Loading lifetime analytics">
                         <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60">Net P&L</span>
                         <span className="h-4 w-16 rounded bg-border/40 animate-pulse inline-block" />
                       </div>
@@ -2856,32 +2857,32 @@ export const HistoryView = () => {
                         <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60">Sharpe</span>
                         <span className="h-4 w-10 rounded bg-border/40 animate-pulse inline-block" />
                       </div>
-                    </div>
+                    </>
                   ) : (
                     <>
-                      <div className="flex flex-col">
+                      <div className="flex flex-col min-w-0">
                         <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5 opacity-60">Net P&L</span>
-                        <span className={cn("text-xs font-black font-mono tabular-nums tracking-tighter", pnlClass(totalPnl))}>
+                        <span className={cn("text-xs font-black font-mono tabular-nums tracking-tighter truncate", pnlClass(totalPnl))}>
                           {fmtUSD(totalPnl)}
                         </span>
                       </div>
-                      <div className="flex flex-col">
+                      <div className="flex flex-col min-w-0">
                         <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5 opacity-60">Win Rate</span>
-                        <span className="text-xs font-black font-mono tabular-nums text-text">
+                        <span className="text-xs font-black font-mono tabular-nums text-text truncate">
                           {winRate}% <span className="text-[9px] opacity-40 font-bold ml-0.5">({wins}/{totalTrades})</span>
                         </span>
                       </div>
-                      <div className="flex flex-col">
+                      <div className="flex flex-col min-w-0">
                         <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5 opacity-60">Sharpe</span>
-                        <span className="text-xs font-black font-mono tabular-nums text-accent">
+                        <span className="text-xs font-black font-mono tabular-nums text-accent truncate">
                           {Number(currentAnalytics?.sharpeRatio || 0).toFixed(2)}
                         </span>
                       </div>
                     </>
                   )}
-                  <span className="text-accent bg-accent/5 hover:bg-accent/10 border border-accent/20 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all hidden md:flex items-center gap-1">
+                  <span className="text-accent bg-accent/5 hover:bg-accent/10 border border-accent/20 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors hidden md:flex items-center gap-1 shrink-0">
                     Expand Insights
-                    <ChevronRight size={12} className="group-hover:translate-x-0.5 transition-transform animate-pulse-slow" />
+                    <ChevronRight size={12} />
                   </span>
                 </div>
               )}
@@ -2934,12 +2935,14 @@ export const HistoryView = () => {
                     label="Avg Win"
                     value={fmtUSD(currentAnalytics?.avgWin || 0)}
                     color="text-green"
+                    subValue={`${wins} Winning Trades`}
                     tooltipText="Average dollar gain across all profitable trades."
                   />
                   <StatCard
                     label="Avg Loss"
                     value={fmtUSD(-(currentAnalytics?.avgLoss || 0))}
                     color="text-red"
+                    subValue={`${Math.max(0, totalTrades - wins)} Losing Trades`}
                     tooltipText="Average dollar loss across all unprofitable trades."
                   />
                   <StatCard
@@ -2948,15 +2951,10 @@ export const HistoryView = () => {
                     color="text-accent"
                     tooltipText={`Win/Loss payout ratio: average winning trade size divided by average losing trade size. Expectancy: ${Number(lifetimeExpectancyStatus.expectancy || 0).toFixed(2)}.`}
                     subValue={
-                      <div className="flex flex-col gap-0.5">
-                        <span className={cn("flex items-center gap-1", lifetimeExpectancyStatus.color)}>
-                          <lifetimeExpectancyStatus.icon size={10} />
-                          {Number(lifetimeExpectancyStatus.expectancy || 0).toFixed(2)} Expectancy
-                        </span>
-                        <span className={cn("text-[8px] font-black uppercase tracking-tight", lifetimeExpectancyStatus.color)}>
-                          {lifetimeExpectancyStatus.label} Status
-                        </span>
-                      </div>
+                      <span className={cn("flex items-center gap-1 truncate", lifetimeExpectancyStatus.color)}>
+                        <lifetimeExpectancyStatus.icon size={10} className="shrink-0" />
+                        <span>{Number(lifetimeExpectancyStatus.expectancy || 0).toFixed(2)} Exp · {lifetimeExpectancyStatus.label}</span>
+                      </span>
                     }
                   />
                 </div>
@@ -3005,7 +3003,12 @@ export const HistoryView = () => {
                       </Tooltip>
                     }
                   />
-                  <StatCard label="Profit Factor" value={Number(currentAnalytics?.profitFactor || 0).toFixed(2)} color="text-accent" />
+                  <StatCard
+                    label="Profit Factor"
+                    value={Number(currentAnalytics?.profitFactor || 0).toFixed(2)}
+                    color="text-accent"
+                    subValue="Target ≥ 1.50"
+                  />
                   <StatCard
                     label="Max Streaks"
                     value={`${currentAnalytics?.maxWinStreak || 0}W / ${currentAnalytics?.maxLossStreak || 0}L`}

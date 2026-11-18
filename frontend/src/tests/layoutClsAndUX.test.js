@@ -189,4 +189,29 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       'SettingsView inputs/selects must use uniform compact text-xs typography and 34px min height'
     );
   });
+
+  test('ViewHeader Row 2 reserves constant min-height and TradesView/HistoryView enforce mobile-first alignment without hover translate shift', () => {
+    const tradesViewSource = fs.readFileSync(path.join(__dirname, '../views/TradesView.jsx'), 'utf-8');
+    const historyViewSource = fs.readFileSync(path.join(__dirname, '../views/HistoryView.jsx'), 'utf-8');
+
+    assert.ok(
+      primitivesSource.includes('const shouldRenderSecondRow = !hideMetrics;') &&
+      primitivesSource.includes('min-h-[22px] w-full'),
+      'ViewHeader must keep Row 2 consistently mounted with min-h-[22px] when hideMetrics is false so alerts never cause vertical layout shift'
+    );
+
+    assert.ok(
+      tradesViewSource.includes('max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6') &&
+      tradesViewSource.includes('hideMetricsNumbers') &&
+      tradesViewSource.includes('mobileOneRow'),
+      'TradesView must use unified mobile-first container padding, mobileOneRow, and hideMetricsNumbers'
+    );
+
+    assert.ok(
+      historyViewSource.includes('max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6') &&
+      !historyViewSource.includes('hover:translate-x-1'),
+      'HistoryView must use unified mobile-first container padding and eliminate horizontal hover translate layout shifts on TradeItem'
+    );
+  });
 });
+

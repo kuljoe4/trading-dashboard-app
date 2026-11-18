@@ -243,31 +243,33 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className="flex flex-col items-start self-start w-full h-full gap-1">
-        <div className="flex items-center gap-1.5 w-full min-w-0">
+      <div className="flex flex-col items-start justify-between self-start w-full h-full gap-1 min-w-0">
+        <div className="flex items-center justify-between gap-1.5 w-full min-w-0">
           <div className={cn("text-dim tracking-wider uppercase font-bold leading-snug flex-1 min-w-0 truncate", compact ? "text-[8.5px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">
             {label}
           </div>
           {tooltipText && <Info size={compact ? 9 : 11} className="text-dim/40 group-hover:text-accent group-focus-visible:text-accent transition-colors shrink-0 cursor-help" />}
         </div>
-        <div className={cn(
-          "font-bold font-mono tabular-nums tracking-tight transition-all duration-300 truncate leading-tight w-full",
-          color,
-          compact ? "text-xs md:text-sm lg:text-base" : "text-sm md:text-base lg:text-xl",
-          syncing && "opacity-75"
-        )}>
-          {sanitizedValue}
-        </div>
-        {subValue && (
+        <div className="flex flex-col items-start w-full min-w-0 mt-auto">
           <div className={cn(
-            "text-dim font-mono tabular-nums font-medium flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 w-full leading-normal",
-            compact ? "text-[7.5px] md:text-[8px]" : "text-[8.5px] md:text-[9.5px]",
-            syncing && "text-accent/80 font-bold"
+            "font-bold font-mono tabular-nums tracking-tight transition-colors duration-200 truncate leading-tight w-full",
+            color,
+            compact ? "text-xs md:text-sm lg:text-base" : "text-sm md:text-base lg:text-xl",
+            syncing && "opacity-75"
           )}>
-            {syncing && <RefreshCw size={compact ? 6 : 8} className="animate-spin shrink-0 text-accent" aria-hidden="true" />}
-            <div className="truncate whitespace-normal sm:whitespace-nowrap min-w-0 w-full">{subValue}</div>
+            {sanitizedValue}
           </div>
-        )}
+          {subValue !== undefined && subValue !== null && (
+            <div className={cn(
+              "text-dim font-mono tabular-nums font-medium flex items-center gap-1.5 min-w-0 w-full leading-tight min-h-[14px] mt-0.5",
+              compact ? "text-[7.5px] md:text-[8px]" : "text-[8.5px] md:text-[9.5px]",
+              syncing && "text-accent/80 font-bold"
+            )}>
+              {syncing && <RefreshCw size={compact ? 6 : 8} className="animate-spin shrink-0 text-accent" aria-hidden="true" />}
+              <div className="truncate whitespace-nowrap min-w-0 w-full">{subValue}</div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -664,14 +666,14 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   const liveRisk = Number(totalRiskPct) || 0;
   const gate = gateState || 'ACTIVE';
 
-  const shouldRenderSecondRow = !hideMetrics && (!hideMetricsNumbers || Boolean(activeAlert));
+  const shouldRenderSecondRow = !hideMetrics;
   const hasSplitStickyMetrics = sticky && shouldRenderSecondRow;
 
   const metricsStripContent = shouldRenderSecondRow ? (
-    <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-            {/* Live Metrics Strip */}
-            {!hideMetricsNumbers && (
-            <div className="flex items-center gap-2 sm:gap-3 font-mono text-[9.5px] sm:text-[10px] tabular-nums font-bold flex-wrap min-w-0">
+    <div className="flex items-center justify-between gap-2 flex-nowrap min-h-[22px] w-full">
+            {/* Live Metrics Strip or Quiet Telemetry Baseline when hideMetricsNumbers is active */}
+            {!hideMetricsNumbers ? (
+            <div className="flex items-center gap-2 sm:gap-3 font-mono text-[9.5px] sm:text-[10px] tabular-nums font-bold flex-nowrap overflow-x-auto no-scrollbar min-w-0">
               <div className="flex items-center gap-1 text-dim shrink-0">
                 <span className="text-[8.5px] uppercase tracking-wider opacity-60 font-sans">BAL</span>
                 <span className="text-text font-black">${netBal.toFixed(2)}</span>
@@ -708,6 +710,30 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   {gate}
                 </span>
               </div>
+            </div>
+            ) : (
+            <div className="flex items-center gap-2 font-mono text-[9.5px] tabular-nums font-bold min-w-0 truncate">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <PulseDot color={!showResumingFeedback && wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+                <span className={cn("text-[8.5px] uppercase tracking-wider font-bold", !showResumingFeedback && wsStatus === 'live' ? "text-dim" : "text-amber")}>
+                  {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Syncing Feed' : 'Stream Live'}
+                </span>
+              </div>
+              <span className="text-border/40 select-none">|</span>
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-[8.5px] uppercase tracking-wider text-dim opacity-60 font-sans">GATE</span>
+                <span className={cn("font-black uppercase text-[9px]", gate === 'ACTIVE' ? "text-green" : "text-amber")}>
+                  {gate}
+                </span>
+              </div>
+              {subTitle && (
+                <>
+                  <span className="text-border/40 select-none sm:hidden">|</span>
+                  <span className="text-[8.5px] text-dim uppercase tracking-wider truncate sm:hidden opacity-80 font-sans">
+                    {subTitle}
+                  </span>
+                </>
+              )}
             </div>
             )}
 

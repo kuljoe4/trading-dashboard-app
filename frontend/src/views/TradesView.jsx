@@ -144,7 +144,7 @@ const TradesView = () => {
     )}>
       <Sidebar />
       <div className={cn(
-        "max-w-[1200px] mx-auto px-4 pt-4 md:px-8 md:pt-8 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all",
+        "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all",
         healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
       )}>
         <ViewHeader
@@ -152,10 +152,13 @@ const TradesView = () => {
           title="Active Positions"
           subTitle="Live monitoring across all strategies"
           backAction={() => window.location.hash = '#/'}
+          hideMetricsNumbers
+          mobileOneRow
         />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-3 md:gap-4 gap-y-4 mb-8 lg:mb-12">
+      <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-2.5 mb-3">
         <StatCard
+          compact
           label="Active P&L"
           value={fmtUSD(activePnl)}
           color={pnlClass(activePnl)}
@@ -163,21 +166,27 @@ const TradesView = () => {
           tooltipText={`Session Return: ${fmtUSD(totalPnl)} | Est. Target: ${fmtUSD(activeEstPnl)} | Projected: ${fmtUSD(trueProjectedPnl)}`}
         />
         <StatCard
+          compact
           label="Active Risk"
           value={`${Number(totalRiskPct || 0).toFixed(2)}%`}
           color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
+          subValue={`Cap: ${config.max_total_risk_pct || 5}% · SL: ${config.sl_distance_pct || 2}%`}
           tooltipText="Combined stop-loss risk across all active trades relative to account balance."
         />
         <StatCard
+          compact
           label="Peak RR"
           value={`+${Number(peakRr || 0).toFixed(2)}`}
           color="text-accent"
+          subValue={`Target: +${Number(config.tp_ratio || 2).toFixed(1)}R (${config.tp_mode || 'fixed'})`}
           tooltipText="Maximum Reward-to-Risk ratio achieved across currently open positions."
         />
         <StatCard
+          compact
           label="Positions"
-          value={activeTrades.length.toString()}
+          value={`${activeTrades.length}/${config.max_open_trades || 5}`}
           color="text-accent"
+          subValue={`Max: ${config.max_open_trades || 5} Slots · ${activeTrades.length > 0 ? 'Active' : 'Standby'}`}
           tooltipText={`Currently open trade slots: ${activeTrades.length} / ${config.max_open_trades || 5}`}
         />
       </div>
@@ -208,28 +217,28 @@ const TradesView = () => {
         });
 
         return (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-3">
             {/* Ultra-Dense Mobile-Optimized Filter Bar */}
             <div id="active-trades-filter-toolbar" className="bg-surface border border-border rounded-xl p-2.5 sm:p-3 shadow-xs flex flex-col gap-2 w-full">
-              <div className="flex items-center justify-between gap-2 w-full">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between gap-2 w-full min-h-[32px]">
+                <div className="flex items-center gap-2 min-w-0">
                   <div className="w-6 h-6 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
                     <Filter size={12} className="text-accent" />
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-text">Tactical Filters</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-text truncate">Tactical Filters</span>
                   {hasActiveFilters && (
-                    <span className="text-[9px] font-mono font-bold text-accent tracking-wider">
+                    <span className="text-[9px] font-mono font-bold text-accent tracking-wider shrink-0">
                       · ACTIVE
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 shrink-0">
                   {hasActiveFilters && (
                     <button
                       type="button"
                       onClick={resetAllFilters}
-                      className="px-2 py-1 rounded-lg text-[8.5px] font-bold uppercase tracking-wider text-red hover:bg-red/10 border border-red/20 transition-all flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none"
+                      className="min-h-[32px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider text-red hover:bg-red/10 border border-red/20 transition-all flex items-center justify-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none"
                       aria-label="Reset position filters"
                     >
                       <RotateCcw size={10} />
@@ -242,7 +251,7 @@ const TradesView = () => {
                     aria-expanded={filtersExpanded}
                     aria-label={filtersExpanded ? "Collapse active trade filters" : "Expand active trade filters"}
                     className={cn(
-                      "px-2.5 py-1 rounded-lg text-[8.5px] font-bold uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
+                      "min-h-[32px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
                       filtersExpanded
                         ? "bg-accent/15 border-accent/40 text-accent"
                         : "bg-surface-elevated border-border text-dim hover:text-text hover:border-accent/30"
@@ -257,17 +266,17 @@ const TradesView = () => {
 
               {/* Collapsible Ultra-Dense Filter Chip Groups */}
               {filtersExpanded && (
-                <div className="pt-2 border-t border-border/20 flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="pt-2 border-t border-border/20 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
                   {/* Strategy Filter */}
                   {availableStrategies.length > 1 && (
-                    <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
-                      <span className="text-[7.5px] text-dim/70 font-black uppercase tracking-widest px-1 shrink-0">Strategy:</span>
+                    <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl max-w-full overflow-x-auto no-scrollbar">
+                      <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider px-1.5 shrink-0">Strategy</span>
                       <button
                         type="button"
                         onClick={() => handleStrategyFilterChange('ALL')}
                         aria-pressed={strategyFilter === 'ALL'}
                         className={cn(
-                          "px-2 py-0.5 rounded-md text-[8px] font-black tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                          "min-h-[28px] sm:min-h-[24px] px-2.5 py-0.5 rounded-lg text-[9px] font-bold tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                           strategyFilter === 'ALL' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                         )}
                       >
@@ -280,7 +289,7 @@ const TradesView = () => {
                           onClick={() => handleStrategyFilterChange(st)}
                           aria-pressed={strategyFilter === st}
                           className={cn(
-                            "px-2 py-0.5 rounded-md text-[8px] font-black tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                            "min-h-[28px] sm:min-h-[24px] px-2.5 py-0.5 rounded-lg text-[9px] font-bold tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                             strategyFilter === st ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                           )}
                         >
@@ -291,8 +300,8 @@ const TradesView = () => {
                   )}
 
                   {/* Direction Filter */}
-                  <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
-                    <span className="text-[7.5px] text-dim/70 font-black uppercase tracking-widest px-1 shrink-0">Direction:</span>
+                  <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl max-w-full overflow-x-auto no-scrollbar">
+                    <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider px-1.5 shrink-0">Direction</span>
                     {['ALL', 'LONG', 'SHORT'].map(d => (
                       <button
                         key={d}
@@ -300,7 +309,7 @@ const TradesView = () => {
                         onClick={() => handleDirectionFilterChange(d)}
                         aria-pressed={directionFilter === d}
                         className={cn(
-                          "px-2 py-0.5 rounded-md text-[8px] font-black tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                          "min-h-[28px] sm:min-h-[24px] px-2.5 py-0.5 rounded-lg text-[9px] font-bold tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                           directionFilter === d ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                         )}
                       >
@@ -310,8 +319,8 @@ const TradesView = () => {
                   </div>
 
                   {/* Risk Status Filter */}
-                  <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
-                    <span className="text-[7.5px] text-dim/70 font-black uppercase tracking-widest px-1 shrink-0">Risk:</span>
+                  <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl max-w-full overflow-x-auto no-scrollbar">
+                    <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider px-1.5 shrink-0">Risk</span>
                     {[
                       { id: 'ALL', label: 'ALL' },
                       { id: 'PROTECTED', label: 'PROTECTED' },
@@ -323,7 +332,7 @@ const TradesView = () => {
                         onClick={() => handleRiskFilterChange(r.id)}
                         aria-pressed={riskFilter === r.id}
                         className={cn(
-                          "px-2 py-0.5 rounded-md text-[8px] font-black tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                          "min-h-[28px] sm:min-h-[24px] px-2.5 py-0.5 rounded-lg text-[9px] font-bold tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                           riskFilter === r.id ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                         )}
                       >
@@ -335,7 +344,7 @@ const TradesView = () => {
               )}
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between px-0.5">
               <SectionLabel className="mb-0">
                 Live Tactical Map ({filteredTrades.length} / {(activeTrades || []).length})
               </SectionLabel>

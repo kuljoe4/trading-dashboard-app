@@ -540,7 +540,7 @@ export const VisuallyHidden = ({ children }) => (
 )
 
 export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming, hideMetrics = false, hideMetricsNumbers = false, mobileOneRow = false }) => {
-  const { balance, totalPnl, activeTrades, gateState, totalRiskPct, config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive, alerts, updateStats } = useTradingStore()
+  const { balance, totalPnl, activePnl, lastKnownPnl, activeTrades, gateState, totalRiskPct, config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive, alerts, updateStats } = useTradingStore()
   const tradingMode = config.trading_mode || 'paper'
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
@@ -650,9 +650,14 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
   const activeAlert = !hasActiveModal && alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null
 
-  // Compute live metrics for Row 2 strip
+  // Compute live metrics for Row 2 strip using session-cached PnL fallback on resume/navigation
   const netBal = Number(balance) || 0;
-  const netPnlVal = Number(totalPnl) || 0;
+  const cachedTotalFallback = Number(lastKnownPnl?.totalPnl) || 0;
+  const netPnlVal = Number(
+    Number(totalPnl) === 0 && sessionActive && showResumingFeedback && cachedTotalFallback !== 0
+      ? cachedTotalFallback
+      : totalPnl
+  ) || 0;
   const startingBal = tradingMode === 'paper'
     ? (config.paper_starting_balance || 10000)
     : (tradingMode === 'testnet'
@@ -662,7 +667,11 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
   const openPositions = Array.isArray(activeTrades) ? activeTrades : [];
   const maxOpen = config.max_open_trades || 1;
-  const activePnlSum = openPositions.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
+  const rawActiveSum = openPositions.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
+  const cachedActiveFallback = Number(activePnl) || Number(lastKnownPnl?.activePnl) || 0;
+  const activePnlSum = (rawActiveSum === 0 && sessionActive && (showResumingFeedback || openPositions.length > 0) && cachedActiveFallback !== 0)
+    ? cachedActiveFallback
+    : rawActiveSum;
   const liveRisk = Number(totalRiskPct) || 0;
   const gate = gateState || 'ACTIVE';
 
@@ -737,12 +746,12 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
             </div>
             )}
 
-            {/* Integrated Non-Blocking Alert Ticker Pill in Row 2 */}
+            {/* Integrated Non-Blocking Alert Ticker Pill in Row 2 (height locked to 22px to avoid vertical shift) */}
             {activeAlert && (
-              <div className="flex items-center shrink-0 ml-auto max-w-full sm:max-w-[360px]">
+              <div className="flex items-center shrink-0 ml-auto max-w-[180px] xs:max-w-[240px] sm:max-w-[360px] h-[22px]">
                 <div
                   onClick={() => setShowDropdown(!showDropdown)}
-                  className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/80 hover:bg-surface border border-border/60 hover:border-accent/50 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-full px-2.5 py-0.5 text-[9.5px] shadow-xs"
+                  className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/80 hover:bg-surface border border-border/60 hover:border-accent/50 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-full h-[22px] px-2.5 text-[9.5px] shadow-xs"
                   title="Click to view all recent alerts"
                 >
                   {triggerRippleKey > 0 && (
@@ -905,7 +914,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                     "font-black tracking-tight truncate uppercase text-text min-w-0",
                     mobileOneRow ? "text-[13px] sm:text-xs md:text-sm" : "text-xs md:text-sm"
                   )}>
-                    {showResumingFeedback ? 'Resuming...' : title}
+                    {title}
                   </h1>
                   <div className={cn(
                     "flex items-center gap-1 shrink-0 origin-left",

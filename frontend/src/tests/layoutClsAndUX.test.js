@@ -213,5 +213,33 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       'HistoryView must use unified mobile-first container padding and eliminate horizontal hover translate layout shifts on TradeItem'
     );
   });
+
+  test('PersistentAlertBanner, GateBanner, ViewHeader, and LoadingView enforce zero-CLS overlays and stable geometry', () => {
+    const alertBannerSource = fs.readFileSync(path.join(__dirname, '../components/PersistentAlertBanner.jsx'), 'utf-8');
+    const mainSource = fs.readFileSync(path.join(__dirname, '../main.jsx'), 'utf-8');
+
+    assert.ok(
+      alertBannerSource.includes('fixed top-2 left-1/2 -translate-x-1/2') &&
+      alertBannerSource.includes('pointer-events-none'),
+      'PersistentAlertBanner must render in a fixed out-of-flow overlay so reconnect notices never push document layout'
+    );
+
+    assert.ok(
+      dashboardViewSource.includes('if (!gateState && !scannerPaused) return null;') &&
+      !dashboardViewSource.includes('if (!gateState && !scannerPaused && !showResumingFeedback) return null;'),
+      'GateBanner must not mount in document flow solely for transient resume feedback'
+    );
+
+    assert.ok(
+      !primitivesSource.includes("{showResumingFeedback ? 'Resuming...' : title}"),
+      'ViewHeader h1 title must stay constant during resume instead of mutating heading width'
+    );
+
+    assert.ok(
+      mainSource.includes("sidebarCollapsed ? 'lg:pl-[80px]' : 'lg:pl-[260px]'") &&
+      mainSource.includes('warmRoutes'),
+      'main.jsx LoadingView must mirror sidebar shell geometry and idle-preload lazy routes'
+    );
+  });
 });
 

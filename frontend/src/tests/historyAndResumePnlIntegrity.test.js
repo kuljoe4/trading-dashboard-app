@@ -1,7 +1,7 @@
 import '../store/mock-env.js';
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { useTradingStore, resolveNonZeroMetric, resolveVariantStats } from '../store/trading.js';
+import { useTradingStore, resolveNonZeroMetric, resolveVariantStats, createEmptyLastKnownPnl } from '../store/trading.js';
 import { sessionAPI } from '../api/client.js';
 import { filterHistorySessions, getNextAdaptiveTradeStep } from '../utils/periodicPerformance.js';
 
@@ -175,5 +175,116 @@ describe('Trade History Adaptive Session Filtering & Resume PnL Integrity', () =
     assert.equal(dimmedVars.isTextDimmed, true);
 
     useTradingStore.getState().resetAppearance();
+  });
+
+  test('lastKnownPnl caches valid PnL across unpriced resume/focus snapshots and resets when trades close authoritatively', () => {
+    useTradingStore.setState({
+      sessionActive: true,
+      strategyId: 'sess-pnl-cache',
+      totalPnl: 0,
+      realizedPnl: 0,
+      activePnl: 0,
+      lastKnownPnl: createEmptyLastKnownPnl('sess-pnl-cache'),
+      activeTrades: [],
+      variantStats: {},
+      wsStatus: 'live',
+      isThrottled: false,
+      isSyncingOnResume: false,
+      _lastFocusChangeTs: 0,
+    });
+
+    // 1. Live update records realized, active, trade, and variant PnL in lastKnownPnl
+    useTradingStore.getState().updateStats({
+      _authoritative: true,
+      running: true,
+      sessionActive: true,
+      strategyId: 'sess-pnl-cache',
+      totalPnl: 42.5,
+      realizedPnl: 12.0,
+      activePnl: 30.5,
+      activeTrades: [
+        {
+          id: 'tr-1',
+          symbol: 'ETHUSDT',
+          strategy_label: 'Alpha 15m',
+          direction: 'LONG',
+          status: 'OPEN',
+          entry_price: 3000,
+          current_price: 3050,
+          pnl: 30.5,
+          rr: 1.4,
+          max_rr: 1.6,
+        },
+      ],
+      variantStats: {
+        'Alpha 15m': { totalPnl: 42.5, realizedPnl: 12.0, activePnl: 30.5, returnPct: 4.25 },
+      },
+    });
+
+    let st = useTradingStore.getState();
+    assert.equal(st.totalPnl, 42.5);
+    assert.equal(st.activePnl, 30.5);
+    assert.equal(st.realizedPnl, 12.0);
+    assert.equal(st.lastKnownPnl.activePnl, 30.5);
+    assert.equal(st.lastKnownPnl.trades['tr-1'].pnl, 30.5);
+    assert.equal(st.lastKnownPnl.variants['Alpha 15m'].totalPnl, 42.5);
+
+    // 2. Simulate background resume / screen-switch with an unpriced snapshot (current_price === entry_price, pnl === 0)
+    useTradingStore.setState({ isSyncingOnResume: true, _lastFocusChangeTs: Date.now() });
+    useTradingStore.getState().updateStats({
+      _authoritative: true,
+      running: true,
+      sessionActive: true,
+      strategyId: 'sess-pnl-cache',
+      totalPnl: 0,
+      realizedPnl: 0,
+      activePnl: 0,
+      activeTrades: [
+        {
+          id: 'tr-1',
+          symbol: 'ETHUSDT',
+          strategy_label: 'Alpha 15m',
+          direction: 'LONG',
+          status: 'OPEN',
+          entry_price: 3000,
+          current_price: 3000,
+          pnl: 0,
+        },
+      ],
+      variantStats: {
+        'Alpha 15m': { totalPnl: 0, realizedPnl: 0, activePnl: 0, returnPct: 0 },
+      },
+    });
+
+    st = useTradingStore.getState();
+    assert.equal(st.totalPnl, 42.5, 'totalPnl must hold cached value on unpriced resume snapshot');
+    assert.equal(st.activePnl, 30.5, 'activePnl must hold cached value on unpriced resume snapshot');
+    assert.equal(st.realizedPnl, 12.0, 'realizedPnl must hold cached value on unpriced resume snapshot');
+    assert.equal(st.activeTrades[0].pnl, 30.5, 'open trade pnl must restore from lastKnownPnl cache');
+    assert.equal(st.variantStats['Alpha 15m'].totalPnl, 42.5);
+    assert.equal(st.isSyncingOnResume, true, 'remains syncing until priced ticks arrive');
+
+    // 3. Authoritative closure clears activePnl and trade cache cleanly
+    useTradingStore.setState({ isSyncingOnResume: false, _lastFocusChangeTs: 0 });
+    useTradingStore.getState().updateStats({
+      _authoritative: true,
+      running: true,
+      sessionActive: true,
+      strategyId: 'sess-pnl-cache',
+      totalPnl: 44.0,
+      realizedPnl: 44.0,
+      activePnl: 0,
+      activeTrades: [],
+      variantStats: {
+        'Alpha 15m': { totalPnl: 44.0, realizedPnl: 44.0, activePnl: 0, returnPct: 4.4 },
+      },
+    });
+
+    st = useTradingStore.getState();
+    assert.equal(st.activePnl, 0);
+    assert.equal(st.realizedPnl, 44.0);
+    assert.equal(st.totalPnl, 44.0);
+    assert.equal(st.lastKnownPnl.activePnl, 0);
+    assert.deepEqual(st.lastKnownPnl.trades, {});
   });
 });

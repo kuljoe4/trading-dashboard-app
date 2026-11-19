@@ -126,7 +126,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing,
     isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused,
     activeTrades, tradeHistory, logs, strategyGateStates, lastAuthoritativeUpdateTs,
-    lastScanTs, gateState, gateReason, storeBalance, totalSessionPnl, healthEnabled
+    lastScanTs, gateState, gateReason, storeBalance, totalSessionPnl, lastKnownPnl, healthEnabled
   } = useTradingStore(state => ({
     config: state.config,
     scannerResults: state.scannerResults,
@@ -149,6 +149,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     gateReason: state.gateReason || 'OK',
     storeBalance: state.balance,
     totalSessionPnl: state.totalPnl || 0,
+    lastKnownPnl: state.lastKnownPnl,
     healthEnabled: state.healthEnabled,
   }), shallow)
   const [selectedTradeId, setSelectedTradeId] = useState(null)
@@ -1654,13 +1655,28 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       </div>
 
       {/* Compact 4-Card KPI Strip */}
+      {(() => {
+        const cachedVarPnl = lastKnownPnl?.variants?.[s?.strategy_label];
+        const rawActivePnl = Number(s?.activePnl || 0);
+        const liveTradesPnl = strategyActiveTrades.reduce((acc, t) => acc + (Number(t?.pnl) || 0), 0);
+        const effectiveActivePnl = rawActivePnl !== 0
+          ? rawActivePnl
+          : (liveTradesPnl !== 0
+              ? liveTradesPnl
+              : ((showResumingFeedback || activeTradeCount > 0) ? (Number(cachedVarPnl?.activePnl) || 0) : 0));
+        const rawTotalPnl = Number(s?.totalPnl || 0);
+        const effectiveTotalPnl = rawTotalPnl !== 0
+          ? rawTotalPnl
+          : (Number(cachedVarPnl?.totalPnl) || (stratPerformance.sumPnl + effectiveActivePnl));
+        const effectiveRealizedPnl = (effectiveTotalPnl - effectiveActivePnl);
+        return (
       <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2 sm:gap-2.5 mb-2.5 sm:mb-3">
         <StatCard
           compact
           label="Active P&L"
-          value={fmtUSD(s.activePnl)}
-          color={pnlClass(s.activePnl)}
-          subValue={`Session: ${fmtUSD(s.totalPnl)} · Realized: ${fmtUSD((s.totalPnl || 0) - (s.activePnl || 0))}`}
+          value={fmtUSD(effectiveActivePnl)}
+          color={pnlClass(effectiveActivePnl)}
+          subValue={`Session: ${fmtUSD(effectiveTotalPnl)} · Realized: ${fmtUSD(effectiveRealizedPnl)}`}
           syncing={showResumingFeedback || isSyncing}
           tooltipText="Unrealized P&L on active positions, total Session Return (realized + unrealized), and cumulative realized strategy P&L."
         />
@@ -1689,6 +1705,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           tooltipText="Profit Factor (Gross Wins / Gross Losses). Recommended: > 1.00 (Profitable), >= 1.50 (Solid), >= 2.00 (Excellent)."
         />
       </div>
+        );
+      })()}
 
       {/* Live Diagnostic Narrative Strip ("What, Why & When") */}
       <div

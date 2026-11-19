@@ -17,6 +17,17 @@ test('Zustand store local storage persistence partialize whitelist validation', 
       strategyId: 'test-strategy-uuid',
       balance: 15000,
       totalPnl: 350.5,
+      realizedPnl: 225.25,
+      activePnl: 125.25,
+      lastKnownPnl: {
+        sessionId: 'test-strategy-uuid',
+        realizedPnl: 225.25,
+        activePnl: 125.25,
+        totalPnl: 350.5,
+        variants: {},
+        trades: {},
+        updatedAt: 1680000100000,
+      },
       activeTrades: [{ id: 'trade-1', symbol: 'BTCUSDT' }],
       totalRiskPct: 1.5,
       totalSlUsed: 150,
@@ -37,6 +48,9 @@ test('Zustand store local storage persistence partialize whitelist validation', 
     assert.strictEqual(partialized.strategyId, 'test-strategy-uuid');
     assert.strictEqual(partialized.balance, 15000);
     assert.strictEqual(partialized.totalPnl, 350.5);
+    assert.strictEqual(partialized.realizedPnl, 225.25);
+    assert.strictEqual(partialized.activePnl, 125.25);
+    assert.strictEqual(partialized.lastKnownPnl.totalPnl, 350.5);
     assert.deepStrictEqual(partialized.activeTrades, [{ id: 'trade-1', symbol: 'BTCUSDT' }]);
     assert.strictEqual(partialized.totalRiskPct, 1.5);
     assert.strictEqual(partialized.totalSlUsed, 150);

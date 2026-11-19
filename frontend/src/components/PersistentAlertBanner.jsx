@@ -93,14 +93,14 @@ export const PersistentAlertBanner = () => {
   return (
     <aside
       aria-label="System Connectivity and API Diagnostics"
-      className="w-full flex flex-col gap-2 p-3 sm:p-4 bg-background border-b border-border/80 z-50 sticky top-0 backdrop-blur-md shadow-lg"
+      className="fixed top-2 left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] max-w-[1160px] flex flex-col gap-2 z-[120] pointer-events-none"
     >
-      {/* Ambient Reconnection Notice - Non-intrusive, polite, zero layout scream */}
+      {/* Ambient Reconnection Notice - Non-intrusive fixed overlay, zero CLS */}
       {showReconnectingPill && !hasWsFailure && (
         <div
           role="status"
           aria-live="polite"
-          className="flex items-center justify-between gap-3 px-3.5 py-2 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-300 text-xs shadow-xs animate-in fade-in duration-200"
+          className="pointer-events-auto flex items-center justify-between gap-3 px-3.5 py-2 rounded-xl bg-amber-950/90 backdrop-blur-xl border border-amber-500/30 text-amber-300 text-xs shadow-xl animate-in fade-in duration-200"
         >
           <div className="flex items-center gap-2.5">
             <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400 shrink-0" aria-hidden="true" />
@@ -117,7 +117,7 @@ export const PersistentAlertBanner = () => {
         <div
           role="alert"
           aria-live="assertive"
-          className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-red-950/80 border border-red-500/50 text-red-200 shadow-md animate-in fade-in slide-in-from-top-1 duration-200"
+          className="pointer-events-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-red-950/95 backdrop-blur-xl border border-red-500/50 text-red-200 shadow-2xl animate-in fade-in slide-in-from-top-1 duration-200"
         >
           <div className="flex items-start sm:items-center gap-3">
             <div className="p-2 rounded-lg bg-red-900/60 text-red-400 shrink-0">
@@ -155,7 +155,7 @@ export const PersistentAlertBanner = () => {
         <div
           role="alert"
           aria-live="assertive"
-          className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-950/80 border border-amber-500/50 text-amber-200 shadow-md animate-in fade-in slide-in-from-top-1 duration-200"
+          className="pointer-events-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-950/95 backdrop-blur-xl border border-amber-500/50 text-amber-200 shadow-2xl animate-in fade-in slide-in-from-top-1 duration-200"
         >
           <div className="flex items-start sm:items-center gap-3">
             <div className="p-2 rounded-lg bg-amber-900/60 text-amber-400 shrink-0">

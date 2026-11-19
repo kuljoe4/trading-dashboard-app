@@ -560,8 +560,14 @@ const preloadConfigModal = () => { import('../components/ConfigModal'); };
 const preloadScannerOverlay = () => { import('../components/ScannerOverlay'); };
 
 const LoadingFallback = () => (
-  <div className="flex items-center justify-center p-20">
-    <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin" />
+  <div className="max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 space-y-3" aria-busy="true" aria-label="Loading view">
+    <div className="h-[58px] rounded-2xl bg-surface/50 border border-border/30 animate-pulse" />
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+      {[0, 1, 2, 3].map(i => (
+        <div key={i} className="h-[64px] rounded-xl bg-surface/50 border border-border/30 animate-pulse" />
+      ))}
+    </div>
+    <div className="h-[180px] rounded-2xl bg-surface/40 border border-border/30 animate-pulse" />
   </div>
 )
 
@@ -1082,7 +1088,8 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
   const config = useTradingStore(state => state.config);
   const now = useNow();
 
-  if (!gateState && !scannerPaused && !showResumingFeedback) return null;
+  // Do NOT mount a flow-shifting banner solely for transient background resume (ViewHeader/StatCard/StrategyCard already indicate syncing in-place with 0 CLS)
+  if (!gateState && !scannerPaused) return null;
 
   const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
 
@@ -1104,12 +1111,11 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 
   // Visual Cue Styling
   const bannerStyle = cn(
-    "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2.5 shadow-sm transition-all duration-300 relative overflow-hidden",
-    showResumingFeedback ? "bg-accent/10 border-accent/30 text-accent shadow-[0_0_15px_rgba(91,111,255,0.1)]" :
+    "p-3.5 sm:p-4 rounded-xl mb-3 text-xs font-bold border flex flex-col gap-2 shadow-sm transition-colors duration-300 relative overflow-hidden",
     scannerPaused ? "bg-red/10 border-red/20 text-red shadow-[0_0_15px_rgba(239,68,68,0.1)]" :
     (gateState === 'sl_guard') ? "bg-red/5 border-red/20 text-red shadow-[0_0_12px_rgba(239,68,68,0.05)]" :
     "bg-amber/10 border-amber/20 text-amber shadow-[0_0_12px_rgba(245,166,35,0.05)]",
-    (!showResumingFeedback && (hibernating || isGatedIdle)) && "bg-slate-500/10 border-slate-500/20 text-slate-400"
+    (hibernating || isGatedIdle) && "bg-slate-500/10 border-slate-500/20 text-slate-400"
   );
 
   const totalPeriodSec = Math.max(1, (config?.trades_period_min || 60) * 60);
@@ -1117,14 +1123,12 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -10 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
       className={bannerStyle}
     >
       <div className="flex items-center gap-3">
-        {showResumingFeedback ? (
-          <RefreshCw size={16} className="animate-spin text-accent" />
-        ) : hibernating ? (
+        {hibernating ? (
           <Zap size={16} className={cn("animate-pulse", hibernationMode === 'light' ? "text-accent" : "text-amber")} />
         ) : gateState === 'sleeping' ? (
           <Pause size={16} className="text-slate-400" />
@@ -1133,9 +1137,14 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
         ) : (
           <PulseDot color="bg-amber" />
         )}
-        <span className="uppercase tracking-widest flex-1">
-          {showResumingFeedback ? 'Resuming Data Feed...' : hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
+        <span className="uppercase tracking-widest flex-1 min-w-0 truncate">
+          {hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
         </span>
+        {showResumingFeedback && (
+          <span className="px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-[9px] font-mono text-accent flex items-center gap-1 shrink-0">
+            <RefreshCw size={9} className="animate-spin" /> Syncing
+          </span>
+        )}
         {hibernating ? (
           <button
             type="button"
@@ -1160,23 +1169,21 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
         )}
       </div>
       {reason && reason !== 'OK' && (
-        <div className="pl-7 opacity-80 font-mono text-[10px] tracking-tight">
+        <div className="pl-7 opacity-80 font-mono text-[10px] tracking-tight truncate">
           Backend: {reason}
         </div>
       )}
 
-      {/* Dynamic Micro-Progress Timeline Bar for Period Release Countdown */}
+      {/* Dynamic Micro-Progress Timeline Bar for Period Release Countdown (GPU scaleX avoids layout reflow) */}
       {nextSlotSec !== null && nextSlotSec > 0 && (
-        <div className="flex items-center gap-3 mt-1.5">
+        <div className="flex items-center gap-3 mt-1">
           <div className="flex-1 bg-border/20 h-1.5 rounded-full overflow-hidden relative border border-white/5">
-            <motion.div
-              initial={{ width: '100%' }}
-              animate={{ width: `${progressPct}%` }}
-              transition={{ duration: 1, ease: 'linear' }}
-              className="h-full bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)]"
+            <div
+              className="h-full w-full origin-left bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)] transition-transform duration-1000 ease-linear"
+              style={{ transform: `scaleX(${Math.max(0, Math.min(1, progressPct / 100))})` }}
             />
           </div>
-          <span className="px-2 py-0.5 rounded bg-amber/20 border border-amber/35 text-[9px] font-black font-mono text-amber shrink-0 animate-pulse">
+          <span className="px-2 py-0.5 rounded bg-amber/20 border border-amber/35 text-[9px] font-black font-mono text-amber shrink-0 animate-pulse tabular-nums">
             {waitTimeStr}
           </span>
         </div>
@@ -1557,7 +1564,7 @@ export function DashboardView({ initialStrategy }) {
   }, []);
 
   const {
-    sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, totalRiskPct,
+    sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, activePnl: storeActivePnl, realizedPnl: storeRealizedPnl, lastKnownPnl, totalRiskPct,
     totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
     scannerPaused, scannerResults, sessionList, fetchSessions, wsStatus,
@@ -1573,6 +1580,9 @@ export function DashboardView({ initialStrategy }) {
     strategyId: state.strategyId,
     balance: state.balance,
     totalPnl: state.totalPnl,
+    activePnl: state.activePnl,
+    realizedPnl: state.realizedPnl,
+    lastKnownPnl: state.lastKnownPnl,
     totalRiskPct: state.totalRiskPct,
     totalSlUsed: state.totalSlUsed,
     totalEstPnlToRealize: state.totalEstPnlToRealize,
@@ -1633,11 +1643,16 @@ export function DashboardView({ initialStrategy }) {
 
   const safeVariantStats = variantStats || {}
   const activeTradingMode = config?.trading_mode || (config?.paper_mode === false ? 'live' : 'paper');
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
+  const showResumingFeedback = sessionActive && isResuming;
+  const effectiveTotalPnl = (safeNum(totalPnl) === 0 && sessionActive && isResuming && safeNum(lastKnownPnl?.totalPnl) !== 0)
+    ? safeNum(lastKnownPnl?.totalPnl)
+    : safeNum(totalPnl);
 
   const currentStrategy = useMemo(() => ({
-    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount,
+    sessionActive, sessionPaused, strategyId, totalPnl: effectiveTotalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount,
     strategy_label: config.strategy_label || 'Momentum Strategy'
-  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount, config.strategy_label])
+  }), [sessionActive, sessionPaused, strategyId, effectiveTotalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount, config.strategy_label])
 
   const validTradeHistory = useMemo(() => {
     const hist = tradeHistory || [];
@@ -1819,6 +1834,35 @@ export function DashboardView({ initialStrategy }) {
       }
     }
 
+    const cachedTotalActive = safeNum(storeActivePnl) || safeNum(lastKnownPnl?.activePnl);
+    if (totPnl === 0 && sessionActive && (isResuming || trades.length > 0) && cachedTotalActive !== 0) {
+      totPnl = cachedTotalActive;
+    }
+
+    const cachedTrades = lastKnownPnl?.trades || {};
+    for (const label of Object.keys(pnlMap)) {
+      if (pnlMap[label] === 0 && sessionActive && (countMap[label] > 0 || isResuming)) {
+        const cachedVarActive = safeNum(
+          safeVariantStats[label]?.activePnl ??
+          safeVariantStats[label]?.unrealizedPnl ??
+          lastKnownPnl?.variants?.[label]?.activePnl
+        );
+        if (cachedVarActive !== 0) {
+          pnlMap[label] = cachedVarActive;
+        } else if (trades.length > 0) {
+          let labelTradeSum = 0;
+          for (let i = 0; i < trades.length; i++) {
+            const tr = trades[i];
+            if ((tr?.strategy_label || strategyLabel) === label) {
+              const cachedTr = (tr.id && cachedTrades[tr.id]) || (tr.symbol && cachedTrades[tr.symbol]);
+              labelTradeSum += safeNum(cachedTr?.pnl);
+            }
+          }
+          if (labelTradeSum !== 0) pnlMap[label] = labelTradeSum;
+        }
+      }
+    }
+
     return {
       activePnlMap: pnlMap,
       activeRiskMap: riskMap,
@@ -1831,7 +1875,7 @@ export function DashboardView({ initialStrategy }) {
       latestActiveUpdateTs: latestUpdateTs > 0 ? latestUpdateTs : null,
       maxRR: maxRrAchieved
     };
-  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
+  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants, sessionActive, isResuming, storeActivePnl, lastKnownPnl, safeVariantStats]);
 
   const { todaysPnl, todaysPnlPct } = useMemo(() => {
     const now = new Date(nowTick);
@@ -2181,13 +2225,27 @@ export function DashboardView({ initialStrategy }) {
   const strategyData = useMemo(() => {
     if (!selected) return null;
     const vStats = safeVariantStats[selected];
+    const cachedVar = lastKnownPnl?.variants?.[selected];
     const stratMetric = stratMetricsMap.get(selected);
     const activeVariantsCount = (config?.strategy_variants || []).filter(v => v && v.enabled !== false).length;
     const isBaseSelected = selected === currentStrategy.strategy_label;
     const computedActivePnl = activePnlMap[selected] || 0;
+    const effectiveActivePnl = computedActivePnl !== 0
+      ? computedActivePnl
+      : ((sessionActive && (isResuming || (activeTradeCountsMap[selected] || 0) > 0))
+          ? safeNum(vStats?.activePnl ?? vStats?.unrealizedPnl ?? cachedVar?.activePnl)
+          : 0);
     const computedRiskUsdt = activeRiskMap[selected] || 0;
     const fallbackRiskPct = vStats?.totalRiskPct ?? (balance > 0 && computedRiskUsdt > 0 ? (computedRiskUsdt / balance) * 100 : (isBaseSelected && activeVariantsCount === 0 ? totalRiskPct : 0));
-    const fallbackTotalPnl = vStats?.totalPnl ?? (stratMetric ? stratMetric.totalPnl + computedActivePnl : (isBaseSelected && activeVariantsCount === 0 ? currentStrategy.totalPnl : computedActivePnl));
+    const computedTotalCandidate = stratMetric
+      ? stratMetric.totalPnl + effectiveActivePnl
+      : (isBaseSelected && activeVariantsCount === 0
+          ? (currentStrategy.totalPnl || (isResuming ? safeNum(cachedVar?.totalPnl ?? lastKnownPnl?.totalPnl) : 0))
+          : (safeNum(cachedVar?.totalPnl) || effectiveActivePnl));
+    const rawVarTotal = vStats?.totalPnl;
+    const fallbackTotalPnl = (rawVarTotal !== undefined && rawVarTotal !== null && (rawVarTotal !== 0 || computedTotalCandidate === 0))
+      ? rawVarTotal
+      : computedTotalCandidate;
     const fallbackEntryCount = vStats?.entryCount ?? (stratMetric ? (stratMetric.wins + stratMetric.losses) : (isBaseSelected && activeVariantsCount === 0 ? currentStrategy.entryCount : (activeTradeCountsMap[selected] || 0)));
     const fallbackHitCount = vStats?.hitCount ?? (stratMetric ? stratMetric.wins : (isBaseSelected && activeVariantsCount === 0 ? currentStrategy.hitCount : 0));
 
@@ -2201,14 +2259,11 @@ export function DashboardView({ initialStrategy }) {
       totalRiskPct: fallbackRiskPct,
       activeTradeCount: activeTradeCountsMap[selected] || vStats?.activeTradeCount || 0,
       totalEstPnlToRealize: vStats?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[selected] ?? 0,
-      activePnl: computedActivePnl
+      activePnl: effectiveActivePnl
     };
-  }, [selected, currentStrategy, safeVariantStats, stratMetricsMap, config?.strategy_variants, activePnlMap, activeRiskMap, activeTradeCountsMap, activeEstPnlToRealizeMap, balance, totalRiskPct]);
+  }, [selected, currentStrategy, safeVariantStats, lastKnownPnl, stratMetricsMap, config?.strategy_variants, activePnlMap, activeRiskMap, activeTradeCountsMap, activeEstPnlToRealizeMap, balance, totalRiskPct, sessionActive, isResuming]);
 
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-
-  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
-  const showResumingFeedback = sessionActive && isResuming;
 
   return (
     <div className={cn(
@@ -2442,24 +2497,24 @@ export function DashboardView({ initialStrategy }) {
                 const udsTimeAgo = lastUdsBalanceTs ? formatTimeAgo(lastUdsBalanceTs) : null;
 
                 return (
-                  <div className="flex flex-col gap-0.5 text-[9px]">
+                  <div className="flex flex-col gap-0.5 text-[9px] min-w-0">
                     {lastTrade && (
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={9} className="text-green" /> : <TrendingDown size={9} className="text-red" />}
-                        <span className={pnlClass(lastTrade.pnl)}>
+                      <div className="flex items-center gap-1 flex-nowrap overflow-hidden whitespace-nowrap">
+                        {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={9} className="text-green shrink-0" /> : <TrendingDown size={9} className="text-red shrink-0" />}
+                        <span className={cn("truncate", pnlClass(lastTrade.pnl))}>
                           {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%)
                         </span>
-                        {tradeTimeAgo && <span className="text-dim text-[8.5px]">· {tradeTimeAgo}</span>}
+                        {tradeTimeAgo && <span className="text-dim text-[8.5px] shrink-0">· {tradeTimeAgo}</span>}
                       </div>
                     )}
-                    <div className="flex items-center gap-1.5 flex-wrap text-[8.5px] font-mono text-dim/70">
-                      <span>Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)} ({fundPct.toFixed(2)}%)</span></span>
-                      <span>•</span>
-                      <span>Fee: <span className="text-red/80">{fmtUSD(-netComm)} ({commPct.toFixed(2)}%)</span></span>
+                    <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden whitespace-nowrap text-[8.5px] font-mono text-dim/70">
+                      <span className="shrink-0">Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)} ({fundPct.toFixed(2)}%)</span></span>
+                      <span className="shrink-0">•</span>
+                      <span className="truncate">Fee: <span className="text-red/80">{fmtUSD(-netComm)} ({commPct.toFixed(2)}%)</span></span>
                       {lastUdsBalanceReason && (
                         <>
-                          <span>•</span>
-                          <span className="text-accent font-bold">{lastUdsBalanceReason} {udsTimeAgo && `(${udsTimeAgo})`}</span>
+                          <span className="shrink-0">•</span>
+                          <span className="text-accent font-bold truncate">{lastUdsBalanceReason} {udsTimeAgo && `(${udsTimeAgo})`}</span>
                         </>
                       )}
                     </div>
@@ -2478,17 +2533,17 @@ export function DashboardView({ initialStrategy }) {
               subValue={globalMetricsExpanded ? (() => {
                 const modeLabel = config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live');
                 if (!activeTrades || activeTrades.length === 0) {
-                  return `Session (${modeLabel}): ${fmtUSD(totalPnl)}`;
+                  return `Session (${modeLabel}): ${fmtUSD(effectiveTotalPnl)}`;
                 }
                 const peakPct = balance > 0 ? (peakActivePnl / balance) * 100 : 0;
                 const minPct = balance > 0 ? (minActivePnl / balance) * 100 : 0;
                 return (
-                  <div className="flex items-center gap-1.5 flex-wrap text-[8.5px] font-mono">
-                    <span>Peak: <span className="text-green font-bold">{fmtUSD(peakActivePnl)} ({peakPct >= 0 ? '+' : ''}{peakPct.toFixed(1)}%)</span></span>
-                    <span>•</span>
-                    <span>Min: <span className={cn(minActivePnl < 0 ? "text-red font-bold" : "text-dim")}>{fmtUSD(minActivePnl)} ({minPct >= 0 ? '+' : ''}{minPct.toFixed(1)}%)</span></span>
-                    <span>•</span>
-                    <span className="text-dim">Session ({modeLabel}): {fmtUSD(totalPnl)}</span>
+                  <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden whitespace-nowrap text-[8.5px] font-mono">
+                    <span className="shrink-0">Peak: <span className="text-green font-bold">{fmtUSD(peakActivePnl)} ({peakPct >= 0 ? '+' : ''}{peakPct.toFixed(1)}%)</span></span>
+                    <span className="shrink-0">•</span>
+                    <span className="shrink-0">Min: <span className={cn(minActivePnl < 0 ? "text-red font-bold" : "text-dim")}>{fmtUSD(minActivePnl)} ({minPct >= 0 ? '+' : ''}{minPct.toFixed(1)}%)</span></span>
+                    <span className="shrink-0">•</span>
+                    <span className="text-dim truncate">Session ({modeLabel}): {fmtUSD(effectiveTotalPnl)}</span>
                   </div>
                 );
               })() : null}
@@ -2607,7 +2662,17 @@ export function DashboardView({ initialStrategy }) {
                   const totalCards = 1 + activeVariants.length;
                   const baseLabel = currentStrategy.strategy_label;
                   const baseMetric = stratMetricsMap.get(baseLabel);
-                  const baseComputedPnl = baseMetric ? baseMetric.totalPnl + (activePnlMap[baseLabel] || 0) : (activeVariants.length > 0 ? (activePnlMap[baseLabel] || 0) : currentStrategy.totalPnl);
+                  const baseCachedVar = lastKnownPnl?.variants?.[baseLabel];
+                  const baseEffectiveActivePnl = (activePnlMap[baseLabel] || 0) !== 0
+                    ? (activePnlMap[baseLabel] || 0)
+                    : ((isResuming || (activeTradeCountsMap[baseLabel] || 0) > 0)
+                        ? safeNum(safeVariantStats[baseLabel]?.activePnl ?? safeVariantStats[baseLabel]?.unrealizedPnl ?? baseCachedVar?.activePnl)
+                        : 0);
+                  const baseComputedPnl = baseMetric
+                    ? baseMetric.totalPnl + baseEffectiveActivePnl
+                    : (activeVariants.length > 0
+                        ? (safeNum(baseCachedVar?.totalPnl) || baseEffectiveActivePnl)
+                        : (currentStrategy.totalPnl || safeNum(baseCachedVar?.totalPnl)));
                   const rawBaseVariantPnl = safeVariantStats[baseLabel]?.totalPnl;
                   const baseTotalPnl = (rawBaseVariantPnl !== undefined && rawBaseVariantPnl !== null && (rawBaseVariantPnl !== 0 || baseComputedPnl === 0))
                     ? rawBaseVariantPnl
@@ -2624,7 +2689,7 @@ export function DashboardView({ initialStrategy }) {
                           totalPnl: baseTotalPnl,
                           entryCount: baseEntryCount,
                           hitCount: baseHitCount,
-                          activePnl: activePnlMap[baseLabel] || 0,
+                          activePnl: baseEffectiveActivePnl,
                           activeEstPnl: activeEstPnlToRealizeMap[baseLabel] || 0,
                           activeTradeCount: activeTradeCountsMap[baseLabel] || 0,
                           totalEstPnlToRealize: safeVariantStats[baseLabel]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[baseLabel] ?? 0,
@@ -2652,7 +2717,15 @@ export function DashboardView({ initialStrategy }) {
                         const label = variant.strategy_label || `Variant ${i + 1}`;
                         const variantConfig = { ...config, ...variant };
                         const stratMetric = stratMetricsMap.get(label);
-                        const variantComputedPnl = stratMetric ? stratMetric.totalPnl + (activePnlMap[label] || 0) : (activePnlMap[label] || 0);
+                        const variantCached = lastKnownPnl?.variants?.[label];
+                        const variantEffectiveActive = (activePnlMap[label] || 0) !== 0
+                          ? (activePnlMap[label] || 0)
+                          : ((isResuming || (activeTradeCountsMap[label] || 0) > 0)
+                              ? safeNum(safeVariantStats[label]?.activePnl ?? safeVariantStats[label]?.unrealizedPnl ?? variantCached?.activePnl)
+                              : 0);
+                        const variantComputedPnl = stratMetric
+                          ? stratMetric.totalPnl + variantEffectiveActive
+                          : (safeNum(variantCached?.totalPnl) || variantEffectiveActive);
                         const rawVariantPnl = safeVariantStats[label]?.totalPnl;
                         const variantTotalPnl = (rawVariantPnl !== undefined && rawVariantPnl !== null && (rawVariantPnl !== 0 || variantComputedPnl === 0))
                           ? rawVariantPnl
@@ -2669,7 +2742,7 @@ export function DashboardView({ initialStrategy }) {
                               totalPnl: variantTotalPnl,
                               entryCount: variantEntryCount,
                               hitCount: variantHitCount,
-                              activePnl: activePnlMap[label] || 0,
+                              activePnl: variantEffectiveActive,
                               activeEstPnl: activeEstPnlToRealizeMap[label] || 0,
                               activeTradeCount: activeTradeCountsMap[label] || 0,
                               totalEstPnlToRealize: safeVariantStats[label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[label] ?? 0,

@@ -18,14 +18,22 @@ const HistoryView = lazyWithRetry(() => import('./views/HistoryView').then(m => 
 const TradesView = lazyWithRetry(() => import('./views/TradesView'));
 const TradeDetailView = lazyWithRetry(() => import('./views/TradeDetailView'));
 
-const LoadingView = () => (
-  <div className="min-h-screen bg-background flex items-center justify-center">
-    <div className="flex flex-col items-center gap-4">
-      <div className="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin" />
-      <span className="text-[10px] text-dim font-bold uppercase tracking-[0.2em]">Synchronizing...</span>
+const LoadingView = () => {
+  const sidebarCollapsed = useTradingStore((s) => s.sidebarCollapsed);
+  return (
+    <div className={`min-h-screen bg-background transition-all duration-300 ${sidebarCollapsed ? 'lg:pl-[80px]' : 'lg:pl-[260px]'}`}>
+      <div className="max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 space-y-3">
+        <div className="h-[62px] rounded-2xl bg-surface/50 border border-border/30 animate-pulse" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-[56px] rounded-xl bg-surface/50 border border-border/30 animate-pulse" />
+          ))}
+        </div>
+        <div className="h-[180px] rounded-xl bg-surface/40 border border-border/30 animate-pulse" />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const App = () => {
   const store = useTradingStore();
@@ -66,6 +74,24 @@ const App = () => {
       clearTimeout(fallbackTimer);
     };
   }, []);
+
+  // Preload lazy route bundles when idle so screen switching has zero Suspense flash or CLS
+  useEffect(() => {
+    if (!hydrated || typeof window === 'undefined') return undefined;
+    const warmRoutes = () => {
+      import('./views/DashboardView').catch(() => {});
+      import('./views/TradesView').catch(() => {});
+      import('./views/HistoryView').catch(() => {});
+      import('./views/SettingsView').catch(() => {});
+      import('./views/TradeDetailView').catch(() => {});
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      const idleId = window.requestIdleCallback(warmRoutes, { timeout: 2000 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timer = setTimeout(warmRoutes, 900);
+    return () => clearTimeout(timer);
+  }, [hydrated]);
 
   const isHidden = useVisibility();
 
@@ -253,6 +279,8 @@ const App = () => {
           ...res.data,
           _authoritative: true,
           sessionActive: running,
+          realizedPnl: res.data.realizedPnl ?? res.data.realized_pnl,
+          activePnl: res.data.activePnl ?? res.data.active_pnl,
           totalPnl: res.data.totalPnl ?? res.data.total_pnl,
           entryCount: res.data.stats?.entryCount,
           hitCount: res.data.stats?.hitCount,

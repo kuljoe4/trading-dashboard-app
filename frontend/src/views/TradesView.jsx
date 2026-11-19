@@ -19,9 +19,11 @@ const preloadTradeDetailModal = () => {
 import { Filter, SlidersHorizontal, ChevronDown, RotateCcw } from 'lucide-react'
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore(state => ({
+  const { activeTrades, totalPnl, activePnl: storeActivePnl, lastKnownPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore(state => ({
     activeTrades: state.activeTrades,
     totalPnl: state.totalPnl,
+    activePnl: state.activePnl,
+    lastKnownPnl: state.lastKnownPnl,
     totalRiskPct: state.totalRiskPct,
     totalSlUsed: state.totalSlUsed,
     config: state.config,
@@ -82,6 +84,10 @@ const TradesView = () => {
   const showResumingFeedback = sessionActive && isResuming
 
   // BOLT OPTIMIZATION: Combine active trade calculations into a single-pass loop-fused useMemo
+  const effectiveTotalPnl = (safeNum(totalPnl) === 0 && sessionActive && isResuming && safeNum(lastKnownPnl?.totalPnl) !== 0)
+    ? safeNum(lastKnownPnl?.totalPnl)
+    : safeNum(totalPnl);
+
   const { activePnl, activeEstPnl, trueProjectedPnl, peakRr } = useMemo(() => {
     const trades = activeTrades || [];
     let pnl = 0;
@@ -94,14 +100,18 @@ const TradesView = () => {
       estPnl += safeNum(t.est_pnl_to_realize);
       maxRr = Math.max(maxRr, Number(t.max_rr ?? t.max_rr_achieved ?? 0));
     }
-    const projected = (totalPnl - pnl) + estPnl;
+    const cachedActive = safeNum(storeActivePnl) || safeNum(lastKnownPnl?.activePnl);
+    if (pnl === 0 && sessionActive && (isResuming || len > 0) && cachedActive !== 0) {
+      pnl = cachedActive;
+    }
+    const projected = (effectiveTotalPnl - pnl) + estPnl;
     return {
       activePnl: pnl,
       activeEstPnl: estPnl,
       trueProjectedPnl: projected,
       peakRr: maxRr
     };
-  }, [activeTrades, totalPnl]);
+  }, [activeTrades, effectiveTotalPnl, sessionActive, isResuming, storeActivePnl, lastKnownPnl]);
 
   const selectedTrade = (activeTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
 
@@ -162,8 +172,9 @@ const TradesView = () => {
           label="Active P&L"
           value={fmtUSD(activePnl)}
           color={pnlClass(activePnl)}
-          subValue={`Session: ${fmtUSD(totalPnl)} · Est: ${fmtUSD(activeEstPnl)}`}
-          tooltipText={`Session Return: ${fmtUSD(totalPnl)} | Est. Target: ${fmtUSD(activeEstPnl)} | Projected: ${fmtUSD(trueProjectedPnl)}`}
+          subValue={`Session: ${fmtUSD(effectiveTotalPnl)} · Est: ${fmtUSD(activeEstPnl)}`}
+          syncing={showResumingFeedback}
+          tooltipText={`Session Return: ${fmtUSD(effectiveTotalPnl)} | Est. Target: ${fmtUSD(activeEstPnl)} | Projected: ${fmtUSD(trueProjectedPnl)}`}
         />
         <StatCard
           compact

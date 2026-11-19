@@ -2,6 +2,7 @@ import { ExecutionService } from './execution.service';
 import { SignalEngineService } from './signalEngine';
 import { MomentumScannerService } from './momentum_scanner.service';
 import { KlineStoreService, Candle } from './kline_store.service';
+import { MaintenanceService } from './maintenance.service';
 import { SessionConfig } from '../models/SessionConfig';
 
 describe('Live Execution, Multi-TF Warmup & Watchlist Alignment Regressions', () => {
@@ -466,6 +467,75 @@ describe('Live Execution, Multi-TF Warmup & Watchlist Alignment Regressions', ()
       await exec.processEntries([{ symbol: 'ETHUSDT', direction: 'LONG', dir: 'long', price: 100 }], mtfCfg as SessionConfig, 'DynMulti');
       expect(ensureKlinesAvailable).toHaveBeenCalledWith('ETHUSDT', '1m', 20);
       expect((exec as any).orderManager.enter).toHaveBeenCalled();
+    });
+  });
+
+  describe('MaintenanceService Watchdog Algo SL matching on forceFresh fallback', () => {
+    it('recognizes timestamped clientAlgoId (sl-<id8>-<suffix>) after forceFresh without duplicate placeStopLoss', async () => {
+      const trade: any = {
+        id: '12345678-aaaa-bbbb-cccc-1234567890ab',
+        symbol: 'PAXGUSDT',
+        status: 'OPEN',
+        direction: 'LONG',
+        qty: 0.1,
+        entry_price: 2600,
+        current_sl: 2550,
+        binance_stop_order_id: undefined,
+        updated_at: new Date(Date.now() - 60_000),
+      };
+      const placeStopLoss = jest.fn();
+      const fetchOpenOrders = jest.fn().mockImplementation(async (_sym: string, opts?: { forceFresh?: boolean }) => {
+        if (opts?.forceFresh) {
+          return [
+            {
+              symbol: 'PAXGUSDT',
+              algoId: '300000123456789',
+              algoType: 'CONDITIONAL',
+              clientAlgoId: 'sl-12345678-k9z01',
+              side: 'SELL',
+              triggerPrice: '2550',
+              closePosition: true,
+            },
+          ];
+        }
+        return [];
+      });
+
+      const maintenance = new MaintenanceService(
+        {
+          activeList: () => [trade],
+          isEntering: () => false,
+          isClosing: () => false,
+          getInFlightSymbols: () => [],
+          recalculateTotalRisk: jest.fn(),
+          refreshTradeRisk: jest.fn(),
+          addTrade: jest.fn(),
+          recordActiveTradeEvent: jest.fn(),
+        } as any,
+        {
+          fetchAllPositions: jest.fn().mockResolvedValue([{ symbol: 'PAXGUSDT', positionAmt: '0.1', entryPrice: '2600' }]),
+          fetchAllOpenOrders: jest.fn().mockResolvedValue([]),
+          fetchOpenOrders,
+          fetchPosition: jest.fn().mockResolvedValue({ symbol: 'PAXGUSDT', positionAmt: '0.1', entryPrice: '2600' }),
+          seedRealTimePosition: jest.fn(),
+          isRatcheting: () => false,
+          isBanned: () => false,
+          placeStopLoss,
+          cancelBinanceOrder: jest.fn(),
+          getBinanceRateLimit: () => ({ used_weight_1m: 10, limit: 2400 }),
+        } as any,
+        { getPrice: () => 2610, getTicker: () => ({ mark_price: 2610 }) } as any,
+        {
+          realTimePositions: new Map([['PAXGUSDT', { amount: 0.1, entryPrice: 2600 }]]),
+          realTimeOrders: new Map([['PAXGUSDT', []]]),
+        } as any,
+        { emit: jest.fn() } as any,
+      );
+
+      await maintenance.protectionWatchdog(true, { paper_mode: false, strategy_label: 'Base' } as any);
+
+      expect(fetchOpenOrders).toHaveBeenCalledWith('PAXGUSDT', { forceFresh: true });
+      expect(placeStopLoss).not.toHaveBeenCalled();
     });
   });
 });

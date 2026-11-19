@@ -1530,14 +1530,9 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
               continue;
             }
 
-            // SRE: Secondary Check - Is there any order (Entry or SL) active for this trade?
+            // SRE: Secondary Check - Is there any order (Entry or SL, standard or Algo) active for this trade?
             const symbolOrders = ordersBySymbol.get(trade.symbol) || [];
-            const hasOrder = symbolOrders.some(
-              (o) =>
-                (o as any).orderId == trade.binance_order_id ||
-                (o as any).orderId == trade.binance_stop_order_id ||
-                (o as any).clientOrderId === `sl-${trade.id.substring(0, 8)}`,
-            );
+            const hasOrder = this.hasMatchingOrProtectiveOrder(trade, symbolOrders);
 
             if (!hasOrder) {
               this.logger.warn(
@@ -2137,6 +2132,42 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     }
 
     return { startedByUs: false };
+  }
+
+  private hasMatchingOrProtectiveOrder(
+    trade: Partial<TradeEntity>,
+    symbolOrders: any[],
+  ): boolean {
+    if (!symbolOrders || symbolOrders.length === 0) return false;
+    const expectedSlPrefix = trade.id ? `sl-${trade.id.substring(0, 8)}`.toLowerCase() : "";
+    const expectedCloseSide = trade.direction === "LONG" ? "SELL" : "BUY";
+
+    return symbolOrders.some((o) => {
+      const oOrderId = (o as any).orderId !== undefined && (o as any).orderId !== null ? String((o as any).orderId) : "";
+      const oAlgoId = (o as any).algoId !== undefined && (o as any).algoId !== null ? String((o as any).algoId) : "";
+      const oClientId = String((o as any).clientOrderId || (o as any).clientAlgoId || "");
+      const oClientIdLower = oClientId.toLowerCase();
+      const orderType = String((o as any).type || (o as any).algoType || "").toUpperCase();
+      const isSlType = orderType.includes("STOP") || orderType === "CONDITIONAL";
+      const isReduceOrClosePos =
+        (o as any).reduceOnly === true ||
+        String((o as any).reduceOnly) === "true" ||
+        (o as any).closePosition === true ||
+        String((o as any).closePosition) === "true" ||
+        (o as any).cp === true;
+      const oSide = String((o as any).side || (o as any).S || "").toUpperCase();
+      const sideMatchesClose = !oSide || oSide === expectedCloseSide;
+
+      return (
+        (Boolean(trade.binance_order_id) && (oOrderId === String(trade.binance_order_id) || oAlgoId === String(trade.binance_order_id))) ||
+        (Boolean(trade.binance_stop_order_id) &&
+          (oOrderId === String(trade.binance_stop_order_id) ||
+            oAlgoId === String(trade.binance_stop_order_id) ||
+            oClientId === String(trade.binance_stop_order_id))) ||
+        (Boolean(expectedSlPrefix) && oClientIdLower.startsWith(expectedSlPrefix)) ||
+        (isSlType && isReduceOrClosePos && sideMatchesClose)
+      );
+    });
   }
 
   /**

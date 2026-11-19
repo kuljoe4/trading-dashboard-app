@@ -1234,5 +1234,47 @@ describe('SessionService Validation', () => {
       expect(BinanceRequestQueue.isCurrentlyBanned()).toBe(false);
       expect((service as any).eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_cleared');
     });
+
+    it('hasMatchingOrProtectiveOrder recognizes Binance Algo SL orders (algoId, clientAlgoId prefix) and directional protective stops', () => {
+      const trade = {
+        id: '12345678-abcd-efgh-ijkl-1234567890ab',
+        symbol: 'PAXGUSDT',
+        direction: 'LONG' as const,
+        binance_order_id: 'entry-111',
+        binance_stop_order_id: '300000987654321',
+      };
+
+      // Matches via Algo orderId (algoId)
+      expect(
+        (service as any).hasMatchingOrProtectiveOrder(trade, [
+          { symbol: 'PAXGUSDT', algoId: '300000987654321', algoType: 'CONDITIONAL' },
+        ]),
+      ).toBe(true);
+
+      // Matches via timestamped clientAlgoId (sl-<id8>-<suffix>)
+      expect(
+        (service as any).hasMatchingOrProtectiveOrder(
+          { ...trade, binance_stop_order_id: 'old-or-cleared' },
+          [{ symbol: 'PAXGUSDT', algoId: '999', clientAlgoId: 'sl-12345678-m9x123' }],
+        ),
+      ).toBe(true);
+
+      // Matches untracked exchange closePosition/reduceOnly STOP/CONDITIONAL on closing side
+      expect(
+        (service as any).hasMatchingOrProtectiveOrder(
+          { ...trade, binance_stop_order_id: undefined },
+          [{ symbol: 'PAXGUSDT', algoId: '777', type: 'STOP_MARKET', side: 'SELL', closePosition: true }],
+        ),
+      ).toBe(true);
+
+      // Does NOT treat wrong-direction or non-protective orders as valid SL protection
+      expect(
+        (service as any).hasMatchingOrProtectiveOrder(
+          { ...trade, binance_stop_order_id: undefined },
+          [{ symbol: 'PAXGUSDT', orderId: '555', type: 'STOP_MARKET', side: 'BUY', closePosition: true }],
+        ),
+      ).toBe(false);
+      expect((service as any).hasMatchingOrProtectiveOrder(trade, [])).toBe(false);
+    });
   });
 });

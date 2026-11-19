@@ -267,16 +267,17 @@ export class MaintenanceService {
           }
 
           let slOrders = slOrdersBySymbol.get(trade.symbol) || [];
-          const expectedClientPrefix = `sl-${(trade.id || '').substring(0, 8)}`;
-          let matchingOrder = slOrders.find(o => {
+          const expectedClientPrefix = `sl-${(trade.id || '').substring(0, 8)}`.toLowerCase();
+          const isTrackedSlOrder = (o: any) => {
             const oId = this.getOrderId(o);
             const clientOrderId = String((o as any).clientOrderId || (o as any).clientAlgoId || '');
             return (
               (trade.binance_stop_order_id && oId === String(trade.binance_stop_order_id)) ||
               (trade.binance_stop_order_id && clientOrderId === String(trade.binance_stop_order_id)) ||
-              (clientOrderId && clientOrderId.startsWith(expectedClientPrefix))
+              (expectedClientPrefix.length > 3 && clientOrderId.toLowerCase().startsWith(expectedClientPrefix))
             );
-          });
+          };
+          let matchingOrder = slOrders.find(isTrackedSlOrder);
 
           if (!matchingOrder) {
             const rlNow = this.orderManager.getBinanceRateLimit();
@@ -292,10 +293,7 @@ export class MaintenanceService {
               this.forceFreshCooldownMap.set(ordCooldownKey, Date.now());
               const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol, { forceFresh: true });
               slOrders = freshOrders.filter(isSlOrder);
-              matchingOrder = slOrders.find(o =>
-                this.getOrderId(o) === trade.binance_stop_order_id ||
-                o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`
-              );
+              matchingOrder = slOrders.find(isTrackedSlOrder);
             }
 
             if (!matchingOrder && slOrders.length > 0) {

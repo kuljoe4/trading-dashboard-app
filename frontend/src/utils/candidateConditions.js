@@ -1156,9 +1156,12 @@ export function buildCandidateConditionsModel({
       const fallbackTf = (!rawTf || rawTf === 'default') ? (tradeCfg.scan_interval || scanTf) : rawTf;
       const tf = asText(summary?.timeframe, fallbackTf) || fallbackTf;
       const paramsText = asText(summary, 'Standard') || 'Standard';
+      const effectiveExitValue = (s.live_price !== undefined && s.live_price !== null && Number.isFinite(Number(s.live_price)))
+        ? Number(s.live_price)
+        : s.value;
       const proximity = (est && typeof est.proximity === 'number')
         ? Math.round(est.proximity)
-        : Math.round(calculateProximity({ ...s, key: sigKey }, markPrice, entryPrice, isLong, true));
+        : Math.round(calculateProximity({ ...s, value: effectiveExitValue, key: sigKey }, markPrice, entryPrice, isLong, true));
 
       const isTriggered = Boolean((s.fired && s.active) || est?.state === 'fired');
       const isDelayed = Number(s.remaining_delay || 0) > 0 && !isTriggered;
@@ -1189,7 +1192,7 @@ export function buildCandidateConditionsModel({
       }
 
       const meter = computeConditionMeter({
-        value: s.value,
+        value: effectiveExitValue,
         threshold: s.threshold,
         thresholdIsPrice: Boolean(s.threshold_is_price || s.thresholdIsPrice),
         unit: s.unit || '',
@@ -1227,11 +1230,11 @@ export function buildCandidateConditionsModel({
         timeframe: tf,
         paramsText,
         macdFilter,
-        liveValue: !s.insufficientData && Number.isFinite(Number(s.value)) ? Number(s.value) : null,
+        liveValue: !s.insufficientData && Number.isFinite(Number(effectiveExitValue)) ? Number(effectiveExitValue) : null,
         targetValue: Number.isFinite(Number(s.threshold)) ? Number(s.threshold) : null,
         unit: s.unit || '',
         thresholdIsPrice: Boolean(s.threshold_is_price || s.thresholdIsPrice),
-        liveText: s.insufficientData ? '---' : formatCompactValue(s.value, s.unit, s.threshold_is_price),
+        liveText: s.insufficientData ? '---' : formatCompactValue(effectiveExitValue, s.unit, s.threshold_is_price),
         targetText: formatCompactValue(s.threshold, s.unit, s.threshold_is_price),
         proximity,
         ...meter,
@@ -1419,9 +1422,11 @@ export function buildCandidateConditionsModel({
         })
       : null;
 
-    const effectiveValue = s.value !== undefined && s.value !== null
-      ? s.value
-      : (ladder ? ladder.livePrice : undefined);
+    const effectiveValue = (s.live_price !== undefined && s.live_price !== null && Number.isFinite(Number(s.live_price)))
+      ? Number(s.live_price)
+      : (s.value !== undefined && s.value !== null
+          ? s.value
+          : (ladder ? ladder.livePrice : undefined));
     const effectiveThreshold = s.threshold !== undefined && s.threshold !== null
       ? s.threshold
       : (ladder ? ladder.breakoutLevel : undefined);

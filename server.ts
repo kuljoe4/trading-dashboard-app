@@ -581,7 +581,8 @@ function getScannerOpportunities(cfg?: any) {
         const bufferPct = Math.max(0, Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_buffer_pct', 0)) || 0);
         const maxExpPct = Math.max(0, Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_max_expansion_pct', 2)) || 0);
 
-        const completedCandles = ohlc.length > 2 ? ohlc.slice(0, -1) : ohlc;
+        const allCompletedCandles = ohlc.length > 2 ? ohlc.slice(0, -1) : ohlc;
+        const completedCandles = allCompletedCandles.slice(-Math.max(1, lookback));
         const formingCandle = ohlc[ohlc.length - 1] || { open: item.price, high: item.price * 1.002, low: item.price * 0.998, close: item.price };
         const prevCompleted = ohlc.length >= 2 ? ohlc[ohlc.length - 2] : formingCandle;
 
@@ -677,6 +678,7 @@ function getScannerOpportunities(cfg?: any) {
           mode,
           lookback,
           reference_level: refLevelType,
+          evaluated_at_ms: Date.now(),
           description: sigRejected
             ? `Rejected: price ${livePrice.toFixed(decimals)} expanded > ${maxExpPct}% beyond ${refTf} level (${expansionCap?.toFixed(decimals)})`
             : sigFired
@@ -689,8 +691,9 @@ function getScannerOpportunities(cfg?: any) {
         const closes = ohlc.map((c: any) => c.close);
         const fastSlice = closes.slice(-Math.max(2, Math.min(fastPeriod, closes.length)));
         const slowSlice = closes.slice(-Math.max(3, Math.min(slowPeriod, closes.length)));
-        const fastVal = fastSlice.length > 0 ? parseFloat((fastSlice.reduce((a: number, b: number) => a + b, 0) / fastSlice.length).toFixed(decimals)) : item.price;
-        const slowVal = slowSlice.length > 0 ? parseFloat((slowSlice.reduce((a: number, b: number) => a + b, 0) / slowSlice.length).toFixed(decimals)) : item.price;
+        const emaDec = Math.max(decimals, 4);
+        const fastVal = fastSlice.length > 0 ? parseFloat((fastSlice.reduce((a: number, b: number) => a + b, 0) / fastSlice.length).toFixed(emaDec)) : item.price;
+        const slowVal = slowSlice.length > 0 ? parseFloat((slowSlice.reduce((a: number, b: number) => a + b, 0) / slowSlice.length).toFixed(emaDec)) : item.price;
         let sigFired = sideUpper === 'LONG' ? fastVal > slowVal : fastVal < slowVal;
         let sigRejected = false;
         let macdFilterMeta: any = undefined;
@@ -1010,6 +1013,58 @@ setInterval(() => {
       trade.max_rr = trade.max_rr_achieved;
       trade.min_rr_achieved = Math.min(Number(trade.min_rr_achieved ?? trade.min_rr ?? 0) || 0, liveRr, 0);
       trade.min_rr = trade.min_rr_achieved;
+
+      const tCfg = { ...state.config, ...(trade.strategy_config || {}) };
+      const exitSigs: string[] = [
+        ...(Array.isArray(tCfg.exit_signals) ? tCfg.exit_signals : []),
+        ...(tCfg.trigger_candle_exit_enabled && !(tCfg.exit_signals || []).includes('trigger_candle_exit') ? ['trigger_candle_exit'] : []),
+      ];
+      if (exitSigs.length > 0) {
+        const ohlc = Array.isArray(pInfo.ohlc_history) ? pInfo.ohlc_history : [];
+        const closes = ohlc.map((c: any) => c.close);
+        const emaDec = pInfo.symbol.includes('DOGE') || pInfo.symbol.includes('ADA') || pInfo.symbol.includes('XRP') ? 4 : 4;
+        const nextExitStatuses: Record<string, any> = {};
+        for (const sigKey of exitSigs) {
+          const baseType = sigKey.split(':').shift() || sigKey;
+          if (baseType === 'trigger_candle_exit' || baseType === 'entry_candle_boundary') {
+            const boundPrice = isLong ? Number(trade.sl_price || trade.entry_price * 0.992) : Number(trade.sl_price || trade.entry_price * 1.008);
+            const fired = isLong ? pInfo.price < boundPrice : pInfo.price > boundPrice;
+            nextExitStatuses[sigKey] = {
+              label: isLong ? 'Trigger Candle Low' : 'Trigger Candle High',
+              fired,
+              active: true,
+              value: pInfo.price,
+              live_price: pInfo.price,
+              threshold: boundPrice,
+              unit: 'price',
+              threshold_is_price: true,
+              evaluated_at_ms: ts,
+              description: `Monitoring live price (${pInfo.price}) vs trigger boundary (${boundPrice})`,
+            };
+          } else {
+            const fastPeriod = Number(resolveCfgSignalParam(tCfg, sigKey, baseType, 'exit_ema_fast', 9)) || 9;
+            const slowPeriod = Number(resolveCfgSignalParam(tCfg, sigKey, baseType, 'exit_ema_slow', 21)) || 21;
+            const fastSlice = closes.slice(-Math.max(2, Math.min(fastPeriod, closes.length)));
+            const slowSlice = closes.slice(-Math.max(3, Math.min(slowPeriod, closes.length)));
+            const fastVal = fastSlice.length > 0 ? parseFloat((fastSlice.reduce((a: number, b: number) => a + b, 0) / fastSlice.length).toFixed(emaDec)) : pInfo.price;
+            const slowVal = slowSlice.length > 0 ? parseFloat((slowSlice.reduce((a: number, b: number) => a + b, 0) / slowSlice.length).toFixed(emaDec)) : pInfo.price;
+            const fired = isLong ? fastVal < slowVal : fastVal > slowVal;
+            nextExitStatuses[sigKey] = {
+              label: baseType.startsWith('ema') ? 'Exit EMA Dual' : sigKey,
+              fired,
+              active: true,
+              value: fastVal,
+              live_price: fastVal,
+              threshold: slowVal,
+              unit: 'price',
+              threshold_is_price: true,
+              evaluated_at_ms: ts,
+              description: `Fast (${fastPeriod}): ${fastVal}, Slow (${slowPeriod}): ${slowVal}`,
+            };
+          }
+        }
+        trade.exit_signals_status = nextExitStatuses;
+      }
 
       slUsed += (Math.abs(trade.entry_price - trade.sl_price) * trade.quantity);
 

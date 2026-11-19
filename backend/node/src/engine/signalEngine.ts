@@ -980,9 +980,13 @@ export class SignalEngineService {
 
       if (minimal) return fired;
 
+      const liveClose = candles[candles.length - 1]?.close ?? curr.close;
+
       return {
         fired,
         value: curr.close,
+        closed_value: roundTo(curr.close, 8),
+        live_price: roundTo(liveClose, 8),
         threshold: threshold,
         unit: 'price',
         metric: (closeOnlyMode || softMode) ? 'Close Engulf' : 'Engulfing',
@@ -1602,11 +1606,17 @@ export class SignalEngineService {
         description = `Closed candle aligned with EMA(${fastPeriod}/${slowPeriod}), but rejected by MACD histogram (${this.formatAdaptiveNumber(macdHistValue, false)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
       }
 
+      const liveClose = candles[candles.length - 1]?.close ?? completedClose;
+      const liveFastRes = this.calculateEMAAt(candles, candles.length - 1, fastPeriod, interval, symbol);
+      const liveSlowRes = this.calculateEMAAt(candles, candles.length - 1, slowPeriod, interval, symbol);
+
       return {
         fired,
         status: fired ? 'fired' : macdRejected ? 'blocked' : 'approaching',
         value: roundTo(completedClose, 8),
-        threshold: roundTo(threshold, 8),
+        closed_value: roundTo(completedClose, 8),
+        live_price: roundTo(liveFastRes.value || liveClose, 8),
+        threshold: roundTo( liveSlowRes.value || threshold, 8),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',
@@ -1684,9 +1694,13 @@ export class SignalEngineService {
 
       if (minimal) return fired;
 
+      const liveClose = candles[candles.length - 1]?.close ?? completedClose;
+
       return {
         fired,
         value: roundTo(completedClose, 8),
+        closed_value: roundTo(completedClose, 8),
+        live_price: roundTo(liveClose, 8),
         threshold: roundTo(ema, 8),
         insufficientData: emaRes.insufficientData,
         unit: 'price',
@@ -3207,9 +3221,13 @@ export class SignalEngineService {
 
       if (minimal) return fired;
 
+      const liveClose = candles[candles.length - 1]?.close ?? currClose;
+
       return {
         fired,
         value: roundTo(currClose, 8),
+        closed_value: roundTo(currClose, 8),
+        live_price: roundTo(liveClose, 8),
         threshold: roundTo(currST, 8),
         insufficientData,
         unit: 'price',

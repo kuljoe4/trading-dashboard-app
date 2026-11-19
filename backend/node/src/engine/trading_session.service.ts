@@ -726,18 +726,23 @@ export class TradingSessionService implements OnApplicationShutdown {
           const livePx = typeof (this.tickerCache as any)?.getPrice === "function"
             ? this.tickerCache.getPrice(t.symbol)
             : null;
-          if (livePx && livePx > 0 && Math.abs(livePx - Number(t.last_price || 0)) > 1e-10) {
+          if (livePx && livePx > 0) {
             t.last_price = livePx;
             t.mark_price = livePx;
             if (typeof (this.klineStore as any)?.syncLivePrice === "function") {
               (this.klineStore as any).syncLivePrice(t.symbol, livePx);
             }
-            const sc = t.strategy_config || strategyConfigs.find((c) => c.strategy_label === t.strategy_label) || this.config;
-            if (sc?.use_exit_signals && typeof (this.orderManager as any)?.checkExitSignals === "function") {
-              try {
-                (this.orderManager as any).checkExitSignals(t.symbol, t, sc, sc.scan_interval || "1m");
-              } catch (_) {}
-            }
+          }
+          const sc = t.strategy_config || strategyConfigs.find((c) => c.strategy_label === t.strategy_label) || this.config;
+          const hasExitRules = Boolean(
+            sc?.use_exit_signals ||
+            sc?.trigger_candle_exit_enabled ||
+            (Array.isArray(sc?.exit_signals) && sc.exit_signals.length > 0)
+          );
+          if (hasExitRules && typeof (this.orderManager as any)?.checkExitSignals === "function") {
+            try {
+              (this.orderManager as any).checkExitSignals(t.symbol, t, sc, sc.scan_interval || "1m");
+            } catch (_) {}
           }
         }
         this.engineBroadcaster.broadcastTick(
@@ -766,7 +771,7 @@ export class TradingSessionService implements OnApplicationShutdown {
           const sc = configByLabel.get(vEntry.strategy_label || "Momentum Strategy") || this.config;
           const scanTf = sc.scan_interval || "1m";
           const lookback = Math.max(1, Number(sc.scan_lookback || 1));
-          const limit = Math.min(5, vEntry.opportunities.length);
+          const limit = Math.min(ENGINE_CONSTANTS.SCANNER_MAX_RESULTS || 15, vEntry.opportunities.length);
 
           for (let oIdx = 0; oIdx < limit; oIdx++) {
             const opp = vEntry.opportunities[oIdx];
@@ -775,7 +780,6 @@ export class TradingSessionService implements OnApplicationShutdown {
               ? this.tickerCache.getPrice(opp.symbol)
               : null;
             if (!livePx || livePx <= 0) continue;
-            if (Math.abs(livePx - Number(opp.price || 0)) <= 1e-10) continue;
 
             if (typeof (this.klineStore as any)?.syncLivePrice === "function") {
               (this.klineStore as any).syncLivePrice(opp.symbol, livePx);

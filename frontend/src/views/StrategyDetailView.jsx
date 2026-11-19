@@ -290,17 +290,17 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
     return {
       total,
-      wins: metrics.wins,
-      losses: total - metrics.wins,
-      sumPnl: metrics.totalPnl,
-      hitRate,
-      hitRateRatio,
-      profitFactor: metrics.profitFactor,
-      sharpe: metrics.sharpe,
-      sortino: metrics.sortino,
-      targetRr,
-      breakevenWr,
-      recommendedWr
+      wins: Number(metrics.wins) || 0,
+      losses: Math.max(0, total - (Number(metrics.wins) || 0)),
+      sumPnl: Number(metrics.totalPnl) || 0,
+      hitRate: Number.isFinite(hitRate) ? hitRate : 0,
+      hitRateRatio: Number.isFinite(hitRateRatio) ? hitRateRatio : 1.0,
+      profitFactor: Number(metrics.profitFactor) || 0,
+      sharpe: Number(metrics.sharpe) || 0,
+      sortino: Number(metrics.sortino) || 0,
+      targetRr: Number(targetRr) || 1.5,
+      breakevenWr: Number(breakevenWr) || 40,
+      recommendedWr: Number(recommendedWr) || 52
     };
   }, [strategyTrades, analytics, strategyConfig, startingBal]);
 

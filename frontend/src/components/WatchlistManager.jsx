@@ -1006,9 +1006,9 @@ export const WatchlistManager = React.memo(({
                     >
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-text">{opp.symbol}</span>
-                        {opp.price && (
+                        {Number(opp.price) > 0 && (
                           <span className="text-[10px] text-dim/70">
-                            ${opp.price >= 1 ? opp.price.toFixed(2) : opp.price.toPrecision(4)}
+                            ${Number(opp.price) >= 1 ? Number(opp.price).toFixed(2) : Number(opp.price).toPrecision(4)}
                           </span>
                         )}
                       </div>
@@ -1184,9 +1184,9 @@ export const WatchlistManager = React.memo(({
                                 </span>
                               )}
                             </div>
-                            {opp.price && (
+                            {Number(opp.price) > 0 && (
                               <span className="text-[9.5px] font-mono text-dim">
-                                ${opp.price >= 1 ? opp.price.toFixed(2) : opp.price.toPrecision(4)}
+                                ${Number(opp.price) >= 1 ? Number(opp.price).toFixed(2) : Number(opp.price).toPrecision(4)}
                               </span>
                             )}
                           </div>

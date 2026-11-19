@@ -145,12 +145,24 @@ function describeArc(cx, cy, r, pStart, pEnd) {
 /**
  * Lightweight 1D vertical label de-collision solver (O(N), N <= 5).
  * Preserves order and nudges labels apart so price callouts never overlap on tight ranges.
+ * Always attaches finite numeric `y` and `labelY` even when `items.length === 1`.
  */
 function decollideVerticalLabels(items, minGap, minY, maxY) {
-  if (!items || items.length <= 1) return items;
+  if (!Array.isArray(items) || items.length === 0) return [];
   const sorted = items
-    .map((item, idx) => ({ ...item, _idx: idx, labelY: Math.max(minY, Math.min(maxY, item.y)) }))
+    .map((item, idx) => {
+      const rawY = Number(item?.y);
+      const safeY = Number.isFinite(rawY) ? rawY : minY;
+      return {
+        ...item,
+        y: safeY,
+        _idx: idx,
+        labelY: Math.max(minY, Math.min(maxY, safeY)),
+      };
+    })
     .sort((a, b) => a.y - b.y);
+
+  if (sorted.length <= 1) return sorted;
 
   // Forward pass: push down overlapping items
   for (let i = 1; i < sorted.length; i++) {
@@ -364,34 +376,32 @@ const LADDER_ZONE_TONE = {
 export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder, compact = false, changeInfo = null }) {
   if (!ladder) return null;
 
-  const {
-    refTf,
-    trigTf,
-    mode,
-    bufferPct,
-    effectiveMaxExpPct,
-    hasHardCap,
-    refHigh,
-    refLow,
-    breakoutLevel,
-    expansionCap,
-    livePrice,
-    distFromLevelPct,
-    capUsedPct,
-    capRoomPct,
-    candleConfirmState,
-    countdownText,
-    zone,
-    zoneLabel,
-    isOverCap,
-    isLong,
-  } = ladder;
+  const refTf = ladder.refTf || '1d';
+  const trigTf = ladder.trigTf || '1h';
+  const mode = ladder.mode || 'closed_candle_confirm';
+  const bufferPct = Number.isFinite(Number(ladder.bufferPct)) ? Number(ladder.bufferPct) : 0;
+  const effectiveMaxExpPct = Number.isFinite(Number(ladder.effectiveMaxExpPct)) ? Number(ladder.effectiveMaxExpPct) : 2.0;
+  const hasHardCap = Boolean(ladder.hasHardCap);
+  const refHigh = Number.isFinite(Number(ladder.refHigh)) ? Number(ladder.refHigh) : 0;
+  const refLow = Number.isFinite(Number(ladder.refLow)) ? Number(ladder.refLow) : 0;
+  const breakoutLevel = Number.isFinite(Number(ladder.breakoutLevel)) ? Number(ladder.breakoutLevel) : (refHigh || refLow || 0);
+  const expansionCap = Number.isFinite(Number(ladder.expansionCap)) ? Number(ladder.expansionCap) : breakoutLevel;
+  const livePrice = Number.isFinite(Number(ladder.livePrice)) ? Number(ladder.livePrice) : breakoutLevel;
+  const distFromLevelPct = Number.isFinite(Number(ladder.distFromLevelPct)) ? Number(ladder.distFromLevelPct) : 0;
+  const capUsedPct = Number.isFinite(Number(ladder.capUsedPct)) ? Number(ladder.capUsedPct) : 0;
+  const capRoomPct = Number.isFinite(Number(ladder.capRoomPct)) ? Number(ladder.capRoomPct) : 0;
+  const candleConfirmState = ladder.candleConfirmState || 'below';
+  const countdownText = ladder.countdownText || '';
+  const zone = ladder.zone || 'below';
+  const zoneLabel = ladder.zoneLabel || 'Watching';
+  const isOverCap = Boolean(ladder.isOverCap);
+  const isLong = ladder.isLong !== false;
 
   const zTone = LADDER_ZONE_TONE[zone] || LADDER_ZONE_TONE.below;
 
   // Compute vertical domain [pMin, pMax] so reference range, breakout level, expansion cap, and livePrice fit with generous breathing room
-  const rangeSpan = Math.max(Math.abs(refHigh - refLow), breakoutLevel * 0.005);
-  const capDist = Math.max(Math.abs(expansionCap - breakoutLevel), breakoutLevel * 0.01);
+  const rangeSpan = Math.max(Math.abs(refHigh - refLow), breakoutLevel * 0.005, 1e-9);
+  const capDist = Math.max(Math.abs(expansionCap - breakoutLevel), breakoutLevel * 0.01, 1e-9);
   const pMax = isLong
     ? Math.max(expansionCap + capDist * 0.48, livePrice + capDist * 0.24, refHigh + rangeSpan * 0.24)
     : Math.max(refHigh + rangeSpan * 0.26, livePrice + rangeSpan * 0.18);
@@ -409,8 +419,10 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
   const bandW = xRight - xLeft;
 
   const yOf = (priceVal) => {
+    const numVal = Number(priceVal);
+    if (!Number.isFinite(numVal)) return padTop + plotH / 2;
     const denom = Math.max(1e-9, pMax - pMin);
-    const ratio = (pMax - priceVal) / denom;
+    const ratio = (pMax - numVal) / denom;
     return Math.max(padTop, Math.min(svgH - padBot, padTop + ratio * plotH));
   };
 
@@ -437,7 +449,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
   const lateBox = rectBand(yStaleEdge, yCap);
   const rejectBox = isLong ? rectBand(padTop, yCap) : rectBand(yCap, svgH - padBot);
 
-  const absDist = Math.abs(distFromLevelPct);
+  const absDist = Number.isFinite(Math.abs(distFromLevelPct)) ? Math.abs(distFromLevelPct) : 0;
   const distText = `${distFromLevelPct >= 0 ? '+' : '-'}${absDist >= 10 ? absDist.toFixed(1) : absDist.toFixed(2)}%`;
   const priceDeltaVal = livePrice - breakoutLevel;
   const absPriceDelta = Math.abs(priceDeltaVal);
@@ -447,9 +459,10 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
 
   const capUsedRound = Math.max(0, Math.round(capUsedPct));
   const capBarFillPct = distFromLevelPct < 0 ? 0 : Math.max(2, Math.min(100, capUsedPct));
-  const capRoomFormatted = capRoomPct <= 0
+  const safeCapRoom = Number.isFinite(capRoomPct) ? capRoomPct : 0;
+  const capRoomFormatted = safeCapRoom <= 0
     ? '0% (over)'
-    : `${capRoomPct >= 10 ? capRoomPct.toFixed(1) : capRoomPct.toFixed(2)}%`;
+    : `${safeCapRoom >= 10 ? safeCapRoom.toFixed(1) : safeCapRoom.toFixed(2)}%`;
 
   let confirmLabel = isLong ? `Below ${refTf} high` : `Above ${refTf} low`;
   let confirmToneClass = 'text-dim bg-surface/60 border-border/40';
@@ -687,52 +700,60 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
         />
 
         {/* De-collided Left Level Labels with Connector Ticks */}
-        {leftLabels.map((lbl) => (
-          <g key={lbl.id}>
-            <path
-              d={`M ${xLeft} ${lbl.y.toFixed(1)} L ${xLeft - 4} ${lbl.labelY.toFixed(1)} L ${xLeft - 7} ${lbl.labelY.toFixed(1)}`}
-              stroke={lbl.color}
-              strokeOpacity="0.55"
-              strokeWidth="1"
-              fill="none"
-            />
-            <text
-              x={xLeft - 9}
-              y={lbl.labelY + 3}
-              textAnchor="end"
-              fontSize="8.5"
-              fill={lbl.color}
-              fontWeight={lbl.bold ? '700' : '500'}
-              className="font-mono"
-            >
-              {lbl.text}
-            </text>
-          </g>
-        ))}
+        {leftLabels.map((lbl) => {
+          const safeY = Number.isFinite(Number(lbl.y)) ? Number(lbl.y) : 0;
+          const safeLabelY = Number.isFinite(Number(lbl.labelY)) ? Number(lbl.labelY) : safeY;
+          return (
+            <g key={lbl.id}>
+              <path
+                d={`M ${xLeft} ${safeY.toFixed(1)} L ${xLeft - 4} ${safeLabelY.toFixed(1)} L ${xLeft - 7} ${safeLabelY.toFixed(1)}`}
+                stroke={lbl.color}
+                strokeOpacity="0.55"
+                strokeWidth="1"
+                fill="none"
+              />
+              <text
+                x={xLeft - 9}
+                y={safeLabelY + 3}
+                textAnchor="end"
+                fontSize="8.5"
+                fill={lbl.color}
+                fontWeight={lbl.bold ? '700' : '500'}
+                className="font-mono"
+              >
+                {lbl.text}
+              </text>
+            </g>
+          );
+        })}
 
         {/* De-collided Right Static Price Labels with Connector Ticks */}
-        {rightLabels.map((lbl) => (
-          <g key={lbl.id}>
-            <path
-              d={`M ${xRight} ${lbl.y.toFixed(1)} L ${xRight + 4} ${lbl.labelY.toFixed(1)} L ${xRight + 7} ${lbl.labelY.toFixed(1)}`}
-              stroke={lbl.color}
-              strokeOpacity="0.5"
-              strokeWidth="1"
-              fill="none"
-            />
-            <text
-              x={xRight + 9}
-              y={lbl.labelY + 3}
-              textAnchor="start"
-              fontSize="8.5"
-              fill={lbl.color}
-              fontWeight={lbl.bold ? '700' : '500'}
-              className="font-mono tabular-nums"
-            >
-              {lbl.text}
-            </text>
-          </g>
-        ))}
+        {rightLabels.map((lbl) => {
+          const safeY = Number.isFinite(Number(lbl.y)) ? Number(lbl.y) : 0;
+          const safeLabelY = Number.isFinite(Number(lbl.labelY)) ? Number(lbl.labelY) : safeY;
+          return (
+            <g key={lbl.id}>
+              <path
+                d={`M ${xRight} ${safeY.toFixed(1)} L ${xRight + 4} ${safeLabelY.toFixed(1)} L ${xRight + 7} ${safeLabelY.toFixed(1)}`}
+                stroke={lbl.color}
+                strokeOpacity="0.5"
+                strokeWidth="1"
+                fill="none"
+              />
+              <text
+                x={xRight + 9}
+                y={safeLabelY + 3}
+                textAnchor="start"
+                fontSize="8.5"
+                fill={lbl.color}
+                fontWeight={lbl.bold ? '700' : '500'}
+                className="font-mono tabular-nums"
+              >
+                {lbl.text}
+              </text>
+            </g>
+          );
+        })}
 
         {/* Live Price Cursor Line + Radar Halo + Floating Pill Callouts */}
         <line
@@ -1170,10 +1191,10 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
             <span
               className={cn(
                 'font-bold transition-colors duration-300',
-                (model.positionMeta?.currentR || 0) >= 0 ? 'text-green' : 'text-red'
+                (Number(model.positionMeta?.currentR) || 0) >= 0 ? 'text-green' : 'text-red'
               )}
             >
-              {(model.positionMeta?.currentR || 0) >= 0 ? '+' : ''}{(model.positionMeta?.currentR || 0).toFixed(2)}R
+              {(Number(model.positionMeta?.currentR) || 0) >= 0 ? '+' : ''}{(Number(model.positionMeta?.currentR) || 0).toFixed(2)}R
               {model.positionMeta?.trailingActive ? ' · Trailing' : model.positionMeta?.isProtected ? ' · Protected' : ''}
             </span>
           </div>

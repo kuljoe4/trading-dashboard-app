@@ -394,17 +394,18 @@ export function getStrategyRulesDiagnostics({
     ? `Lookback(${slLookback} on ${slTf}) · Min ${slMinPct}% / Max ${slMaxPct}%`
     : `${slType} · Fallback ${slDistPct}% · Bounds ${slMinPct}%–${slMaxPct}%`;
 
-  const entryRefSl = activeTrade ? (activeTrade.initial_sl ?? activeTrade.sl_price ?? activeTrade.current_sl) : null;
-  const candSlDist = hasCandidate && typeof focusedOpp.sl_dist_pct === 'number'
-    ? focusedOpp.sl_dist_pct
-    : (activeTrade && activeTrade.entry_price > 0 && entryRefSl > 0)
-      ? (Math.abs(activeTrade.entry_price - entryRefSl) / activeTrade.entry_price) * 100
+  const entryRefSl = activeTrade ? Number(activeTrade.initial_sl ?? activeTrade.sl_price ?? activeTrade.current_sl ?? 0) : 0;
+  const rawCandSlDist = hasCandidate && focusedOpp.sl_dist_pct !== undefined && focusedOpp.sl_dist_pct !== null
+    ? Number(focusedOpp.sl_dist_pct)
+    : (activeTrade && Number(activeTrade.entry_price) > 0 && entryRefSl > 0)
+      ? (Math.abs(Number(activeTrade.entry_price) - entryRefSl) / Number(activeTrade.entry_price)) * 100
       : null;
+  const candSlDist = (rawCandSlDist !== null && Number.isFinite(rawCandSlDist)) ? rawCandSlDist : null;
 
   let slStatus = 'allowed';
   let slReason = `Out-of-bounds action: ${slOobAction.toUpperCase()}`;
   if (candSlDist !== null) {
-    const slTag = activeTrade && activeTrade.initial_sl > 0 ? 'Initial SL' : 'Prospective SL';
+    const slTag = activeTrade && Number(activeTrade.initial_sl) > 0 ? 'Initial SL' : 'Prospective SL';
     if (candSlDist > slMaxPct) {
       slStatus = slOobAction === 'reject' ? 'rejected' : 'clamped';
       slReason = slOobAction === 'reject'
@@ -445,22 +446,24 @@ export function getStrategyRulesDiagnostics({
   });
 
   // Sizing & Portfolio Risk Cap
-  const riskPerTradePct = Number(strategyConfig.risk_pct_per_trade ?? 1.0);
-  const riskPerTradeUsdt = (startingBal * riskPerTradePct) / 100;
-  const maxTotalRiskPct = Number(strategyConfig.max_total_risk_pct ?? 5.0);
-  const riskAtCap = totalRiskPct >= maxTotalRiskPct;
-  const maxOpenTrades = Number(strategyConfig.max_open_trades ?? 3);
+  const riskPerTradePct = Number(strategyConfig.risk_pct_per_trade ?? 1.0) || 1.0;
+  const safeStartingBal = Number(startingBal) || 10000;
+  const riskPerTradeUsdt = (safeStartingBal * riskPerTradePct) / 100;
+  const maxTotalRiskPct = Number(strategyConfig.max_total_risk_pct ?? 5.0) || 5.0;
+  const safeTotalRiskPct = Number(totalRiskPct) || 0;
+  const riskAtCap = safeTotalRiskPct >= maxTotalRiskPct;
+  const maxOpenTrades = Number(strategyConfig.max_open_trades ?? 3) || 3;
   const singleSlotBottleneck = maxTotalRiskPct <= riskPerTradePct && maxOpenTrades > 1;
-  const riskNearCap = totalRiskPct >= maxTotalRiskPct * 0.8 || singleSlotBottleneck;
+  const riskNearCap = safeTotalRiskPct >= maxTotalRiskPct * 0.8 || singleSlotBottleneck;
 
   riskChecks.push({
     key: 'risk_cap',
     label: 'Position & Portfolio Risk',
     configuredText: `${riskPerTradePct}%/trade ($${riskPerTradeUsdt.toFixed(2)}) · Cap ${maxTotalRiskPct}%`,
-    liveText: `${Number(totalRiskPct || 0).toFixed(1)}% / ${maxTotalRiskPct}%`,
+    liveText: `${safeTotalRiskPct.toFixed(1)}% / ${maxTotalRiskPct}%`,
     status: riskAtCap ? 'rejected' : riskNearCap ? 'warning' : 'allowed',
     reasonText: riskAtCap
-      ? `Total active risk ${totalRiskPct.toFixed(1)}% reached ${maxTotalRiskPct}% cap (new entries blocked)`
+      ? `Total active risk ${safeTotalRiskPct.toFixed(1)}% reached ${maxTotalRiskPct}% cap (new entries blocked)`
       : singleSlotBottleneck
       ? `Warning: max_total_risk_pct (${maxTotalRiskPct}%) ≤ risk_pct_per_trade (${riskPerTradePct}%), capping open trades to 1 despite max_open_trades=${maxOpenTrades}`
       : `Min-notional auto-scale: ${strategyConfig.auto_scale_min_notional !== false ? `ON (max ${strategyConfig.auto_scale_max_overshoot ?? 3}x)` : 'OFF'}${strategyConfig.risk_hardening_enabled ? ` · Hard cap ${strategyConfig.max_single_trade_risk_pct ?? 20}%` : ''}`,

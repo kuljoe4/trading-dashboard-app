@@ -1,4 +1,5 @@
 import { SessionService } from './session.service';
+import { BinanceRequestQueue } from '../lib/binanceClientFactory';
 import { SessionConfig } from '../models/SessionConfig';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity } from '../models/entities/Trade.entity';
@@ -1222,6 +1223,16 @@ describe('SessionService Validation', () => {
       });
       expect(res.trades).toHaveLength(1);
       expect(res.trades[0].trading_mode).toBe('paper');
+    });
+
+    it('clearBan resets BinanceRequestQueue cooldown and emits binance.api_limit_cleared without throwing', () => {
+      const futureTs = Date.now() + 60000;
+      BinanceRequestQueue.setCooldownUntil(futureTs);
+      expect(BinanceRequestQueue.isCurrentlyBanned()).toBe(true);
+
+      expect(() => service.clearBan()).not.toThrow();
+      expect(BinanceRequestQueue.isCurrentlyBanned()).toBe(false);
+      expect((service as any).eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_cleared');
     });
   });
 });

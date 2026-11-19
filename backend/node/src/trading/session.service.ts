@@ -30,7 +30,7 @@ import { v4 as uuid } from "uuid";
 import { Settings as SettingsEntity } from "../models/entities/Settings.entity";
 import { decrypt } from "../lib/crypto";
 import { ConfigValidationException } from "../lib/exceptions";
-import { BinanceClientFactory } from "../lib/binanceClientFactory";
+import { BinanceClientFactory, BinanceRequestQueue } from "../lib/binanceClientFactory";
 import { DerivativesTradingUsdsFutures } from "@binance/derivatives-trading-usds-futures";
 import { AnalyticsService } from "../engine/analytics.service";
 import { RrOptimizationService } from "../engine/rr-optimization.service";
@@ -126,7 +126,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
   public clearBan() {
     this.logger.log(`Manual request to clear Binance API ban.`);
-    (BinanceClientFactory as any).setCooldownUntil(0);
+    BinanceRequestQueue.setCooldownUntil(0);
     this.eventEmitter.emit('binance.api_limit_cleared');
   }
 

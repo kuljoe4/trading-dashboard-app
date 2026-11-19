@@ -3,20 +3,12 @@ import { cn } from './primitives';
 import { price as fmtPrice } from '../../lib/formatters';
 import { buildCandidateConditionsModel, computeConditionValueDelta } from '../../utils/candidateConditions';
 
-const DIAL_ZONES = [
-  { key: 'watching', label: 'Watching', range: '<100%', color: '#64748b' },
-  { key: 'near', label: 'Near', range: '80–99%', color: '#3b82f6' },
-  { key: 'fresh', label: 'Fresh', range: '0–5% past', color: '#22c55e' },
-  { key: 'stale', label: 'Stale', range: '5–15% past', color: '#f59e0b' },
-  { key: 'late', label: 'Late', range: '>15% past', color: '#ef4444' },
-];
-
 const ZONE_COLOR_MAP = {
   watching: '#64748b',
   near: '#3b82f6',
   fresh: '#22c55e',
-  stale: '#f59e0b',
-  late: '#ef4444',
+  stale: '#22c55e',
+  late: '#22c55e',
   warming: '#f59e0b',
   blocked: '#a855f7',
 };
@@ -25,8 +17,8 @@ const ZONE_TEXT_CLASS = {
   watching: 'text-dim',
   near: 'text-accent',
   fresh: 'text-green',
-  stale: 'text-amber',
-  late: 'text-red',
+  stale: 'text-green',
+  late: 'text-green',
   warming: 'text-amber',
   blocked: 'text-purple-400',
 };
@@ -35,11 +27,20 @@ const ZONE_DOT_CLASS = {
   watching: 'bg-dim/70',
   near: 'bg-accent',
   fresh: 'bg-green',
-  stale: 'bg-amber',
-  late: 'bg-red',
+  stale: 'bg-green',
+  late: 'bg-green',
   warming: 'bg-amber',
   blocked: 'bg-purple-400',
 };
+
+function formatCleanCardStatus(cZone, stateLabel) {
+  if (stateLabel && stateLabel !== 'Watching') return stateLabel;
+  if (cZone === 'near') return 'Near';
+  if (cZone === 'fresh' || cZone === 'stale' || cZone === 'late') return 'Triggered';
+  if (cZone === 'blocked') return 'Blocked';
+  if (cZone === 'warming') return 'Warming';
+  return stateLabel || 'Watching';
+}
 
 function formatFreshness(ts, nowMs) {
   const evaluated = Number(ts);
@@ -102,29 +103,13 @@ const ConditionFreshness = React.memo(function ConditionFreshness({ evaluatedAtM
 });
 
 /**
- * Piecewise angle mapping for 0..150 dial so Fresh (100-105) and Stale (105-115)
- * have wide, legible visual arcs instead of razor-thin 6° slices:
- * - 0..80 (Watching):  -180° .. -90°  (50% of arc)
- * - 80..100 (Near):    -90°  .. -62°  (target tick at -62°)
- * - 100..105 (Fresh):  -62°  .. -40°  (22° wide green slice)
- * - 105..115 (Stale):  -40°  .. -18°  (22° wide amber slice)
- * - 115..150 (Late):   -18°  ..   0°  (18° wide red slice)
+ * Clean linear angle mapping for 0..150 semicircular dial:
+ * - 0..100 (Approach to target): -180° .. -60° (2/3 of arc)
+ * - 100..150 (Past target):      -60°  ..   0° (1/3 of arc)
  */
 function pctToAngle(p) {
   const clamped = Math.max(0, Math.min(150, Number(p) || 0));
-  if (clamped <= 80) {
-    return -180 + (clamped / 80) * 90;
-  }
-  if (clamped <= 100) {
-    return -90 + ((clamped - 80) / 20) * 28;
-  }
-  if (clamped <= 105) {
-    return -62 + ((clamped - 100) / 5) * 22;
-  }
-  if (clamped <= 115) {
-    return -40 + ((clamped - 105) / 10) * 22;
-  }
-  return -18 + ((clamped - 115) / 35) * 18;
+  return -180 + (clamped / 150) * 180;
 }
 
 function polar(cx, cy, r, deg) {
@@ -180,9 +165,7 @@ function decollideVerticalLabels(items, minGap, minY, maxY) {
 }
 
 /**
- * Semicircular 0–150% condition dial with piecewise widened post-target zones:
- * - Target tick at 100% (-62°)
- * - 5 color-coded arc zones: Watching (<80%), Near (80-100%), Fresh (100-105%), Stale (105-115%), Late (115-150%)
+ * Semicircular 0–150% condition dial with clean pre-target (0–100%) and post-target (100–150%) track
  */
 export const ConditionDial = React.memo(function ConditionDial({
   dialPct = 0,
@@ -196,12 +179,12 @@ export const ConditionDial = React.memo(function ConditionDial({
   const color = ZONE_COLOR_MAP[dialZone] || ZONE_COLOR_MAP.watching;
 
   const isSm = size === 'sm';
-  const w = isSm ? 156 : 212;
-  const h = isSm ? 90 : 118;
+  const w = isSm ? 156 : 204;
+  const h = isSm ? 76 : 96;
   const cx = w / 2;
-  const cy = isSm ? 70 : 92;
-  const r = isSm ? 52 : 70;
-  const strokeW = isSm ? 8.5 : 10.5;
+  const cy = isSm ? 60 : 75;
+  const r = isSm ? 50 : 66;
+  const strokeW = isSm ? 8 : 9.5;
 
   const [tx1, ty1] = polar(cx, cy, r - strokeW * 0.95, pctToAngle(100));
   const [tx2, ty2] = polar(cx, cy, r + strokeW * 0.95, pctToAngle(100));
@@ -220,22 +203,9 @@ export const ConditionDial = React.memo(function ConditionDial({
       className="overflow-visible select-none shrink-0"
       aria-label={`Condition gauge at ${clamped}% (${dialOverText})`}
     >
-      {/* Subtle Under-Track Base */}
-      <path
-        d={describeArc(cx, cy, r, 0, 150)}
-        stroke="currentColor"
-        className="text-border/35"
-        strokeWidth={strokeW + 2}
-        strokeLinecap="round"
-        fill="none"
-      />
-
-      {/* Background Zone Track Segments (Widened piecewise arcs for Fresh & Stale) */}
-      <path d={describeArc(cx, cy, r, 0, 79)} stroke="#64748b" strokeOpacity="0.22" strokeWidth={strokeW} fill="none" />
-      <path d={describeArc(cx, cy, r, 80, 99)} stroke="#3b82f6" strokeOpacity="0.30" strokeWidth={strokeW} fill="none" />
-      <path d={describeArc(cx, cy, r, 100, 104.7)} stroke="#22c55e" strokeOpacity="0.40" strokeWidth={strokeW} fill="none" />
-      <path d={describeArc(cx, cy, r, 105.3, 114.7)} stroke="#f59e0b" strokeOpacity="0.40" strokeWidth={strokeW} fill="none" />
-      <path d={describeArc(cx, cy, r, 115.3, 150)} stroke="#ef4444" strokeOpacity="0.36" strokeWidth={strokeW} fill="none" />
+      {/* Clean 2-Segment Track: Pre-Target (0-100%) and Post-Target (100-150%) */}
+      <path d={describeArc(cx, cy, r, 0, 99.5)} stroke="#64748b" strokeOpacity="0.24" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
+      <path d={describeArc(cx, cy, r, 100.5, 150)} stroke="#22c55e" strokeOpacity="0.26" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
 
       {/* Active Fill Arc Halo + Core */}
       {clamped > 0 && (
@@ -271,7 +241,7 @@ export const ConditionDial = React.memo(function ConditionDial({
       />
       <text
         x={tx2 + 2}
-        y={ty2 - 5}
+        y={ty2 - 4}
         textAnchor="middle"
         fontSize={isSm ? '8' : '8.5'}
         className="fill-dim font-mono font-bold uppercase tracking-tight"
@@ -280,10 +250,10 @@ export const ConditionDial = React.memo(function ConditionDial({
       </text>
 
       {/* Scale Endpoints */}
-      <text x={sx - 2} y={sy + 13} textAnchor="start" fontSize={isSm ? '8' : '8.5'} className="fill-dim/75 font-mono tabular-nums">
+      <text x={sx - 2} y={sy + 12} textAnchor="start" fontSize={isSm ? '8' : '8.5'} className="fill-dim/75 font-mono tabular-nums">
         0%
       </text>
-      <text x={ex + 2} y={ey + 13} textAnchor="end" fontSize={isSm ? '8' : '8.5'} className="fill-dim/75 font-mono tabular-nums">
+      <text x={ex + 2} y={ey + 12} textAnchor="end" fontSize={isSm ? '8' : '8.5'} className="fill-dim/75 font-mono tabular-nums">
         +50%
       </text>
 
@@ -331,49 +301,60 @@ const LADDER_ZONE_TONE = {
   below: {
     color: '#64748b',
     textClass: 'text-dim',
-    dotClass: 'bg-dim/80',
-    badgeClass: 'bg-surface/80 text-dim border-border/50',
   },
   near: {
     color: '#3b82f6',
     textClass: 'text-accent',
-    dotClass: 'bg-accent',
-    badgeClass: 'bg-accent/12 text-accent border-accent/30',
   },
   fresh: {
     color: '#22c55e',
     textClass: 'text-green',
-    dotClass: 'bg-green',
-    badgeClass: 'bg-green/12 text-green border-green/30',
   },
   stale: {
-    color: '#f59e0b',
-    textClass: 'text-amber',
-    dotClass: 'bg-amber',
-    badgeClass: 'bg-amber/12 text-amber border-amber/30',
+    color: '#22c55e',
+    textClass: 'text-green',
   },
   late: {
-    color: '#ef4444',
-    textClass: 'text-red',
-    dotClass: 'bg-red',
-    badgeClass: 'bg-red/12 text-red border-red/30',
+    color: '#22c55e',
+    textClass: 'text-green',
   },
   rejected: {
     color: '#a855f7',
     textClass: 'text-purple-400',
-    dotClass: 'bg-purple-400',
-    badgeClass: 'bg-purple-500/12 text-purple-300 border-purple-400/35',
   },
 };
 
 /**
  * Modern App-Like Spatial Level Ladder for HTF Breakouts (`htf_breakout` / `prev_day_breakout`):
- * - Hero Breakout Bar: Live price vs breakout level, timeframe pair (`refTf → trigTf`), candle confirmation state, and countdown
- * - Collision-free Spatial SVG Visualizer: de-collided price level callouts with leader ticks, glowing live price cursor pill, and color-coded expansion zones
- * - Segmented Expansion Cap Allowance Meter (`Fresh 0–25%` · `Stale 25–60%` · `Late 60–100%`)
- * - 3-Card Bento Telemetry Dock (`To/Past Level`, `Expansion Used`, `Cap Room Left`)
+ * - Zoomed-in true-proportion vertical domain anchored right to the top edge of the graphic
+ * - Slim color-filled lookback & trigger candles with matching color wicks
+ * - Single-line proportional SL <-> Entry <-> Target/Exit ratio footer
  */
 export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder, compact = false, changeInfo = null }) {
+  const svgWrapRef = useRef(null);
+  const [boxSize, setBoxSize] = useState(() => ({
+    w: 400,
+    h: compact ? 116 : 134,
+  }));
+
+  useEffect(() => {
+    const el = svgWrapRef.current;
+    if (!el) return undefined;
+    const updateSize = () => {
+      const rect = el.getBoundingClientRect();
+      const nextW = Math.round(rect.width);
+      const nextH = Math.round(rect.height);
+      if (nextW > 40 && nextH > 40) {
+        setBoxSize((prev) => (Math.abs(prev.w - nextW) <= 1 && Math.abs(prev.h - nextH) <= 1 ? prev : { w: nextW, h: nextH }));
+      }
+    };
+    updateSize();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => updateSize());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [compact, Boolean(ladder)]);
+
   if (!ladder) return null;
 
   const refTf = ladder.refTf || '1d';
@@ -382,40 +363,70 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
   const bufferPct = Number.isFinite(Number(ladder.bufferPct)) ? Number(ladder.bufferPct) : 0;
   const effectiveMaxExpPct = Number.isFinite(Number(ladder.effectiveMaxExpPct)) ? Number(ladder.effectiveMaxExpPct) : 2.0;
   const hasHardCap = Boolean(ladder.hasHardCap);
+  const capUsesSlLookback = Boolean(ladder.capUsesSlLookback);
+  const slLookbackPeriod = Number.isFinite(Number(ladder.slLookbackPeriod)) ? Number(ladder.slLookbackPeriod) : 5;
   const refHigh = Number.isFinite(Number(ladder.refHigh)) ? Number(ladder.refHigh) : 0;
   const refLow = Number.isFinite(Number(ladder.refLow)) ? Number(ladder.refLow) : 0;
   const breakoutLevel = Number.isFinite(Number(ladder.breakoutLevel)) ? Number(ladder.breakoutLevel) : (refHigh || refLow || 0);
   const expansionCap = Number.isFinite(Number(ladder.expansionCap)) ? Number(ladder.expansionCap) : breakoutLevel;
   const livePrice = Number.isFinite(Number(ladder.livePrice)) ? Number(ladder.livePrice) : breakoutLevel;
+  const isLong = ladder.isLong !== false;
+  const slPrice = Number.isFinite(Number(ladder.slPrice)) && Number(ladder.slPrice) > 0
+    ? Number(ladder.slPrice)
+    : (isLong ? refLow : refHigh);
+  const slDistPct = Number.isFinite(Number(ladder.slDistPct)) ? Number(ladder.slDistPct) : 0;
+  const pnlOrRewardPct = Number.isFinite(Number(ladder.pnlOrRewardPct)) ? Number(ladder.pnlOrRewardPct) : 0;
+  const rrRatio = Number.isFinite(Number(ladder.rrRatio)) && Number(ladder.rrRatio) > 0 ? Number(ladder.rrRatio) : 2.0;
+  const lookbackCandles = Array.isArray(ladder.lookbackCandles) ? ladder.lookbackCandles : [];
   const distFromLevelPct = Number.isFinite(Number(ladder.distFromLevelPct)) ? Number(ladder.distFromLevelPct) : 0;
   const capUsedPct = Number.isFinite(Number(ladder.capUsedPct)) ? Number(ladder.capUsedPct) : 0;
   const capRoomPct = Number.isFinite(Number(ladder.capRoomPct)) ? Number(ladder.capRoomPct) : 0;
   const candleConfirmState = ladder.candleConfirmState || 'below';
   const countdownText = ladder.countdownText || '';
   const zone = ladder.zone || 'below';
-  const zoneLabel = ladder.zoneLabel || 'Watching';
   const isOverCap = Boolean(ladder.isOverCap);
-  const isLong = ladder.isLong !== false;
+  void trigTf;
+  void changeInfo;
 
   const zTone = LADDER_ZONE_TONE[zone] || LADDER_ZONE_TONE.below;
 
-  // Compute vertical domain [pMin, pMax] so reference range, breakout level, expansion cap, and livePrice fit with generous breathing room
-  const rangeSpan = Math.max(Math.abs(refHigh - refLow), breakoutLevel * 0.005, 1e-9);
-  const capDist = Math.max(Math.abs(expansionCap - breakoutLevel), breakoutLevel * 0.01, 1e-9);
-  const pMax = isLong
-    ? Math.max(expansionCap + capDist * 0.48, livePrice + capDist * 0.24, refHigh + rangeSpan * 0.24)
-    : Math.max(refHigh + rangeSpan * 0.26, livePrice + rangeSpan * 0.18);
-  const pMin = isLong
-    ? Math.min(refLow - rangeSpan * 0.26, livePrice - rangeSpan * 0.18)
-    : Math.min(expansionCap - capDist * 0.48, livePrice - capDist * 0.24, refLow - rangeSpan * 0.24);
+  // Zoomed-In True-Proportion Vertical Domain [pMin, pMax]:
+  // Anchored flush to the top & bottom levels ([slPrice, breakoutLevel, expansionCap]) with zero wasted headroom
+  // at the top unless price actually exceeds the top boundary.
+  const capDist = Math.max(Math.abs(expansionCap - breakoutLevel), breakoutLevel * 0.005, 1e-9);
+  const rawSlDist = slPrice > 0 ? Math.abs(breakoutLevel - slPrice) : capDist * 0.85;
+  const visualSlSpan = Math.min(Math.max(rawSlDist, capDist * 0.65), capDist * 1.65);
+  const slVisualPrice = isLong ? breakoutLevel - visualSlSpan : breakoutLevel + visualSlSpan;
+  const clampedLiveForDomain = isLong
+    ? Math.max(slVisualPrice - capDist * 0.30, Math.min(expansionCap + capDist * 0.40, livePrice))
+    : Math.min(slVisualPrice + capDist * 0.30, Math.max(expansionCap - capDist * 0.40, livePrice));
 
-  const svgW = 400;
-  const svgH = compact ? 146 : 166;
-  const padTop = 14;
-  const padBot = 14;
+  const overCapActive = isLong ? livePrice > expansionCap : livePrice < expansionCap;
+  const underSlActive = isLong ? livePrice < slVisualPrice : livePrice > slVisualPrice;
+
+  const pMax = isLong
+    ? (overCapActive
+        ? Math.min(expansionCap + capDist * 0.36, Math.max(expansionCap + capDist * 0.14, clampedLiveForDomain + capDist * 0.05))
+        : expansionCap + capDist * 0.02)
+    : (underSlActive
+        ? Math.min(slVisualPrice + capDist * 0.30, Math.max(slVisualPrice + capDist * 0.12, clampedLiveForDomain + capDist * 0.05))
+        : slVisualPrice + capDist * 0.02);
+
+  const pMin = isLong
+    ? (underSlActive
+        ? Math.max(slVisualPrice - capDist * 0.30, Math.min(slVisualPrice - capDist * 0.12, clampedLiveForDomain - capDist * 0.05))
+        : slVisualPrice - capDist * 0.02)
+    : (overCapActive
+        ? Math.max(expansionCap - capDist * 0.36, Math.min(expansionCap - capDist * 0.14, clampedLiveForDomain - capDist * 0.05))
+        : expansionCap - capDist * 0.02);
+
+  const svgW = Math.max(260, boxSize.w || 400);
+  const svgH = Math.max(compact ? 104 : 116, boxSize.h || (compact ? 116 : 134));
+  const padTop = 6;
+  const padBot = 6;
   const plotH = svgH - padTop - padBot;
-  const xLeft = 78;
-  const xRight = 294;
+  const xLeft = 76;
+  const xRight = Math.max(xLeft + 100, svgW - 104);
   const bandW = xRight - xLeft;
 
   const yOf = (priceVal) => {
@@ -426,107 +437,80 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
     return Math.max(padTop, Math.min(svgH - padBot, padTop + ratio * plotH));
   };
 
-  const yHigh = yOf(refHigh);
-  const yLow = yOf(refLow);
   const yBreak = yOf(breakoutLevel);
   const yCap = yOf(expansionCap);
   const yPx = yOf(livePrice);
-
-  // Fresh (0-25%), Stale (25-60%), Late (60-100%) boundaries along the breakout->cap span
-  const pFreshEdge = breakoutLevel + (expansionCap - breakoutLevel) * 0.25;
-  const pStaleEdge = breakoutLevel + (expansionCap - breakoutLevel) * 0.60;
-  const yFreshEdge = yOf(pFreshEdge);
-  const yStaleEdge = yOf(pStaleEdge);
+  const ySl = yOf(slVisualPrice);
+  const pillY = Math.max(8, Math.min(svgH - 8, yPx));
 
   const rectBand = (y1, y2) => ({
     y: Math.min(y1, y2),
-    height: Math.max(1.5, Math.abs(y2 - y1)),
+    height: Math.max(0, Math.abs(y2 - y1)),
   });
 
-  const rangeBox = rectBand(yHigh, yLow);
-  const freshBox = rectBand(yBreak, yFreshEdge);
-  const staleBox = rectBand(yFreshEdge, yStaleEdge);
-  const lateBox = rectBand(yStaleEdge, yCap);
+  const slRiskBox = rectBand(ySl, yBreak);
+  const capBox = rectBand(yBreak, yCap);
   const rejectBox = isLong ? rectBand(padTop, yCap) : rectBand(yCap, svgH - padBot);
 
   const absDist = Number.isFinite(Math.abs(distFromLevelPct)) ? Math.abs(distFromLevelPct) : 0;
   const distText = `${distFromLevelPct >= 0 ? '+' : '-'}${absDist >= 10 ? absDist.toFixed(1) : absDist.toFixed(2)}%`;
-  const priceDeltaVal = livePrice - breakoutLevel;
-  const absPriceDelta = Math.abs(priceDeltaVal);
-  const priceDeltaText = Number.isFinite(absPriceDelta) && breakoutLevel > 0
-    ? `${priceDeltaVal >= 0 ? '+' : '-'}${fmtPrice(absPriceDelta)}`
-    : distText;
-
   const capUsedRound = Math.max(0, Math.round(capUsedPct));
-  const capBarFillPct = distFromLevelPct < 0 ? 0 : Math.max(2, Math.min(100, capUsedPct));
   const safeCapRoom = Number.isFinite(capRoomPct) ? capRoomPct : 0;
   const capRoomFormatted = safeCapRoom <= 0
-    ? '0% (over)'
+    ? '0%'
     : `${safeCapRoom >= 10 ? safeCapRoom.toFixed(1) : safeCapRoom.toFixed(2)}%`;
 
   let confirmLabel = isLong ? `Below ${refTf} high` : `Above ${refTf} low`;
-  let confirmToneClass = 'text-dim bg-surface/60 border-border/40';
-  let confirmDotClass = 'bg-dim/60';
+  let confirmToneClass = 'text-dim';
   if (candleConfirmState === 'closed_beyond') {
-    confirmLabel = 'Candle closed beyond ✓';
-    confirmToneClass = 'text-green bg-green/10 border-green/30';
-    confirmDotClass = 'bg-green';
+    confirmLabel = 'Closed beyond ✓';
+    confirmToneClass = 'text-green';
   } else if (candleConfirmState === 'wicked_only') {
-    confirmLabel = mode === 'closed_candle_confirm' ? 'Wicked only · awaiting close' : 'Wicked through level';
-    confirmToneClass = 'text-amber bg-amber/10 border-amber/30';
-    confirmDotClass = 'bg-amber animate-pulse';
+    confirmLabel = mode === 'closed_candle_confirm' ? 'Wicked · wait close' : 'Wicked through';
+    confirmToneClass = 'text-amber';
   }
 
-  // De-collide Left Level Labels
+  // De-collide Left Level Labels (only 3 essential anchors: SL lookback, Breakout Level, Cap)
   const rawLeftLabels = [
     {
-      id: 'low',
-      y: yLow,
-      text: `${refTf} low`,
-      color: !isLong ? '#60a5fa' : '#94a3b8',
-      bold: !isLong,
+      id: 'slLb',
+      y: ySl,
+      text: `SL -${slDistPct.toFixed(2)}%`,
+      color: '#f87171',
+      bold: false,
     },
     {
-      id: 'high',
-      y: yHigh,
-      text: `${refTf} high`,
-      color: isLong ? '#60a5fa' : '#94a3b8',
-      bold: isLong,
+      id: 'lvl',
+      y: yBreak,
+      text: bufferPct > 0 ? `${refTf} +${bufferPct}%` : `${refTf} ${isLong ? 'high' : 'low'}`,
+      color: '#60a5fa',
+      bold: true,
     },
-    ...(bufferPct > 0
-      ? [{
-          id: 'buf',
-          y: yBreak,
-          text: `buf +${bufferPct}%`,
-          color: '#38bdf8',
-          bold: true,
-        }]
-      : []),
     {
       id: 'cap',
       y: yCap,
-      text: `cap ${isLong ? '+' : '-'}${effectiveMaxExpPct}%`,
+      text: `${capUsesSlLookback ? 'SL cap' : 'cap'} ${isLong ? '+' : '-'}${effectiveMaxExpPct}%`,
       color: '#c084fc',
       bold: true,
     },
   ];
-  const leftLabels = decollideVerticalLabels(rawLeftLabels, 13, 12, svgH - 12);
+  const leftLabels = decollideVerticalLabels(rawLeftLabels, 12, 8, svgH - 8);
 
-  // De-collide Right Price Labels (excluding livePrice pill which floats prominently, nudging static prices away from yPx)
+  // De-collide Right Static Price Labels (nudged away from floating livePrice pill)
   const rawRightLabels = [
     {
-      id: 'lowPx',
-      y: yLow,
-      text: fmtPrice(refLow),
-      color: !isLong ? '#e2e8f0' : '#94a3b8',
-      bold: !isLong,
+      id: 'slPx',
+      y: ySl,
+      text: fmtPrice(slPrice),
+      color: '#f87171',
+      bold: false,
     },
     {
-      id: 'highPx',
-      y: yHigh,
-      text: fmtPrice(refHigh),
-      color: isLong ? '#e2e8f0' : '#94a3b8',
-      bold: isLong,
+      id: 'lvlPx',
+      y: yBreak,
+      text: fmtPrice(breakoutLevel),
+      color: '#e2e8f0',
+      bold: true,
     },
     {
       id: 'capPx',
@@ -535,160 +519,116 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
       color: '#c084fc',
       bold: true,
     },
-  ].filter((item) => Math.abs(item.y - yPx) >= 13);
-  const rightLabels = decollideVerticalLabels(rawRightLabels, 13, 12, svgH - 12);
+  ].filter((item) => Math.abs(item.y - pillY) >= 12);
+  const rightLabels = decollideVerticalLabels(rawRightLabels, 12, 8, svgH - 8);
+
+  // Proportional SL <-> Entry <-> Target/Exit bar ratios for the single-line footer
+  const safeSlRiskPct = Math.max(0.05, Math.abs(slDistPct));
+  const safeRewardPct = Math.max(0.05, Math.abs(pnlOrRewardPct));
+  const totalRiskRewardSpan = safeSlRiskPct + safeRewardPct;
+  const riskWingWidthPct = Math.max(22, Math.min(62, Math.round((safeSlRiskPct / totalRiskRewardSpan) * 100)));
+  const rewardWingWidthPct = 100 - riskWingWidthPct;
+
+  // Slim lookback + trigger candles geometry inside right-side lane of the zoomed SVG rail
+  const candleLaneRight = xRight - 10;
+  const candleCount = lookbackCandles.length;
+  const candleSpacing = 8;
+  const slimCandleBodyW = 3.4;
+  const candleLaneLeft = candleLaneRight - Math.max(1, candleCount - 1) * candleSpacing;
 
   return (
-    <div className="flex flex-col gap-2 w-full">
-      {/* App-Like Hero Breakout Summary Header */}
-      <div className="flex items-center justify-between gap-2 flex-wrap rounded-lg bg-surface/55 border border-border/40 px-2.5 py-1.5 text-[10px] font-mono">
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <span
-            className={cn(
-              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border font-bold tracking-tight',
-              zTone.badgeClass
-            )}
-          >
-            <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', zTone.dotClass)} />
-            {zoneLabel}
-          </span>
-          <span
-            className={cn(
-              'inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-md border font-semibold',
-              confirmToneClass
-            )}
-          >
-            <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', confirmDotClass)} />
-            {confirmLabel}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 ml-auto tabular-nums">
-          <span className="text-dim hidden sm:inline">
-            Lvl <strong className="text-text font-bold">{fmtPrice(breakoutLevel)}</strong>
-          </span>
-          { (isOverCap || countdownText) && (
-            <span
-              className={cn(
-                'px-1.5 py-0.5 rounded border text-[9.5px] font-semibold',
-                isOverCap
-                  ? 'bg-purple-500/12 border-purple-400/35 text-purple-300'
-                  : 'bg-bg/60 border-border/40 text-dim'
-              )}
-            >
-              {isOverCap ? 'Blocked · Over Max Expansion' : `⏱ ${countdownText}`}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Spatial Vertical Level Ladder SVG */}
-      <svg
-        width="100%"
-        viewBox={`0 0 ${svgW} ${svgH}`}
-        className="w-full overflow-visible select-none rounded-xl bg-gradient-to-b from-bg/75 via-bg/50 to-bg/75 border border-border/45 shadow-inner"
-        aria-label={`HTF Breakout level ladder: live ${fmtPrice(livePrice)} vs ${refTf} level ${fmtPrice(breakoutLevel)}`}
+    <div className="flex-1 flex flex-col gap-1.5 w-full min-h-0">
+      {/* Flex-1 Wrapper so the Breakout SVG expands to fill 100% of available vertical space between header and footer */}
+      <div
+        ref={svgWrapRef}
+        className={cn(
+          'relative flex-1 w-full flex',
+          compact ? 'min-h-[108px]' : 'min-h-[124px]'
+        )}
       >
-        {/* Reference Day Range Band */}
+        <svg
+          width="100%"
+          height="100%"
+          viewBox={`0 0 ${svgW} ${svgH}`}
+          preserveAspectRatio="none"
+          className="w-full h-full block overflow-visible select-none rounded-lg bg-gradient-to-b from-bg/80 via-bg/55 to-bg/80 border border-border/45"
+          aria-label={`HTF Breakout level ladder: live ${fmtPrice(livePrice)} vs ${refTf} level ${fmtPrice(breakoutLevel)}`}
+        >
+        {/* Lookback SL Risk Zone (SL <-> Breakout Level) */}
         <rect
           x={xLeft}
-          y={rangeBox.y}
+          y={slRiskBox.y}
           width={bandW}
-          height={rangeBox.height}
-          rx="2"
-          fill="#64748b"
-          fillOpacity="0.11"
+          height={Math.max(1.5, slRiskBox.height)}
+          fill="#ef4444"
+          fillOpacity="0.08"
         />
         <rect
           x={xLeft}
-          y={rangeBox.y}
-          width="3"
-          height={rangeBox.height}
-          fill="#64748b"
-          fillOpacity="0.45"
+          y={slRiskBox.y}
+          width="2.5"
+          height={Math.max(1.5, slRiskBox.height)}
+          fill="#ef4444"
+          fillOpacity="0.55"
         />
-        {rangeBox.height >= 16 && (
+        {slRiskBox.height >= 13 && (
           <text
-            x={xLeft + 10}
-            y={rangeBox.y + rangeBox.height / 2 + 3}
-            fontSize="8.5"
-            className="fill-dim/80 font-mono font-medium uppercase tracking-wider"
+            x={xLeft + 8}
+            y={slRiskBox.y + slRiskBox.height / 2 + 3}
+            fontSize="8"
+            fill="#f87171"
+            fillOpacity="0.85"
+            className="font-mono font-semibold"
           >
-            {refTf} ref range
+            SL lookback ({slLookbackPeriod}b) · -{slDistPct.toFixed(2)}%
           </text>
         )}
 
-        {/* Breakout Expansion Zones: Fresh (0-25%), Stale (25-60%), Late (60-100%), Rejected (>100%) */}
-        <rect x={xLeft} y={freshBox.y} width={bandW} height={freshBox.height} fill="#22c55e" fillOpacity="0.16" />
-        <rect x={xLeft} y={freshBox.y} width="3" height={freshBox.height} fill="#22c55e" fillOpacity="0.85" />
-
-        <rect x={xLeft} y={staleBox.y} width={bandW} height={staleBox.height} fill="#f59e0b" fillOpacity="0.15" />
-        <rect x={xLeft} y={staleBox.y} width="3" height={staleBox.height} fill="#f59e0b" fillOpacity="0.85" />
-
-        <rect x={xLeft} y={lateBox.y} width={bandW} height={lateBox.height} fill="#ef4444" fillOpacity="0.15" />
-        <rect x={xLeft} y={lateBox.y} width="3" height={lateBox.height} fill="#ef4444" fillOpacity="0.85" />
-
-        <rect x={xLeft} y={rejectBox.y} width={bandW} height={rejectBox.height} fill="#a855f7" fillOpacity="0.13" />
-        <rect x={xLeft} y={rejectBox.y} width="3" height={rejectBox.height} fill="#a855f7" fillOpacity="0.8" />
-
-        {/* Zone Labels Inside Rail */}
-        {freshBox.height >= 10 && (
-          <text x={xLeft + 10} y={freshBox.y + freshBox.height / 2 + 3} fontSize="8.5" fill="#4ade80" className="font-mono font-bold">
-            Fresh · 0–25% cap
-          </text>
-        )}
-        {staleBox.height >= 10 && (
-          <text x={xLeft + 10} y={staleBox.y + staleBox.height / 2 + 3} fontSize="8.5" fill="#fbbf24" className="font-mono font-bold">
-            Stale · 25–60%
-          </text>
-        )}
-        {lateBox.height >= 10 && (
-          <text x={xLeft + 10} y={lateBox.y + lateBox.height / 2 + 3} fontSize="8.5" fill="#f87171" className="font-mono font-bold">
-            Late · 60–100%
-          </text>
-        )}
-        {rejectBox.height >= 11 && (
-          <text x={xLeft + 10} y={rejectBox.y + rejectBox.height / 2 + 3} fontSize="8.5" fill="#c084fc" className="font-mono font-bold">
-            {hasHardCap ? 'Over Cap · Rejected' : 'Extended Zone'}
+        {/* Single Clean Zoomed Cap Window (Breakout Level <-> Max Cap) */}
+        <rect x={xLeft} y={capBox.y} width={bandW} height={Math.max(1.5, capBox.height)} fill="#22c55e" fillOpacity="0.14" />
+        <rect x={xLeft} y={capBox.y} width="3" height={Math.max(1.5, capBox.height)} fill="#22c55e" fillOpacity="0.8" />
+        {capBox.height >= 12 && (
+          <text x={xLeft + 8} y={capBox.y + capBox.height / 2 + 2.8} fontSize="8" fill="#4ade80" fillOpacity="0.9" className="font-mono font-semibold">
+            {capUsesSlLookback ? `SL cap window (${effectiveMaxExpPct}%)` : `Cap window (${effectiveMaxExpPct}%)`}
           </text>
         )}
 
-        {/* Reference Low Line */}
+        {/* Over-Cap Zone (>100% Cap, shown only when price extends beyond cap) */}
+        {overCapActive && rejectBox.height >= 3 && (
+          <>
+            <rect x={xLeft} y={rejectBox.y} width={bandW} height={rejectBox.height} fill="#a855f7" fillOpacity="0.12" />
+            <rect x={xLeft} y={rejectBox.y} width="2.5" height={rejectBox.height} fill="#a855f7" fillOpacity="0.75" />
+            {rejectBox.height >= 10 && (
+              <text x={xLeft + 8} y={rejectBox.y + rejectBox.height / 2 + 2.8} fontSize="8" fill="#c084fc" className="font-mono font-semibold">
+                {hasHardCap ? 'Over Cap' : 'Extended'}
+              </text>
+            )}
+          </>
+        )}
+
+        {/* Lookback SL Line */}
         <line
           x1={xLeft}
-          y1={yLow}
+          y1={ySl}
           x2={xRight}
-          y2={yLow}
-          stroke={!isLong ? '#3b82f6' : '#64748b'}
-          strokeWidth={!isLong ? '1.75' : '1'}
-          strokeDasharray={!isLong ? '4 2.5' : '3 3'}
+          y2={ySl}
+          stroke="#ef4444"
+          strokeWidth="1.15"
+          strokeDasharray="2.5 2.5"
         />
 
-        {/* Reference High Line */}
+        {/* Breakout Level Line */}
         <line
           x1={xLeft}
-          y1={yHigh}
+          y1={yBreak}
           x2={xRight}
-          y2={yHigh}
-          stroke={isLong ? '#3b82f6' : '#64748b'}
-          strokeWidth={isLong ? '1.75' : '1'}
-          strokeDasharray={isLong ? '4 2.5' : '3 3'}
+          y2={yBreak}
+          stroke="#3b82f6"
+          strokeWidth="1.75"
+          strokeDasharray="4 2.5"
         />
 
-        {/* Optional Buffer Trigger Line (when bufferPct > 0) */}
-        {bufferPct > 0 && Math.abs(yBreak - (isLong ? yHigh : yLow)) > 2 && (
-          <line
-            x1={xLeft}
-            y1={yBreak}
-            x2={xRight}
-            y2={yBreak}
-            stroke="#38bdf8"
-            strokeWidth="1.5"
-            strokeDasharray="3 2"
-          />
-        )}
-
-        {/* Max-Expansion Cap Line */}
+        {/* Max-Expansion / Lookback SL Cap Line */}
         <line
           x1={xLeft}
           y1={yCap}
@@ -699,24 +639,76 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           strokeDasharray="3 2.5"
         />
 
-        {/* De-collided Left Level Labels with Connector Ticks */}
+        {/* Slim Color-Filled Lookback Candles + Trigger Candle Lane */}
+        {candleCount > 0 && (
+          <g aria-label="Lookback and trigger candles">
+            <rect
+              x={candleLaneLeft - 5}
+              y={2}
+              width={(candleCount - 1) * candleSpacing + 10}
+              height={svgH - 4}
+              rx="3.5"
+              fill="#0f172a"
+              fillOpacity="0.30"
+            />
+            {lookbackCandles.map((c, idx) => {
+              const cx = candleLaneLeft + idx * candleSpacing;
+              const yCHigh = yOf(c.high);
+              const yCLow = yOf(c.low);
+              const yCOpen = yOf(c.open);
+              const yCClose = yOf(c.close);
+              const bodyTop = Math.min(yCOpen, yCClose);
+              const bodyH = Math.max(2, Math.abs(yCClose - yCOpen));
+              const cColor = c.isUp ? '#22c55e' : '#ef4444';
+              const isTrig = Boolean(c.isTrigger);
+
+              return (
+                <g key={c.id || idx}>
+                  <line
+                    x1={cx}
+                    y1={yCHigh}
+                    x2={cx}
+                    y2={yCLow}
+                    stroke={cColor}
+                    strokeWidth={isTrig ? '1.3' : '1.05'}
+                    strokeLinecap="round"
+                    strokeOpacity={isTrig ? '0.98' : '0.82'}
+                  />
+                  <rect
+                    x={cx - slimCandleBodyW / 2}
+                    y={bodyTop}
+                    width={slimCandleBodyW}
+                    height={bodyH}
+                    rx="0.9"
+                    fill={cColor}
+                    fillOpacity={isTrig ? '0.96' : '0.78'}
+                    stroke={cColor}
+                    strokeWidth="0.5"
+                  />
+                </g>
+              );
+            })}
+          </g>
+        )}
+
+        {/* De-collided Left Level Labels */}
         {leftLabels.map((lbl) => {
           const safeY = Number.isFinite(Number(lbl.y)) ? Number(lbl.y) : 0;
           const safeLabelY = Number.isFinite(Number(lbl.labelY)) ? Number(lbl.labelY) : safeY;
           return (
             <g key={lbl.id}>
               <path
-                d={`M ${xLeft} ${safeY.toFixed(1)} L ${xLeft - 4} ${safeLabelY.toFixed(1)} L ${xLeft - 7} ${safeLabelY.toFixed(1)}`}
+                d={`M ${xLeft} ${safeY.toFixed(1)} L ${xLeft - 4} ${safeLabelY.toFixed(1)} L ${xLeft - 6} ${safeLabelY.toFixed(1)}`}
                 stroke={lbl.color}
                 strokeOpacity="0.55"
                 strokeWidth="1"
                 fill="none"
               />
               <text
-                x={xLeft - 9}
-                y={safeLabelY + 3}
+                x={xLeft - 8}
+                y={safeLabelY + 2.8}
                 textAnchor="end"
-                fontSize="8.5"
+                fontSize="8.2"
                 fill={lbl.color}
                 fontWeight={lbl.bold ? '700' : '500'}
                 className="font-mono"
@@ -727,24 +719,24 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           );
         })}
 
-        {/* De-collided Right Static Price Labels with Connector Ticks */}
+        {/* De-collided Right Static Price Labels */}
         {rightLabels.map((lbl) => {
           const safeY = Number.isFinite(Number(lbl.y)) ? Number(lbl.y) : 0;
           const safeLabelY = Number.isFinite(Number(lbl.labelY)) ? Number(lbl.labelY) : safeY;
           return (
             <g key={lbl.id}>
               <path
-                d={`M ${xRight} ${safeY.toFixed(1)} L ${xRight + 4} ${safeLabelY.toFixed(1)} L ${xRight + 7} ${safeLabelY.toFixed(1)}`}
+                d={`M ${xRight} ${safeY.toFixed(1)} L ${xRight + 4} ${safeLabelY.toFixed(1)} L ${xRight + 6} ${safeLabelY.toFixed(1)}`}
                 stroke={lbl.color}
                 strokeOpacity="0.5"
                 strokeWidth="1"
                 fill="none"
               />
               <text
-                x={xRight + 9}
-                y={safeLabelY + 3}
+                x={xRight + 8}
+                y={safeLabelY + 2.8}
                 textAnchor="start"
-                fontSize="8.5"
+                fontSize="8.2"
                 fill={lbl.color}
                 fontWeight={lbl.bold ? '700' : '500'}
                 className="font-mono tabular-nums"
@@ -755,15 +747,15 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           );
         })}
 
-        {/* Live Price Cursor Line + Radar Halo + Floating Pill Callouts */}
+        {/* Live Price Cursor Line + Floating Pill Callouts */}
         <line
           x1={xLeft}
           y1={yPx}
           x2={xRight}
           y2={yPx}
           stroke={zTone.color}
-          strokeOpacity="0.28"
-          strokeWidth="5"
+          strokeOpacity="0.26"
+          strokeWidth="4.5"
         />
         <line
           x1={xLeft}
@@ -771,25 +763,24 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           x2={xRight}
           y2={yPx}
           stroke={zTone.color}
-          strokeWidth="2"
+          strokeWidth="1.8"
         />
-        <circle cx={xRight} cy={yPx} r="5.5" fill={zTone.color} fillOpacity="0.25" />
-        <circle cx={xRight} cy={yPx} r="3.2" fill={zTone.color} />
+        <circle cx={xRight} cy={yPx} r="3" fill={zTone.color} />
 
         {/* Right Floating Live Price Pill */}
         <rect
-          x={xRight + 6}
-          y={yPx - 9}
+          x={xRight + 5}
+          y={pillY - 8}
           width="94"
-          height="18"
-          rx="5"
+          height="16"
+          rx="4"
           fill={zTone.color}
         />
         <text
-          x={xRight + 53}
-          y={yPx + 3.5}
+          x={xRight + 52}
+          y={pillY + 3.2}
           textAnchor="middle"
-          fontSize="9.5"
+          fontSize="9"
           fontWeight="800"
           fill="#ffffff"
           className="font-mono tabular-nums"
@@ -799,125 +790,67 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
 
         {/* Left Signed Distance Pill */}
         <rect
-          x="6"
-          y={yPx - 8.5}
-          width="52"
-          height="17"
-          rx="4.5"
+          x="5"
+          y={pillY - 7.5}
+          width="50"
+          height="15"
+          rx="4"
           fill={zTone.color}
           fillOpacity="0.18"
           stroke={zTone.color}
           strokeWidth="1"
         />
         <text
-          x="32"
-          y={yPx + 3}
+          x="30"
+          y={pillY + 2.8}
           textAnchor="middle"
-          fontSize="8.5"
+          fontSize="8.2"
           fontWeight="800"
           fill={zTone.color}
           className="font-mono tabular-nums"
         >
           {distText}
         </text>
-      </svg>
-
-      {/* Segmented Expansion Cap Allowance Progress Bar */}
-      <div className="flex flex-col gap-1 px-0.5">
-        <div className="flex items-center justify-between text-[9px] font-mono text-dim tabular-nums">
-          <span>
-            Expansion Allowance ({refTf} → {trigTf})
-          </span>
-          <span className={cn('font-bold', zTone.textClass)}>
-            {distFromLevelPct < 0
-              ? `${distText} to breakout`
-              : `${capUsedRound}% of ${effectiveMaxExpPct}% cap used`}
-          </span>
-        </div>
-        <div className="relative h-2 w-full rounded-full bg-bg/80 border border-border/40 overflow-hidden flex">
-          {/* Segmented Zone Backdrop: 0-25% Fresh, 25-60% Stale, 60-100% Late */}
-          <div className="h-full bg-green/20 border-r border-bg/60" style={{ width: '25%' }} title="Fresh Zone (0–25% cap)" />
-          <div className="h-full bg-amber/20 border-r border-bg/60" style={{ width: '35%' }} title="Stale Zone (25–60% cap)" />
-          <div className="h-full bg-red/20" style={{ width: '40%' }} title="Late Zone (60–100% cap)" />
-
-          {/* Active Expansion Progress Fill */}
-          {capBarFillPct > 0 && (
-            <div
-              className="absolute top-0 bottom-0 left-0 rounded-full transition-all duration-300"
-              style={{
-                width: `${capBarFillPct}%`,
-                backgroundColor: zTone.color,
-              }}
-            />
-          )}
-        </div>
+        </svg>
       </div>
 
-      {/* Bottom 3-Card Bento Telemetry Dock */}
-      <div className="grid grid-cols-3 gap-1.5 font-mono text-[10px] tabular-nums">
-        <div className="rounded-lg bg-surface/45 border border-border/35 px-2 py-1.5 flex flex-col justify-between">
-          <span className="text-[8.5px] uppercase tracking-wider text-dim font-semibold">
-            {distFromLevelPct >= 0 ? 'Past level' : 'To level'}
-          </span>
-          <div className="flex items-baseline justify-between gap-1 mt-0.5">
-            <span
-              className={cn(
-                'font-bold text-[11px] transition-colors duration-300',
-                changeInfo?.changed ? changeInfo.toneClass : zTone.textClass
-              )}
-            >
-              {distText}
-            </span>
-            <span className="text-[8.5px] text-dim truncate">{priceDeltaText}</span>
-          </div>
-        </div>
+      {/* Single Ultra-Compact 1-Line Footer: Candle State · Proportional SL/Entry/Target Ratio Bar · Cap Used */}
+      <div className="flex items-center justify-between gap-2 rounded-lg bg-surface/45 border border-border/35 px-2 py-1 font-mono text-[9px] tabular-nums shrink-0">
+        <span className={cn('font-semibold truncate shrink-0', confirmToneClass)}>
+          {confirmLabel}
+          {countdownText && !isOverCap ? ` · ${countdownText.replace(/.*close in /, '')}` : ''}
+        </span>
 
-        <div className="rounded-lg bg-surface/45 border border-border/35 px-2 py-1.5 flex flex-col justify-between">
-          <span className="text-[8.5px] uppercase tracking-wider text-dim font-semibold">
-            {hasHardCap ? `Cap used (${effectiveMaxExpPct}%)` : `Ref span (${effectiveMaxExpPct}%)`}
-          </span>
-          <div className="flex items-baseline justify-between gap-1 mt-0.5">
-            <span
-              className={cn(
-                'font-bold text-[11px]',
-                capUsedRound > 100
-                  ? 'text-purple-400'
-                  : capUsedRound > 60
-                    ? 'text-red'
-                    : capUsedRound > 25
-                      ? 'text-amber'
-                      : distFromLevelPct >= 0
-                        ? 'text-green'
-                        : 'text-dim'
-              )}
-            >
-              {distFromLevelPct < 0 ? '0%' : `${capUsedRound}%`}
+        {/* Inline Proportional Two-Wing SL <-> Entry <-> Target Ratio Bar */}
+        <div
+          className="flex-1 max-w-[175px] h-3.5 rounded bg-bg/85 border border-border/45 overflow-hidden flex items-center"
+          title={`Lookback SL -${slDistPct.toFixed(2)}% (1.0R) | Target +${Math.abs(pnlOrRewardPct).toFixed(2)}% (${rrRatio.toFixed(1)}R)`}
+        >
+          <div
+            className="h-full bg-red/30 border-r border-text/80 flex items-center justify-start pl-1"
+            style={{ width: `${riskWingWidthPct}%` }}
+          >
+            <span className="text-[7.5px] font-bold text-red truncate">
+              -{slDistPct.toFixed(1)}%
             </span>
-            <span className="text-[8.5px] text-dim">
-              {distFromLevelPct < 0 ? 'pre-lvl' : zone}
+          </div>
+          <div
+            className="h-full bg-green/30 flex items-center justify-end pr-1"
+            style={{ width: `${rewardWingWidthPct}%` }}
+          >
+            <span className="text-[7.5px] font-bold text-green truncate">
+              +{Math.abs(pnlOrRewardPct).toFixed(1)}% ({rrRatio.toFixed(1)}R)
             </span>
           </div>
         </div>
 
-        <div className="rounded-lg bg-surface/45 border border-border/35 px-2 py-1.5 flex flex-col justify-between text-right">
-          <span className="text-[8.5px] uppercase tracking-wider text-dim font-semibold">
-            Cap room
-          </span>
-          <div className="flex items-baseline justify-end gap-1 mt-0.5">
-            <span
-              className={cn(
-                'font-bold text-[11px]',
-                capRoomPct <= 0
-                  ? 'text-purple-400'
-                  : capUsedRound > 60
-                    ? 'text-amber'
-                    : 'text-green'
-              )}
-            >
-              {capRoomFormatted}
-            </span>
-          </div>
-        </div>
+        <span className="text-dim shrink-0">
+          Cap{' '}
+          <strong className={cn(zTone.textClass)}>
+            {distFromLevelPct < 0 ? '0%' : `${capUsedRound}%`}
+          </strong>
+          <span className="text-dim/75"> ({capRoomFormatted} left)</span>
+        </span>
       </div>
     </div>
   );
@@ -1132,19 +1065,6 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Single Zone Legend (shown once in header) */}
-          {!compact && (
-            <div className="hidden xl:flex items-center gap-2.5 text-[9.5px] font-mono text-dim">
-              {DIAL_ZONES.map((z) => (
-                <span key={z.key} className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-xs shrink-0" style={{ backgroundColor: z.color }} />
-                  <span className="text-text/80 font-semibold">{z.label}</span>
-                  <span className="text-dim/70">{z.range}</span>
-                </span>
-              ))}
-            </div>
-          )}
-
           {/* Overall Status Indicator */}
           <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums">
             <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', ZONE_DOT_CLASS[compositeDial.dialZone] || 'bg-dim')} />
@@ -1163,12 +1083,15 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
         </div>
       </div>
 
-      {/* Compact In-Position SL -> Entry -> Live -> TP Runway (zero extra API data) */}
+      {/* Compact In-Position SL -> Entry -> Live -> TP Runway + Ratio & Distance Graphic */}
       {isInPos && runway && (
         <div className="px-2.5 py-2 rounded-lg bg-bg/45 border border-border/40 flex flex-col gap-1.5 animate-handoff-slide">
           <div className="flex items-center justify-between gap-2 text-[10px] font-mono tabular-nums flex-wrap">
             <span className="text-dim">
               SL <strong className={model.positionMeta?.isProtected ? 'text-green' : 'text-red'}>{fmtPrice(model.positionMeta?.slPrice)}</strong>
+              {Number(model.positionMeta?.slDistPct) > 0 && (
+                <span className="text-[9px] text-red/85 ml-1">(-{Number(model.positionMeta.slDistPct).toFixed(2)}%)</span>
+              )}
               <span className="mx-1.5 text-border">·</span>
               Entry <strong className="text-text">{fmtPrice(model.positionMeta?.entryPrice)}</strong>
               <span className="mx-1.5 text-border">·</span>
@@ -1181,10 +1104,18 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
               >
                 {fmtPrice(model.markPrice)}
               </strong>
+              {Number.isFinite(Number(model.positionMeta?.livePnlPct)) && (
+                <span className={cn('text-[9px] font-bold ml-1', Number(model.positionMeta.livePnlPct) >= 0 ? 'text-green' : 'text-red')}>
+                  ({Number(model.positionMeta.livePnlPct) >= 0 ? '+' : ''}{Number(model.positionMeta.livePnlPct).toFixed(2)}%)
+                </span>
+              )}
               {model.positionMeta?.tpPrice > 0 && (
                 <>
                   <span className="mx-1.5 text-border">·</span>
                   TP <strong className="text-green">{fmtPrice(model.positionMeta?.tpPrice)}</strong>
+                  {Number(model.positionMeta?.tpDistPct) > 0 && (
+                    <span className="text-[9px] text-green/85 ml-1">(+{Number(model.positionMeta.tpDistPct).toFixed(2)}%)</span>
+                  )}
                 </>
               )}
             </span>
@@ -1195,6 +1126,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
               )}
             >
               {(Number(model.positionMeta?.currentR) || 0) >= 0 ? '+' : ''}{(Number(model.positionMeta?.currentR) || 0).toFixed(2)}R
+              {Number(model.positionMeta?.targetR) > 0 ? ` / ${Number(model.positionMeta.targetR).toFixed(1)}R` : ''}
               {model.positionMeta?.trailingActive ? ' · Trailing' : model.positionMeta?.isProtected ? ' · Protected' : ''}
             </span>
           </div>
@@ -1233,6 +1165,64 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
         </div>
       )}
 
+      {/* Ultra-Compact 1-Line Entry & Exit Snapshot + Proportional SL ↔ Entry ↔ Exit Ratio Bar */}
+      {opp?.isEntrySnapshot && opp?.exitSnapshot && (() => {
+        const ex = opp.exitSnapshot;
+        const slDist = Math.max(0.05, Math.abs(Number(ex.slDistPct || opp.sl_dist_pct || 1.0)));
+        const pnlPctVal = Number(ex.pnlPct || 0);
+        const absPnlPct = Math.max(0.05, Math.abs(pnlPctVal));
+        const exitRrVal = Number(ex.exitRr || 0);
+        const targetRrVal = Math.max(0.5, Number(ex.targetRr || 2.0));
+        const totalSpan = slDist + Math.max(absPnlPct, slDist * targetRrVal * 0.5);
+        const riskW = Math.max(22, Math.min(58, Math.round((slDist / totalSpan) * 100)));
+        const rewardW = 100 - riskW;
+        const exitFillPct = Math.max(8, Math.min(100, Math.round((absPnlPct / Math.max(0.05, slDist * targetRrVal)) * 100)));
+
+        return (
+          <div className="px-2.5 py-1.5 rounded-lg bg-bg/55 border border-border/45 flex items-center justify-between gap-2 flex-wrap font-mono text-[9.5px] tabular-nums">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[8.5px] font-black uppercase px-1.5 py-0.2 rounded bg-accent/12 border border-accent/30 text-accent">
+                Exit Snapshot
+              </span>
+              <strong className="text-text uppercase truncate">
+                {String(ex.exitSignalType || ex.exitReason || 'EXIT').replace(/_/g, ' ')}
+              </strong>
+              <span className="text-dim hidden sm:inline">
+                · SL <strong className="text-red">{fmtPrice(ex.initialSlPrice || ex.finalSlPrice)}</strong> → Entry <strong className="text-text">{fmtPrice(ex.entryPrice)}</strong> → {ex.tradeStatus === 'OPEN' ? 'Live' : 'Exit'} <strong className={pnlPctVal >= 0 ? 'text-green' : 'text-red'}>{fmtPrice(ex.exitPrice)}</strong>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 ml-auto">
+              {/* Inline Proportional SL <-> Entry <-> Exit Bar */}
+              <div className="w-36 h-3.5 rounded bg-surface/85 border border-border/45 overflow-hidden flex items-center">
+                <div
+                  className="h-full bg-red/30 border-r border-text/80 flex items-center justify-start pl-1"
+                  style={{ width: `${riskW}%` }}
+                >
+                  <span className="text-[7.5px] font-bold text-red truncate">-{slDist.toFixed(1)}%</span>
+                </div>
+                <div
+                  className="relative h-full bg-surface/60 flex items-center justify-end pr-1 overflow-hidden"
+                  style={{ width: `${rewardW}%` }}
+                >
+                  <div
+                    className={cn('absolute inset-y-0 left-0', pnlPctVal >= 0 ? 'bg-green/35' : 'bg-red/35')}
+                    style={{ width: `${exitFillPct}%` }}
+                  />
+                  <span className={cn('relative z-10 text-[7.5px] font-bold truncate', pnlPctVal >= 0 ? 'text-green' : 'text-red')}>
+                    {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(1)}% ({exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(1)}R)
+                  </span>
+                </div>
+              </div>
+
+              <span className={cn('px-1.5 py-0.2 rounded border font-bold text-[9px]', exitRrVal >= 0 ? 'bg-green/10 border-green/30 text-green' : 'bg-red/10 border-red/30 text-red')}>
+                {exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(2)}R / {targetRrVal.toFixed(1)}R
+              </span>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Condition Cards + Composite Summary Grid */}
       {model.conditions.length === 0 ? (
         <div className="text-[11px] font-mono text-dim py-2 text-center">
@@ -1260,7 +1250,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
               <div
                 key={c.key}
                 className={cn(
-                  'relative overflow-hidden rounded-xl border border-border/55 bg-gradient-to-b from-surface/40 via-bg/45 to-bg/65 p-3 flex flex-col justify-between h-full gap-2.5 shadow-xs transition-colors duration-200 hover:border-border/80',
+                  'relative overflow-hidden rounded-xl border border-border/55 bg-gradient-to-b from-surface/40 via-bg/45 to-bg/65 p-2.5 flex flex-col justify-between h-full gap-1.5 shadow-xs transition-colors duration-200 hover:border-border/80',
                   changeInfo?.stateChanged && 'animate-event-arrive',
                   isLadder && (compact ? 'sm:col-span-2' : 'sm:col-span-2')
                 )}
@@ -1277,7 +1267,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span
                         className={cn(
-                          'text-[8.5px] font-black font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border',
+                          'text-[8.5px] font-black font-mono uppercase tracking-wider px-1.2 py-0.2 rounded border',
                           c.isScannerGate
                             ? 'bg-amber/10 text-amber border-amber/30'
                             : 'bg-surface/70 text-dim border-border/50'
@@ -1285,28 +1275,30 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                       >
                         {c.connector}
                       </span>
-                      <span className="text-xs font-bold text-text tracking-tight">
+                      <span className="text-[11.5px] font-bold text-text tracking-tight">
                         {c.label}
                       </span>
+                      <span className="text-[9.5px] font-mono text-dim">
+                        · <strong className="text-text/80">{c.timeframe}</strong>
+                      </span>
                     </div>
-                    <div className="text-[10px] font-mono text-dim mt-1 leading-snug break-words">
-                      <span className="text-text/80 font-semibold">{c.timeframe}</span>
-                      {c.paramsText && c.paramsText !== 'Standard' ? ` · ${c.paramsText}` : ''}
-                    </div>
-                    <div className="text-[9px] font-mono mt-0.5 tabular-nums">
+                    <div className="text-[9px] font-mono text-dim mt-0.5 leading-tight flex items-center gap-1.5 flex-wrap">
+                      {c.paramsText && c.paramsText !== 'Standard' && (
+                        <span className="truncate">{c.paramsText} ·</span>
+                      )}
                       <ConditionFreshness evaluatedAtMs={c.evaluatedAtMs} changeInfo={changeInfo} />
                     </div>
                   </div>
 
-                  {/* Pill Zone Status Indicator */}
+                  {/* Pill Status Indicator */}
                   <span
                     className={cn(
-                      'inline-flex items-center gap-1.5 text-[9.5px] font-mono font-bold shrink-0 px-2 py-0.5 rounded-full bg-surface/70 border border-border/50',
+                      'inline-flex items-center gap-1 text-[9px] font-mono font-bold shrink-0 px-1.5 py-0.5 rounded-full bg-surface/70 border border-border/50',
                       ZONE_TEXT_CLASS[cZone] || 'text-dim'
                     )}
                   >
                     <span className={cn('w-1.5 h-1.5 rounded-full', ZONE_DOT_CLASS[cZone] || 'bg-dim')} />
-                    {c.dialStatus || c.stateLabel}
+                    {formatCleanCardStatus(cZone, c.stateLabel)}
                   </span>
                 </div>
 
@@ -1315,7 +1307,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                   <HtfBreakoutLadder ladder={c.ladder} compact={compact} changeInfo={changeInfo} />
                 ) : (
                   <>
-                    <div className="flex justify-center items-center my-0.5">
+                    <div className="flex justify-center items-center">
                       <ConditionDial
                         dialPct={c.dialPct}
                         dialZone={cZone}
@@ -1397,7 +1389,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                   )}
                 >
                   <span className={cn('w-1.5 h-1.5 rounded-full', ZONE_DOT_CLASS[compositeDial.dialZone] || 'bg-dim')} />
-                  {compositeDial.dialStatus}
+                  {formatCleanCardStatus(compositeDial.dialZone, model.firedConditionsCount === model.totalConditionsCount && model.totalConditionsCount > 0 ? 'Ready' : 'Watching')}
                 </span>
               </div>
 

@@ -1183,6 +1183,52 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
         })()}
       </div>
 
+      {/* Captured Entry Signal Snapshot & Lookback SL Cap Telemetry */}
+      {trade.entry_signal_snapshot && (
+        <div className="bg-background/40 border border-accent/25 rounded-xl p-3 flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-[8px] font-black text-accent uppercase tracking-widest">
+              Captured Entry Signal Snapshot
+            </span>
+            <div className="flex items-center gap-1.5 text-[8.5px] font-mono">
+              {typeof trade.entry_signal_snapshot.cap_respected === 'boolean' && (
+                <span className={cn(
+                  'px-1.5 py-0.5 rounded border font-bold',
+                  trade.entry_signal_snapshot.cap_respected
+                    ? 'bg-green/10 border-green/30 text-green'
+                    : 'bg-red/10 border-red/30 text-red'
+                )}>
+                  Lookback / Expansion Cap {trade.entry_signal_snapshot.cap_respected ? 'Respected ✓' : 'Exceeded'}
+                </span>
+              )}
+              {Number.isFinite(Number(trade.entry_signal_snapshot.candidate_score)) && (
+                <span className="px-1.5 py-0.5 rounded bg-surface border border-border/50 text-dim">
+                  Score: <strong className="text-text">{Number(trade.entry_signal_snapshot.candidate_score).toFixed(1)}</strong>
+                </span>
+              )}
+            </div>
+          </div>
+          {trade.entry_signal_snapshot.signalResult?.signals && (
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(trade.entry_signal_snapshot.signalResult.signals).map(([sKey, sObj]) => (
+                <span
+                  key={sKey}
+                  className={cn(
+                    'inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[8.5px] font-mono',
+                    sObj?.fired
+                      ? 'bg-green/10 border-green/30 text-green'
+                      : 'bg-surface border-border/40 text-dim'
+                  )}
+                >
+                  <strong className="uppercase">{sKey.replace(/_/g, ' ')}</strong>
+                  {sObj?.description ? `· ${sObj.description}` : (sObj?.fired ? '✓' : '')}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Configured Signal Parameters */}
       {paramEntries.length > 0 && (
         <div className="bg-background/30 border border-border/30 rounded-xl p-2.5 flex flex-col gap-1.5">
@@ -1203,6 +1249,139 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
   );
 });
 EntrySignalContext.displayName = 'EntrySignalContext';
+
+const ExitSignalSnapshot = memo(({ trade, activeSessionConfig }) => {
+  if (!trade) return null;
+  const isClosed = trade.status !== 'OPEN' || Boolean(trade.exit_ts);
+  const entryPrice = toSafeNum(trade.entry_price, 0);
+  const exitOrMarkPrice = toSafeNum(trade.exit_price || trade.current_price || trade.mark_price, entryPrice);
+  const initialSl = toSafeNum(trade.initial_sl || trade.sl_price, 0);
+  const finalSl = toSafeNum(trade.sl_price || initialSl, 0);
+  const isLong = trade.direction !== 'SHORT';
+  const slDistPct = entryPrice > 0 && initialSl > 0
+    ? (Math.abs(entryPrice - initialSl) / entryPrice) * 100
+    : 0;
+  const liveSlDistPct = exitOrMarkPrice > 0 && finalSl > 0
+    ? (Math.abs(exitOrMarkPrice - finalSl) / exitOrMarkPrice) * 100
+    : slDistPct;
+  const pnlPctVal = Number.isFinite(Number(trade.pnl_pct))
+    ? Number(trade.pnl_pct)
+    : (entryPrice > 0 && exitOrMarkPrice > 0
+        ? ((isLong ? (exitOrMarkPrice - entryPrice) : (entryPrice - exitOrMarkPrice)) / entryPrice) * 100
+        : 0);
+  const exitRrVal = toSafeNum(trade.exit_rr ?? trade.rr, 0);
+  const maxRrVal = toSafeNum(trade.max_rr_achieved ?? trade.max_rr, exitRrVal);
+  const minRrVal = toSafeNum(trade.min_rr_achieved, 0);
+  const targetRrVal = Math.max(0.5, toSafeNum(trade.tp_ratio || trade.strategy_config?.tp_ratio || activeSessionConfig?.tp_ratio, 2.0));
+  const exitSignalType = (trade.exit_signal_type || trade.exit_reason || (isClosed ? 'CLOSED' : 'ACTIVE_MONITORING')).replace(/_/g, ' ');
+  const exitSignalReason = trade.exit_signal_reason || (isClosed ? 'Position closed via strategy exit / stop-loss guard' : 'Live exit monitoring active');
+  const exitSignalsStatus = trade.exit_signals_status && typeof trade.exit_signals_status === 'object'
+    ? Object.entries(trade.exit_signals_status)
+    : [];
+
+  return (
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <SectionLabel className="mb-0 flex items-center gap-1.5 text-accent">
+          <ShieldCheck size={14} className="text-accent" /> {isClosed ? 'Exit Signal Snapshot & Realized Closure' : 'Live Exit Snapshot & Protection Telemetry'}
+        </SectionLabel>
+        <span className={cn(
+          'text-[8px] font-mono font-bold px-2 py-0.5 rounded-full uppercase border',
+          pnlPctVal >= 0 ? 'bg-green/10 border-green/30 text-green' : 'bg-red/10 border-red/30 text-red'
+        )}>
+          {isClosed ? 'Closed Snapshot' : 'Live Exit Monitor'} · {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(2)}% ({exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(2)}R)
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5">
+          <span className="text-[8px] font-black text-dim uppercase tracking-widest">
+            {isClosed ? 'Exit Trigger' : 'Active Exit State'}
+          </span>
+          <span className="font-mono text-xs font-bold text-text uppercase">
+            {exitSignalType}
+          </span>
+          <p className="text-[9px] text-dim/80 font-medium leading-normal">
+            {exitSignalReason}
+          </p>
+        </div>
+
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 font-mono text-xs">
+          <span className="text-[8px] font-black text-dim uppercase tracking-widest font-sans">
+            SL Lookback & Distance Ratio
+          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-dim">Initial SL Dist:</span>
+            <span className="font-bold text-red">-{slDistPct.toFixed(2)}% (1.00R)</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-dim">Final / Live SL Dist:</span>
+            <span className="font-bold text-amber">{liveSlDistPct.toFixed(2)}%</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-dim">{isClosed ? 'Realized PnL %:' : 'Live PnL %:'}</span>
+            <span className={cn('font-bold', pnlPctVal >= 0 ? 'text-green' : 'text-red')}>
+              {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(2)}%
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 font-mono text-xs">
+          <span className="text-[8px] font-black text-dim uppercase tracking-widest font-sans">
+            R:R Excursion Snapshot
+          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-dim">{isClosed ? 'Exit R:R:' : 'Current R:R:'}</span>
+            <span className={cn('font-bold', exitRrVal >= 0 ? 'text-green' : 'text-red')}>
+              {exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(2)}R / {targetRrVal.toFixed(2)}R
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-dim">Peak MFE (Max R):</span>
+            <span className="font-bold text-green">+{maxRrVal.toFixed(2)}R</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-dim">Deepest MAE (Min R):</span>
+            <span className={cn('font-bold', minRrVal < 0 ? 'text-red' : 'text-dim')}>
+              {minRrVal >= 0 ? '+' : ''}{minRrVal.toFixed(2)}R
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {exitSignalsStatus.length > 0 && (
+        <div className="bg-background/35 border border-border/35 rounded-xl p-2.5 flex flex-col gap-1.5">
+          <span className="text-[7.5px] font-black text-dim/80 uppercase tracking-widest">
+            Recorded Exit Conditions State at Snapshot
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {exitSignalsStatus.map(([sigKey, sigVal]) => {
+              const isFired = Boolean(sigVal?.fired && sigVal?.active);
+              const distPct = Number.isFinite(Number(sigVal?.distPct)) ? Math.round(Number(sigVal.distPct)) : null;
+              return (
+                <span
+                  key={sigKey}
+                  className={cn(
+                    'inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[8.5px] font-mono',
+                    isFired
+                      ? 'bg-green/12 border-green/30 text-green font-bold'
+                      : 'bg-surface border-border/40 text-dim'
+                  )}
+                >
+                  <span className="uppercase">{sigKey.replace(/_/g, ' ')}</span>
+                  <span>
+                    {isFired ? '· Triggered ✓' : (distPct !== null ? `· ${Math.max(0, 100 - distPct)}% to go` : '')}
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+ExitSignalSnapshot.displayName = 'ExitSignalSnapshot';
 
 const CollapsibleSection = memo(({ title, icon, badge, children, defaultOpen = false, className = '' }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -2198,12 +2377,132 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           })()}
         </div>
 
-        <div className="flex justify-center scale-90">
-          <div className="bg-surface border border-border/50 px-1.5 py-0.2 rounded-md">
-            <span className="text-[8px] font-black text-dim uppercase tracking-widest">Entry: </span>
-            <span className="font-mono text-[9px] font-bold text-text/80">{price(entry)}</span>
-          </div>
-        </div>
+        {/* Single Ultra-Compact 1-Row SL ↔ Entry ↔ Exit/Live Ratio & Slim Lookback Candles Bar */}
+        {(() => {
+          const safeInitSlDist = Math.max(0.05, Math.abs(toSafeNum(slInitialDistPct, slDistPct || 1.0)));
+          const safePnlRatioPct = toSafeNum(pnlPct, 0);
+          const safeTargetR = Math.max(0.5, toSafeNum(trade.tp_ratio || trade.strategy_config?.tp_ratio, 2.0));
+          const safeCurrentR = toSafeNum(trade.exit_rr ?? trade.rr, 0);
+          const targetRewardDistPct = safeInitSlDist * safeTargetR;
+          const totalWingSpan = safeInitSlDist + Math.max(Math.abs(safePnlRatioPct), targetRewardDistPct);
+          const riskWingW = Math.max(22, Math.min(58, Math.round((safeInitSlDist / Math.max(0.05, totalWingSpan)) * 100)));
+          const rewardWingW = 100 - riskWingW;
+          const rewardFillW = Math.max(6, Math.min(100, Math.round((Math.abs(safePnlRatioPct) / Math.max(0.05, targetRewardDistPct)) * 100)));
+
+          const cAnchorLow = isLong ? (initialSl > 0 ? initialSl : entry * 0.99) : Math.min(entry, mark);
+          const cAnchorHigh = isLong ? Math.max(entry, mark) : (initialSl > 0 ? initialSl : entry * 1.01);
+          const cSpan = Math.max(Math.abs(cAnchorHigh - cAnchorLow), entry * 0.004, 1e-8);
+          const miniCandles = [0.22, 0.45, 0.35, 0.68, 1.0].map((frac, idx) => {
+            const isTrig = idx === 4;
+            const cOpen = isTrig
+              ? entry
+              : (isLong ? cAnchorLow + cSpan * Math.max(0.08, frac - 0.14) : cAnchorHigh - cSpan * Math.max(0.08, frac - 0.14));
+            const cClose = isTrig
+              ? mark
+              : (isLong ? cAnchorLow + cSpan * frac : cAnchorHigh - cSpan * frac);
+            const cHigh = Math.max(cOpen, cClose) + cSpan * (isTrig ? 0.12 : 0.08);
+            const cLow = idx === 0 && initialSl > 0
+              ? (isLong ? initialSl : Math.min(cOpen, cClose) - cSpan * 0.08)
+              : Math.min(cOpen, cClose) - cSpan * 0.08;
+            return {
+              open: cOpen,
+              close: cClose,
+              high: idx === 0 && !isLong && initialSl > 0 ? initialSl : cHigh,
+              low: cLow,
+              isUp: cClose >= cOpen,
+              isTrig,
+            };
+          });
+          const cMin = Math.min(...miniCandles.map(c => c.low));
+          const cMax = Math.max(...miniCandles.map(c => c.high));
+          const yMini = (v) => {
+            const ratio = (cMax - v) / Math.max(1e-9, cMax - cMin);
+            return Math.max(2, Math.min(20, 2 + ratio * 18));
+          };
+
+          return (
+            <div className="mt-1 rounded-lg bg-background/50 border border-border/45 px-2.5 py-1 flex items-center justify-between gap-2 font-mono text-[9px] tabular-nums">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-[8px] font-black text-dim uppercase">Entry</span>
+                <span className="font-bold text-text/90">{price(entry)}</span>
+              </div>
+
+              {/* Proportional Two-Wing SL <-> Entry <-> Exit/Target Bar */}
+              <div className="flex-1 max-w-[320px] h-4 rounded bg-surface/85 border border-border/50 overflow-hidden flex items-center">
+                <div
+                  className="h-full bg-gradient-to-r from-red/35 to-red/18 border-r-2 border-text/85 flex items-center justify-start pl-1.5"
+                  style={{ width: `${riskWingW}%` }}
+                  title={`Initial Lookback SL Distance: -${safeInitSlDist.toFixed(2)}% (1.00R)`}
+                >
+                  <span className="text-[7.5px] font-bold text-red truncate">
+                    SL -{safeInitSlDist.toFixed(2)}% (1R)
+                  </span>
+                </div>
+                <div
+                  className="relative h-full bg-surface/60 flex items-center justify-end pr-1.5 overflow-hidden"
+                  style={{ width: `${rewardWingW}%` }}
+                  title={`PnL % & R:R Ratio: ${safePnlRatioPct >= 0 ? '+' : ''}${safePnlRatioPct.toFixed(2)}% (${safeCurrentR >= 0 ? '+' : ''}{safeCurrentR.toFixed(2)}R / ${safeTargetR.toFixed(1)}R)`}
+                >
+                  <div
+                    className={cn(
+                      'absolute inset-y-0 left-0 transition-all duration-300',
+                      safePnlRatioPct >= 0 ? 'bg-green/35' : 'bg-red/35'
+                    )}
+                    style={{ width: `${rewardFillW}%` }}
+                  />
+                  <span className={cn('relative z-10 text-[7.5px] font-bold truncate', safePnlRatioPct >= 0 ? 'text-green' : 'text-red')}>
+                    {safePnlRatioPct >= 0 ? '+' : ''}{safePnlRatioPct.toFixed(2)}% ({safeCurrentR >= 0 ? '+' : ''}{safeCurrentR.toFixed(2)}R/{safeTargetR.toFixed(1)}R)
+                  </span>
+                </div>
+              </div>
+
+              {/* Slim Color-Filled Lookback + Trigger Candles Mini SVG with Wicks */}
+              <svg
+                width="46"
+                height="22"
+                viewBox="0 0 46 22"
+                className="shrink-0 rounded bg-surface/65 border border-border/40"
+                aria-label="Lookback and trigger candles"
+              >
+                {miniCandles.map((mc, idx) => {
+                  const cx = 6 + idx * 8.5;
+                  const yH = yMini(mc.high);
+                  const yL = yMini(mc.low);
+                  const yO = yMini(mc.open);
+                  const yC = yMini(mc.close);
+                  const bTop = Math.min(yO, yC);
+                  const bH = Math.max(1.8, Math.abs(yC - yO));
+                  const col = mc.isUp ? '#22c55e' : '#ef4444';
+                  return (
+                    <g key={idx}>
+                      <line
+                        x1={cx}
+                        y1={yH}
+                        x2={cx}
+                        y2={yL}
+                        stroke={col}
+                        strokeWidth={mc.isTrig ? '1.2' : '1'}
+                        strokeLinecap="round"
+                        strokeOpacity={mc.isTrig ? '0.98' : '0.82'}
+                      />
+                      <rect
+                        x={cx - 1.6}
+                        y={bTop}
+                        width="3.2"
+                        height={bH}
+                        rx="0.8"
+                        fill={col}
+                        fillOpacity={mc.isTrig ? '0.96' : '0.78'}
+                        stroke={col}
+                        strokeWidth="0.4"
+                      />
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Primary Metrics Grid */}
@@ -2230,6 +2529,16 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           defaultOpen={false}
         >
           <EntrySignalContext trade={trade} activeSessionConfig={activeSessionConfig} />
+        </CollapsibleSection>
+
+        {/* Exit Signal Snapshot & Closure Context */}
+        <CollapsibleSection
+          title="Exit Signal Snapshot & Closure Context"
+          icon={<ShieldCheck size={14} className="text-accent" />}
+          badge={trade.status === 'OPEN' ? 'Live Exit Snapshot' : 'Exit Snapshot'}
+          defaultOpen={trade.status !== 'OPEN'}
+        >
+          <ExitSignalSnapshot trade={trade} activeSessionConfig={activeSessionConfig} />
         </CollapsibleSection>
 
         {/* Technical & Execution Meta */}

@@ -321,29 +321,33 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
           const color = bar.isUp ? '#00e5a0' : '#ff4466';
           const hasSignal = bar.hasSignal;
           const marker = bar.marker;
+          const slimWidth = Math.min(6, Math.max(2, barWidth * 0.56));
+          const slimX = bar.wickX - slimWidth / 2;
 
           return (
             <g key={i}>
-              {/* Wick */}
+              {/* Matching Color Wick */}
               <line
                 x1={bar.wickX}
                 y1={bar.yHigh}
                 x2={bar.wickX}
                 y2={bar.yLow}
                 stroke={color}
-                strokeWidth="1"
-                opacity="0.6"
+                strokeWidth="1.15"
+                strokeLinecap="round"
+                opacity="0.88"
               />
-              {/* Body */}
+              {/* Slim Color-Filled Candle Body */}
               <rect
-                x={bar.x}
+                x={slimX}
                 y={bar.yBodyTop}
-                width={barWidth}
-                height={bar.bodyHeight}
-                fill={bar.isUp ? color : 'transparent'}
+                width={slimWidth}
+                height={Math.max(1.5, bar.bodyHeight)}
+                fill={color}
+                fillOpacity={hasSignal ? '0.98' : '0.86'}
                 stroke={color}
-                strokeWidth="1"
-                rx="0.5"
+                strokeWidth="0.75"
+                rx="1"
               />
               {/* Decision / Signal Highlight */}
               {marker && (

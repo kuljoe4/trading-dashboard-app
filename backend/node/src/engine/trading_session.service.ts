@@ -64,6 +64,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     | null = null;
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
+  private uiPulseInterval: NodeJS.Timeout | null = null;
   private appliedPnL: Map<string, number> = new Map(); // trade.id -> total cumulative pnl applied to balance
   private lastScannerFullBroadcast = 0;
   private lastScannerResultsJson = "";
@@ -71,6 +72,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   private lastVariantScannerResults: any[] = [];
   private hotLoopProcessing = false;
   private mainLoopProcessing = false;
+  private uiPulseProcessing = false;
   private activeWindows: Map<string, any> = new Map();
   private userDataWs: any = null;
   private listenKey: string | null = null;
@@ -385,10 +387,18 @@ export class TradingSessionService implements OnApplicationShutdown {
   private restartLoops(hotMs: number, mainMs: number) {
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
+    if (this.uiPulseInterval) {
+      clearInterval(this.uiPulseInterval);
+      this.uiPulseInterval = null;
+    }
     this.hotLoopInterval = setInterval(() => this.hotLoop(), hotMs);
     if (this.hotLoopInterval?.unref) this.hotLoopInterval.unref();
     this.mainLoopInterval = setInterval(() => this.mainLoop(), mainMs);
     if (this.mainLoopInterval?.unref) this.mainLoopInterval.unref();
+    if (this.sessionState.listenerCount > 0) {
+      this.uiPulseInterval = setInterval(() => this.uiPulseLoop(), 1000);
+      if (this.uiPulseInterval?.unref) this.uiPulseInterval.unref();
+    }
   }
 
   setBalanceUpdateCallback(cb: (b: number, p: number) => void) {
@@ -466,13 +476,10 @@ export class TradingSessionService implements OnApplicationShutdown {
     const hot = isEco
       ? Math.max(hasTrades ? 5000 : 10000, config.hot_loop_interval_ms || 5000)
       : (config.hot_loop_interval_ms || 5000);
-    this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);
-    if (this.hotLoopInterval?.unref) this.hotLoopInterval.unref();
     const main = isEco
       ? Math.max(hasTrades ? 15000 : 30000, config.main_loop_interval_ms || 15000)
       : (config.main_loop_interval_ms || 15000);
-    this.mainLoopInterval = setInterval(() => this.mainLoop(), main);
-    if (this.mainLoopInterval?.unref) this.mainLoopInterval.unref();
+    this.restartLoops(hot, main);
 
     this.broadcastSnapshot("started");
     return { status: "started" };
@@ -485,9 +492,14 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.sessionState.hibernating = false;
     this.mainLoopProcessing = false;
     this.hotLoopProcessing = false;
+    this.uiPulseProcessing = false;
 
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
+    if (this.uiPulseInterval) {
+      clearInterval(this.uiPulseInterval);
+      this.uiPulseInterval = null;
+    }
 
     const mode =
       this.config?.trading_mode || (this.config?.paper_mode ? "paper" : "live");
@@ -608,6 +620,10 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
+    if (this.uiPulseInterval) {
+      clearInterval(this.uiPulseInterval);
+      this.uiPulseInterval = null;
+    }
 
     // Flush active trades' latest peak RR / mark_price to DB before shutdown
     if (this.onTradeUpdate) {
@@ -644,6 +660,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.running = false;
     this.mainLoopProcessing = false;
     this.hotLoopProcessing = false;
+    this.uiPulseProcessing = false;
 
     if (this.mainLoopInterval) {
       clearInterval(this.mainLoopInterval);
@@ -652,6 +669,10 @@ export class TradingSessionService implements OnApplicationShutdown {
     if (this.hotLoopInterval) {
       clearInterval(this.hotLoopInterval);
       this.hotLoopInterval = null as any;
+    }
+    if (this.uiPulseInterval) {
+      clearInterval(this.uiPulseInterval);
+      this.uiPulseInterval = null as any;
     }
 
     try {
@@ -670,6 +691,169 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.positionTracker.clear();
     this.appliedPnL.clear();
     this.sessionId = null;
+  }
+
+  /**
+   * 1-Second In-Memory UI Live Pulse:
+   * - Active only when at least one UI client is connected (`listenerCount > 0`) and not hibernating/paused.
+   * - Zero Binance REST calls and zero DB queries: reads 100% from in-memory `tickerCache` and `klineStore`
+   *   (which are continuously fed by Binance WebSocket streams).
+   * - Refreshes active trade ticks/exit signals AND top scanner candidates' live prices, momentum, and signal evaluations at 1s.
+   */
+  private uiPulseLoop() {
+    if (
+      !this.running ||
+      !this.config ||
+      this.uiPulseProcessing ||
+      this.hotLoopProcessing ||
+      this.mainLoopProcessing ||
+      this.sessionState.listenerCount === 0 ||
+      this.sessionState.hibernating ||
+      this.sessionState.paused
+    ) {
+      return;
+    }
+
+    this.uiPulseProcessing = true;
+    try {
+      const strategyConfigs = this.getStrategyConfigs();
+
+      // 1. Live 1s Active Trade & Exit Signal Pulse (in-memory only)
+      const activeTrades = this.positionTracker.activeList();
+      if (activeTrades.length > 0) {
+        for (let i = 0; i < activeTrades.length; i++) {
+          const t = activeTrades[i];
+          const livePx = typeof (this.tickerCache as any)?.getPrice === "function"
+            ? this.tickerCache.getPrice(t.symbol)
+            : null;
+          if (livePx && livePx > 0 && Math.abs(livePx - Number(t.last_price || 0)) > 1e-10) {
+            t.last_price = livePx;
+            t.mark_price = livePx;
+            if (typeof (this.klineStore as any)?.syncLivePrice === "function") {
+              (this.klineStore as any).syncLivePrice(t.symbol, livePx);
+            }
+            const sc = t.strategy_config || strategyConfigs.find((c) => c.strategy_label === t.strategy_label) || this.config;
+            if (sc?.use_exit_signals && typeof (this.orderManager as any)?.checkExitSignals === "function") {
+              try {
+                (this.orderManager as any).checkExitSignals(t.symbol, t, sc, sc.scan_interval || "1m");
+              } catch (_) {}
+            }
+          }
+        }
+        this.engineBroadcaster.broadcastTick(
+          activeTrades,
+          this.config,
+          strategyConfigs,
+          this.isEcoMode(),
+          () => this.getActiveWindows(),
+          () => this.getBinanceRateLimit(),
+        );
+      }
+
+      // 2. Live 1s Top Candidate Entry Gauge & Breakout Ladder Pulse (in-memory only)
+      if (this.sessionState.dashboardCount > 0 && this.lastVariantScannerResults.length > 0) {
+        const pulseNow = Date.now();
+        let anyCandidateChanged = false;
+        const configByLabel = new Map<string, SessionConfig>();
+        for (let i = 0; i < strategyConfigs.length; i++) {
+          const sc = strategyConfigs[i];
+          configByLabel.set(sc.strategy_label || "Momentum Strategy", sc);
+        }
+
+        for (let vIdx = 0; vIdx < this.lastVariantScannerResults.length; vIdx++) {
+          const vEntry = this.lastVariantScannerResults[vIdx];
+          if (!vEntry || !Array.isArray(vEntry.opportunities) || vEntry.opportunities.length === 0) continue;
+          const sc = configByLabel.get(vEntry.strategy_label || "Momentum Strategy") || this.config;
+          const scanTf = sc.scan_interval || "1m";
+          const lookback = Math.max(1, Number(sc.scan_lookback || 1));
+          const limit = Math.min(5, vEntry.opportunities.length);
+
+          for (let oIdx = 0; oIdx < limit; oIdx++) {
+            const opp = vEntry.opportunities[oIdx];
+            if (!opp?.symbol) continue;
+            const livePx = typeof (this.tickerCache as any)?.getPrice === "function"
+              ? this.tickerCache.getPrice(opp.symbol)
+              : null;
+            if (!livePx || livePx <= 0) continue;
+            if (Math.abs(livePx - Number(opp.price || 0)) <= 1e-10) continue;
+
+            if (typeof (this.klineStore as any)?.syncLivePrice === "function") {
+              (this.klineStore as any).syncLivePrice(opp.symbol, livePx);
+            }
+
+            opp.price = livePx;
+            opp.last_update = pulseNow;
+
+            if (typeof (this.klineStore as any)?.getRawCandles === "function") {
+              const candles = this.klineStore.getRawCandles(opp.symbol, scanTf);
+              if (Array.isArray(candles) && candles.length > lookback) {
+                const prevClose = Number(candles[candles.length - 1 - lookback]?.close || 0);
+                if (prevClose > 0) {
+                  const mom = roundTo(((livePx - prevClose) / prevClose) * 100, 2);
+                  opp.pct = mom;
+                  opp.momentum = mom;
+                }
+              }
+            }
+
+            if (Array.isArray(opp.ohlc_history) && opp.ohlc_history.length > 0) {
+              const lastBar = opp.ohlc_history[opp.ohlc_history.length - 1];
+              if (lastBar) {
+                lastBar.close = livePx;
+                if (livePx > Number(lastBar.high || 0)) lastBar.high = livePx;
+                if (livePx < Number(lastBar.low || Infinity)) lastBar.low = livePx;
+              }
+            }
+            if (Array.isArray(opp.history) && opp.history.length > 0) {
+              opp.history[opp.history.length - 1] = livePx;
+            }
+
+            if (typeof (this.signalEngine as any)?.checkEntry === "function") {
+              const dir = String(opp.direction || opp.dir || "LONG").toUpperCase() as "LONG" | "SHORT";
+              opp.signalResult = this.signalEngine.checkEntry(opp.symbol, sc, scanTf, dir, "entry");
+            }
+            anyCandidateChanged = true;
+          }
+        }
+
+        if (this.lastVariantScannerResults[0]?.opportunities) {
+          this.lastScannerResults = this.lastVariantScannerResults[0].opportunities;
+        }
+
+        if (anyCandidateChanged) {
+          const nextResultsJson = `${scannerResultsFingerprint(this.lastScannerResults)}|${scannerVariantsFingerprint(this.lastVariantScannerResults)}`;
+          if (nextResultsJson !== this.lastScannerResultsJson) {
+            this.lastScannerResultsJson = nextResultsJson;
+            this.broadcast("scanner", {
+              count: this.lastScannerResults.length,
+              last_scan_ts: pulseNow,
+              next_scan_ts: this.sessionState.next_scan_ts,
+              scan_interval_ms: this.sessionState.scan_interval_ms,
+              opportunities: this.lastScannerResults
+                .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
+                .map((o) => {
+                  const { ohlc_history, history, ...rest } = o;
+                  return rest;
+                }),
+              variant_opportunities: this.lastVariantScannerResults.map((v) => ({
+                ...v,
+                opportunities: (v.opportunities || [])
+                  .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
+                  .map((o: any) => {
+                    const { ohlc_history, history, ...rest } = o;
+                    return rest;
+                  }),
+              })),
+              activeWindows: this.getActiveWindows(),
+            });
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.debug(`UI pulse error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      this.uiPulseProcessing = false;
+    }
   }
 
   private async hotLoop() {

@@ -353,14 +353,73 @@ export function buildHtfLadderModel({
     ? thrNum
     : (wantUpper ? refHigh * (1 + bufferPct / 100) : refLow * (1 - bufferPct / 100));
 
-  const effectiveMaxExpPct = configuredMaxExpPct > 0 ? configuredMaxExpPct : 2.0;
-  const hasHardCap = configuredMaxExpPct > 0;
+  // Resolve Lookback SL distance & SL Cap (sl_type = lookback_low/high, sl_lookback_period, sl_max_pct)
+  const slType = String(strategyConfig.sl_type || 'lookback_low/high');
+  const slLookbackPeriod = Math.max(1, Number(strategyConfig.sl_lookback_period ?? lookback ?? 5) || 5);
+  const rawSlTf = strategyConfig.sl_lookback_timeframe;
+  const slLookbackTf = (!rawSlTf || rawSlTf === 'default') ? trigTf : String(rawSlTf);
+  const hasExplicitSlMax = strategyConfig.sl_max_pct !== undefined && strategyConfig.sl_max_pct !== null && Number.isFinite(Number(strategyConfig.sl_max_pct)) && Number(strategyConfig.sl_max_pct) > 0;
+  const slMaxPct = hasExplicitSlMax ? Number(strategyConfig.sl_max_pct) : 3.0;
+  const slMinPct = Math.max(0.05, Number(strategyConfig.sl_min_pct ?? 0.3) || 0.3);
+
+  const rawOppSlDistPct = Number(opp?.sl_dist_pct);
+  const explicitSlPrice = Number(signalDetail.slPrice ?? opp?.sl_price ?? NaN);
+  const defaultLookbackExtreme = wantUpper ? refLow : refHigh;
+
+  let slPrice = defaultLookbackExtreme;
+  let slDistPct = 1.0;
+  if (Number.isFinite(rawOppSlDistPct) && rawOppSlDistPct > 0) {
+    slDistPct = rawOppSlDistPct;
+    slPrice = Number.isFinite(explicitSlPrice) && explicitSlPrice > 0
+      ? explicitSlPrice
+      : (wantUpper
+          ? livePriceNum * (1 - slDistPct / 100)
+          : livePriceNum * (1 + slDistPct / 100));
+  } else if (Number.isFinite(explicitSlPrice) && explicitSlPrice > 0 && livePriceNum > 0) {
+    slPrice = explicitSlPrice;
+    slDistPct = (Math.abs(livePriceNum - slPrice) / livePriceNum) * 100;
+  } else if (livePriceNum > 0 && defaultLookbackExtreme > 0) {
+    slPrice = defaultLookbackExtreme;
+    slDistPct = (Math.abs(livePriceNum - slPrice) / livePriceNum) * 100;
+  } else {
+    slDistPct = Number(strategyConfig.sl_distance_pct) || 1.0;
+    slPrice = wantUpper ? livePriceNum * (1 - slDistPct / 100) : livePriceNum * (1 + slDistPct / 100);
+  }
+
+  // Keep lookback SL on the protective side of the reference range
+  if (wantUpper && slPrice >= breakoutLevel) {
+    slPrice = Math.min(refLow, breakoutLevel * (1 - Math.max(0.4, slDistPct) / 100));
+  } else if (!wantUpper && slPrice <= breakoutLevel) {
+    slPrice = Math.max(refHigh, breakoutLevel * (1 + Math.max(0.4, slDistPct) / 100));
+  }
+  if (livePriceNum > 0 && Number.isFinite(slPrice) && slPrice > 0) {
+    slDistPct = Math.max(0.05, Number(((Math.abs(livePriceNum - slPrice) / livePriceNum) * 100).toFixed(2)));
+  }
+
+  // Price level where lookback SL distance reaches slMaxPct
+  const slCapPrice = wantUpper
+    ? slPrice / Math.max(0.1, 1 - slMaxPct / 100)
+    : slPrice / (1 + slMaxPct / 100);
+  const slCapUsedPct = slMaxPct > 0 ? Math.max(0, (slDistPct / slMaxPct) * 100) : 0;
+  const slCapRoomPct = slMaxPct - slDistPct;
+  const capUsesSlLookback = configuredMaxExpPct === 0;
+
+  // When explicit htf_breakout_max_expansion_pct is 0, link cap to the lookback SL cap (if sl_max_pct or sl_dist_pct is active)
+  const slDerivedExpPct = breakoutLevel > 0 && Number.isFinite(slCapPrice)
+    ? Math.max(0.25, Number((Math.abs((slCapPrice - breakoutLevel) / breakoutLevel) * 100).toFixed(2)))
+    : slMaxPct;
+  const effectiveMaxExpPct = configuredMaxExpPct > 0
+    ? configuredMaxExpPct
+    : ((hasExplicitSlMax || Number.isFinite(rawOppSlDistPct)) ? slDerivedExpPct : 2.0);
+  const hasHardCap = configuredMaxExpPct > 0 || hasExplicitSlMax || Number.isFinite(rawOppSlDistPct);
   const explicitCap = Number(signalDetail.expansion_cap ?? NaN);
   const expansionCap = Number.isFinite(explicitCap) && explicitCap > 0
     ? explicitCap
-    : (wantUpper
-        ? refHigh * (1 + effectiveMaxExpPct / 100)
-        : refLow * (1 - effectiveMaxExpPct / 100));
+    : (configuredMaxExpPct === 0 && (hasExplicitSlMax || Number.isFinite(rawOppSlDistPct)) && Number.isFinite(slCapPrice) && slCapPrice > 0
+        ? slCapPrice
+        : (wantUpper
+            ? refHigh * (1 + effectiveMaxExpPct / 100)
+            : refLow * (1 - effectiveMaxExpPct / 100)));
 
   // Signed % distance from breakout level (>0 means price has crossed beyond breakoutLevel in target direction)
   const distFromLevelPct = breakoutLevel > 0
@@ -379,6 +438,105 @@ export function buildHtfLadderModel({
   const capRoomPct = distFromLevelPct <= 0
     ? capSpanPct
     : capSpanPct - distFromLevelPct;
+
+  // Prospective or Snapshot SL <-> Entry <-> Target/Exit & R:R Ratio telemetry
+  const tpRatio = Math.max(0.5, Number(strategyConfig.tp_ratio ?? opp?.prospect_rr ?? 2.0) || 2.0);
+  const entryPrice = opp?.isEntrySnapshot && Number(opp?.price) > 0 ? Number(opp.price) : livePriceNum;
+  const exitSnap = opp?.exitSnapshot || null;
+  const targetRewardPct = Number((slDistPct * tpRatio).toFixed(2));
+  const targetExitPrice = wantUpper
+    ? entryPrice * (1 + targetRewardPct / 100)
+    : entryPrice * (1 - targetRewardPct / 100);
+  const exitOrTargetPrice = exitSnap && Number(exitSnap.exitPrice) > 0
+    ? Number(exitSnap.exitPrice)
+    : targetExitPrice;
+  const pnlOrRewardPct = exitSnap && Number.isFinite(Number(exitSnap.pnlPct))
+    ? Number(exitSnap.pnlPct)
+    : targetRewardPct;
+  const rrRatio = exitSnap && Number.isFinite(Number(exitSnap.exitRr))
+    ? Number(exitSnap.exitRr)
+    : Number(tpRatio.toFixed(2));
+
+  // Build slim, color-filled lookback candles + trigger candle with wicks
+  const lookbackCandles = (() => {
+    const count = Math.min(5, Math.max(3, slLookbackPeriod));
+    if (ohlc.length >= 2) {
+      const slice = ohlc.slice(-(count + 1));
+      return slice.map((c, idx) => {
+        const isTrig = idx === slice.length - 1;
+        const o = Number(c?.open ?? livePriceNum);
+        const cl = isTrig ? livePriceNum : Number(c?.close ?? o);
+        const hi = Math.max(o, cl, Number(c?.high ?? Math.max(o, cl)));
+        const lo = Math.min(o, cl, Number(c?.low ?? Math.min(o, cl)));
+        return {
+          open: o,
+          high: hi,
+          low: lo,
+          close: cl,
+          isUp: cl >= o,
+          isTrigger: isTrig,
+        };
+      });
+    }
+
+    // Deterministic lookback candles spanning the trigger-TF lookback window [slPrice .. breakoutLevel] + current trigger candle
+    const capSpan = Math.max(Math.abs(expansionCap - breakoutLevel), breakoutLevel * 0.006, 1e-9);
+    const slAnchor = slPrice > 0 ? slPrice : (wantUpper ? breakoutLevel - capSpan : breakoutLevel + capSpan);
+    const lowAnchor = wantUpper ? Math.min(slAnchor, breakoutLevel - capSpan * 0.4) : breakoutLevel;
+    const highAnchor = !wantUpper ? Math.max(slAnchor, breakoutLevel + capSpan * 0.4) : breakoutLevel;
+    const span = Math.max(Math.abs(highAnchor - lowAnchor), capSpan * 0.5, 1e-9);
+    const profiles = wantUpper
+      ? [
+          { o: 0.32, c: 0.16, h: 0.44, l: 0.00 }, // lookback low wick anchor
+          { o: 0.16, c: 0.48, h: 0.58, l: 0.10 },
+          { o: 0.48, c: 0.36, h: 0.62, l: 0.26 },
+          { o: 0.36, c: 0.78, h: 0.90, l: 0.30 },
+          { o: 0.78, c: 0.92, h: 1.00, l: 0.68 }, // refHigh anchor
+        ]
+      : [
+          { o: 0.68, c: 0.84, h: 1.00, l: 0.56 }, // lookback high wick anchor
+          { o: 0.84, c: 0.52, h: 0.90, l: 0.42 },
+          { o: 0.52, c: 0.64, h: 0.74, l: 0.38 },
+          { o: 0.64, c: 0.22, h: 0.70, l: 0.10 },
+          { o: 0.22, c: 0.08, h: 0.32, l: 0.00 }, // refLow anchor
+        ];
+    const usedProfiles = profiles.slice(-count);
+    const totalRange = Math.max(1e-9, highAnchor - lowAnchor);
+    const synth = usedProfiles.map((p) => {
+      const o = lowAnchor + totalRange * p.o;
+      const cl = lowAnchor + totalRange * p.c;
+      const hi = Math.max(o, cl, lowAnchor + totalRange * p.h);
+      const lo = Math.min(o, cl, lowAnchor + totalRange * p.l);
+      return {
+        open: o,
+        high: hi,
+        low: lo,
+        close: cl,
+        isUp: cl >= o,
+        isTrigger: false,
+      };
+    });
+
+    const trigOpen = synth.length > 0 ? synth[synth.length - 1].close : (wantUpper ? refHigh * 0.996 : refLow * 1.004);
+    const rawTrigHigh = Number(signalDetail.candle_high ?? NaN);
+    const rawTrigLow = Number(signalDetail.candle_low ?? NaN);
+    const trigHigh = Number.isFinite(rawTrigHigh) && rawTrigHigh > 0
+      ? Math.max(rawTrigHigh, trigOpen, livePriceNum, closedPriceNum)
+      : Math.max(trigOpen, livePriceNum, closedPriceNum) + span * 0.12;
+    const trigLow = Number.isFinite(rawTrigLow) && rawTrigLow > 0
+      ? Math.min(rawTrigLow, trigOpen, livePriceNum, closedPriceNum)
+      : Math.min(trigOpen, livePriceNum, closedPriceNum) - span * 0.10;
+
+    synth.push({
+      open: trigOpen,
+      high: trigHigh,
+      low: trigLow,
+      close: livePriceNum,
+      isUp: livePriceNum >= trigOpen,
+      isTrigger: true,
+    });
+    return synth;
+  })();
 
   // Candle confirm state
   let candleConfirmState = signalDetail.candle_confirm_state || null;
@@ -468,6 +626,25 @@ export function buildHtfLadderModel({
     maxExpansionPct: configuredMaxExpPct,
     effectiveMaxExpPct,
     hasHardCap,
+    capUsesSlLookback,
+    slType,
+    slLookbackPeriod,
+    slLookbackTf,
+    slPrice,
+    slDistPct,
+    slMaxPct,
+    slMinPct,
+    slCapPrice,
+    slCapUsedPct,
+    slCapRoomPct,
+    tpRatio,
+    entryPrice,
+    targetExitPrice,
+    exitOrTargetPrice,
+    targetRewardPct,
+    pnlOrRewardPct,
+    rrRatio,
+    lookbackCandles,
     refHigh,
     refLow,
     activeRefLevel,
@@ -1100,6 +1277,20 @@ export function buildCandidateConditionsModel({
       ? (slPrice >= entryPrice && entryPrice > 0)
       : (slPrice > 0 && entryPrice > 0 && slPrice <= entryPrice);
 
+    const initialSlPrice = Number(activeTrade.initial_sl || slPrice || 0);
+    const initialSlDist = Math.abs(entryPrice - initialSlPrice);
+    const slDistPct = entryPrice > 0 && slPrice > 0 ? ((slPrice - entryPrice) / entryPrice) * 100 * (isLong ? 1 : -1) : 0;
+    const initialSlDistPct = entryPrice > 0 && initialSlPrice > 0 ? (Math.abs(entryPrice - initialSlPrice) / entryPrice) * 100 : 0;
+    const livePnlPct = activeTrade.pnl_pct !== undefined && activeTrade.pnl_pct !== null && Number.isFinite(Number(activeTrade.pnl_pct))
+      ? Number(activeTrade.pnl_pct)
+      : (entryPrice > 0 && markPrice > 0 ? ((markPrice - entryPrice) / entryPrice) * 100 * (isLong ? 1 : -1) : 0);
+    const targetR = tpPrice > 0 && (initialSlDist || slDist) > 0
+      ? Math.max(0.5, Math.abs(tpPrice - entryPrice) / (initialSlDist || slDist))
+      : Number(tradeCfg.tp_ratio || 2.0);
+    const tpDistPct = entryPrice > 0 && tpPrice > 0
+      ? (Math.abs(tpPrice - entryPrice) / entryPrice) * 100
+      : initialSlDistPct * targetR;
+
     return {
       mode: 'in_position',
       symbol,
@@ -1116,8 +1307,14 @@ export function buildCandidateConditionsModel({
       positionMeta: {
         entryPrice,
         slPrice,
+        initialSlPrice,
         tpPrice,
         livePnl,
+        livePnlPct,
+        slDistPct,
+        initialSlDistPct,
+        tpDistPct,
+        targetR,
         currentR,
         roomToSlR,
         roomToTpR,

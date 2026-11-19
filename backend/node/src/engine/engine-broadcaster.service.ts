@@ -624,19 +624,18 @@ export class EngineBroadcasterService {
           tradeChanged = true;
         } else {
           const pnlDelta = Math.abs(pnlValue - (prevTrade.pnl || 0));
-          // BOLT: Standard operational thresholds for broadcast balance.
-          if (pnlDelta >= 0.05) {
+          // BOLT: Real-time 1s tick sensitivity while still deduplicating identical-price ticks.
+          if (pnlDelta >= 0.01) {
             tradeChanged = true;
             anyPriceChangedSignificant = true;
           } else {
             const priceMoveRatio = Math.abs(current - (prevTrade.current_price || 0)) / (prevTrade.current_price || 1);
-            if (priceMoveRatio >= 0.0001) {
-                tradeChanged = true;
-            } else {
-              if (Math.abs(rrValue - (prevTrade.rr || 0)) >= 0.01) {
-                tradeChanged = true;
-                anyPriceChangedSignificant = true;
-              }
+            if (priceMoveRatio >= 0.000001) {
+              tradeChanged = true;
+              anyPriceChangedSignificant = true;
+            } else if (Math.abs(rrValue - (prevTrade.rr || 0)) >= 0.001) {
+              tradeChanged = true;
+              anyPriceChangedSignificant = true;
             }
           }
         }

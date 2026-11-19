@@ -101,6 +101,22 @@ LiveRelativeTime.displayName = 'LiveRelativeTime';
 const entrySnapshotOpportunity = (trade) => {
   const snapshot = trade?.entry_signal_snapshot;
   if (!snapshot?.signalResult) return null;
+  const entryPrice = Number(trade.entry_price || snapshot.candidate_price || 0);
+  const initialSl = Number(trade.initial_sl || trade.sl_price || 0);
+  const computedSlDistPct = entryPrice > 0 && initialSl > 0
+    ? (Math.abs(entryPrice - initialSl) / entryPrice) * 100
+    : Number(snapshot.sl_dist_pct || 0);
+  const exitPrice = Number(trade.exit_price || trade.current_price || trade.mark_price || 0);
+  const isLong = String(snapshot.direction || trade.direction || 'LONG').toUpperCase() !== 'SHORT';
+  const realizedOrLivePnlPct = Number.isFinite(Number(trade.pnl_pct))
+    ? Number(trade.pnl_pct)
+    : (entryPrice > 0 && exitPrice > 0
+        ? ((isLong ? (exitPrice - entryPrice) : (entryPrice - exitPrice)) / entryPrice) * 100
+        : 0);
+  const exitRr = Number.isFinite(Number(trade.exit_rr))
+    ? Number(trade.exit_rr)
+    : Number(trade.rr || 0);
+
   return {
     symbol: trade.symbol,
     pct: Number(snapshot.candidate_momentum || 0),
@@ -115,9 +131,31 @@ const entrySnapshotOpportunity = (trade) => {
     capRespected: snapshot.cap_respected,
     snapshotConfig: snapshot.config,
     snapshotCapturedAt: snapshot.captured_at_ms,
+    sl_dist_pct: computedSlDistPct,
     isEntrySnapshot: true,
     snapshotTradeStatus: trade.status,
     snapshotTradeId: trade.id,
+    exitSnapshot: {
+      tradeStatus: trade.status || 'CLOSED',
+      entryPrice,
+      exitPrice,
+      initialSlPrice: initialSl,
+      finalSlPrice: Number(trade.sl_price || initialSl || 0),
+      tpPrice: Number(trade.tp_price || 0),
+      slDistPct: computedSlDistPct,
+      pnlUsdt: Number(trade.pnl || 0),
+      pnlPct: realizedOrLivePnlPct,
+      exitRr,
+      maxRr: Number(trade.max_rr_achieved ?? trade.max_rr ?? exitRr),
+      minRr: Number(trade.min_rr_achieved ?? 0),
+      targetRr: Number(trade.tp_ratio || snapshot.config?.tp_ratio || 2.0),
+      exitReason: trade.exit_reason || trade.exit_signal_type || (trade.status === 'OPEN' ? 'ACTIVE_MONITORING' : 'CLOSED'),
+      exitSignalType: trade.exit_signal_type || trade.exit_reason || '',
+      exitSignalReason: trade.exit_signal_reason || '',
+      exitSignalsStatus: trade.exit_signals_status || null,
+      entryTs: trade.created_at || trade.entry_ts || snapshot.captured_at_ms,
+      exitTs: trade.exit_ts || trade.closed_at || null,
+    },
   };
 };
 

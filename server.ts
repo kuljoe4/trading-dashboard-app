@@ -1120,7 +1120,7 @@ setInterval(() => {
 
   // Broadcast ticks & scanner updates to connected clients
   broadcastTick();
-}, 2000);
+}, 1000);
 
 // WebSocket handling
 const wss = new WebSocketServer({

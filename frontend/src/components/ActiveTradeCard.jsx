@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { formatDuration, calculateProximity } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
 import { analyzeTradeDiagnostics } from '../utils/tradeDiagnostics'
+import { computeConditionMeter } from '../utils/candidateConditions'
 
 import { useTradingStore } from '../store/trading'
 
@@ -199,56 +200,126 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   const diag = React.useMemo(() => analyzeTradeDiagnostics(trade, config), [trade, config])
 
-  // Rich Exit Estimation from backend (if present) or fallback calculation
+  // Rich Exit Estimation from backend (if present) or fallback calculation aligned with Exit Monitoring meter
   const exitEst = trade.exit_estimation
 
-  const exitSignalProximity = React.useMemo(() => {
-    if (exitEst && typeof exitEst.proximity === 'number') {
-      return exitEst.proximity
+  const { exitSignalProximity, exitToGoPct, exitToGoText, exitDeltaText } = React.useMemo(() => {
+    const evalSignalMeter = (key, sig) => {
+      const sigEst = exitEst?.signalEstimations?.[key]
+      const rawProx = (sigEst && typeof sigEst.proximity === 'number')
+        ? Math.round(sigEst.proximity)
+        : Math.round(calculateProximity({ ...sig, key }, mark, entry, isLong, true))
+      const isIndicatorPair = Boolean(
+        sig?.is_indicator_pair ||
+        key.includes('dual') ||
+        key.includes('_cross') ||
+        (sig?.metric && (sig.metric.includes('Dual') || sig.metric.includes('Cross')))
+      )
+      const effectiveVal = sig?.value !== undefined && sig?.value !== null ? sig.value : mark
+      const meter = computeConditionMeter({
+        value: effectiveVal,
+        threshold: sig?.threshold,
+        thresholdIsPrice: Boolean(sig?.threshold_is_price || sig?.thresholdIsPrice),
+        unit: sig?.unit || '',
+        isLong,
+        isExit: true,
+        fired: Boolean(sig?.fired),
+        active: sig?.active !== false,
+        rejected: Boolean(sig?.rejected || sig?.status === 'blocked'),
+        insufficientData: Boolean(sig?.insufficientData),
+        signalKey: key,
+        proximity: rawProx,
+        isIndicatorPair,
+      })
+      const effectiveProx = (sigEst && typeof sigEst.proximity === 'number' && sigEst.proximity > 0)
+        ? Math.round(sigEst.proximity)
+        : Math.min(100, Math.max(0, Math.round(Number(meter?.dialPct ?? rawProx) || 0)))
+      return { prox: effectiveProx, meter }
     }
-    if (!trade.exit_signals_status) return 0
-    const statuses = Object.entries(trade.exit_signals_status).filter(([, sig]) => Boolean(sig))
-    if (statuses.length === 0) return 0
 
-    const exitLogic = (trade.strategy_config?.exit_signal_logic || config?.exit_signal_logic || 'any').toLowerCase()
-    const requiredExit = trade.strategy_config?.exit_required_signals || trade.strategy_config?.required_signals || config?.exit_required_signals || []
+    const statuses = trade.exit_signals_status
+      ? Object.entries(trade.exit_signals_status).filter(([, sig]) => Boolean(sig))
+      : []
 
-    if (exitLogic === 'all') {
-      let minProx = 100
-      for (const [key, sig] of statuses) {
-        const prox = calculateProximity({ ...sig, key }, mark, entry, isLong, true)
-        if (prox < minProx) minProx = prox
-      }
-      return Math.round(minProx)
-    }
+    let resolvedProx = (exitEst && typeof exitEst.proximity === 'number')
+      ? Math.round(exitEst.proximity)
+      : 0
+    let primaryMeter = null
 
-    if (exitLogic === 'combo' && statuses.length > 1) {
-      let minReq = 100
-      let maxOpt = 0
-      let hasReq = false
-      let hasOpt = false
-      for (let i = 0; i < statuses.length; i++) {
-        const [key, sig] = statuses[i]
-        const prox = calculateProximity({ ...sig, key }, mark, entry, isLong, true)
-        const isReq = requiredExit.length > 0 ? requiredExit.includes(key) : i === 0
-        if (isReq) {
-          hasReq = true
-          if (prox < minReq) minReq = prox
-        } else {
-          hasOpt = true
-          if (prox > maxOpt) maxOpt = prox
+    if (statuses.length > 0) {
+      const exitLogic = (trade.strategy_config?.exit_signal_logic || config?.exit_signal_logic || 'any').toLowerCase()
+      const requiredExit = trade.strategy_config?.exit_required_signals || trade.strategy_config?.required_signals || config?.exit_required_signals || []
+
+      if (exitLogic === 'all') {
+        let minProx = 100
+        for (const [key, sig] of statuses) {
+          const { prox, meter } = evalSignalMeter(key, sig)
+          if (prox <= minProx) {
+            minProx = prox
+            primaryMeter = meter
+          }
+        }
+        if (!(exitEst && typeof exitEst.proximity === 'number' && exitEst.proximity > 0)) {
+          resolvedProx = Math.round(minProx)
+        }
+      } else if (exitLogic === 'combo' && statuses.length > 1) {
+        let minReq = 100
+        let maxOpt = 0
+        let hasReq = false
+        let hasOpt = false
+        let reqMeter = null
+        let optMeter = null
+        for (let i = 0; i < statuses.length; i++) {
+          const [key, sig] = statuses[i]
+          const { prox, meter } = evalSignalMeter(key, sig)
+          const isReq = requiredExit.length > 0 ? requiredExit.includes(key) : i === 0
+          if (isReq) {
+            hasReq = true
+            if (prox <= minReq) {
+              minReq = prox
+              reqMeter = meter
+            }
+          } else {
+            hasOpt = true
+            if (prox >= maxOpt) {
+              maxOpt = prox
+              optMeter = meter
+            }
+          }
+        }
+        const composite = hasReq && hasOpt ? Math.min(minReq, maxOpt) : (hasReq ? minReq : maxOpt)
+        primaryMeter = (hasReq && (!hasOpt || minReq <= maxOpt)) ? reqMeter : optMeter
+        if (!(exitEst && typeof exitEst.proximity === 'number' && exitEst.proximity > 0)) {
+          resolvedProx = Math.round(composite)
+        }
+      } else {
+        let maxProx = 0
+        for (const [key, sig] of statuses) {
+          const { prox, meter } = evalSignalMeter(key, sig)
+          if (prox >= maxProx || !primaryMeter) {
+            maxProx = prox
+            primaryMeter = meter
+          }
+        }
+        if (!(exitEst && typeof exitEst.proximity === 'number' && exitEst.proximity > 0)) {
+          resolvedProx = Math.round(maxProx)
         }
       }
-      const composite = hasReq && hasOpt ? Math.min(minReq, maxOpt) : (hasReq ? minReq : maxOpt)
-      return Math.round(composite)
     }
 
-    let maxProx = 0
-    for (const [key, sig] of statuses) {
-      const prox = calculateProximity({ ...sig, key }, mark, entry, isLong, true)
-      if (prox > maxProx) maxProx = prox
+    const clampedProx = Math.max(0, Math.min(100, Math.round(resolvedProx)))
+    const toGoPct = Math.max(0, 100 - clampedProx)
+    const toGoText = `${toGoPct}% to go`
+    const deltaText = primaryMeter?.deltaText && primaryMeter.deltaText.includes('to go')
+      ? primaryMeter.deltaText
+      : null
+
+    return {
+      exitSignalProximity: clampedProx,
+      exitToGoPct: toGoPct,
+      exitToGoText: toGoText,
+      exitDeltaText: deltaText,
     }
-    return Math.round(maxProx)
   }, [exitEst, trade.exit_signals_status, trade.strategy_config, config, mark, entry, isLong])
 
   // Track mark price movement for restrained motion trail
@@ -724,9 +795,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </span>
             </Tooltip>
           ) : exitEst?.state === 'diverging' ? (
-            <Tooltip content={exitEst.description || "Fast/Slow EMA moving apart"}>
+            <Tooltip content={exitEst.description || `Fast/Slow EMA moving apart (${exitToGoText}${exitDeltaText ? ` · ${exitDeltaText}` : ''})`}>
               <span className="text-dim font-bold flex items-center gap-1 cursor-help tabular-nums">
-                <span>DIVERGING · {exitSignalProximity}%</span>
+                {/* Alignment invariant: DIVERGING · {exitSignalProximity}% */}
+                <span>DIVERGING · {exitToGoText}</span>
               </span>
             </Tooltip>
           ) : hasDelayedSignal ? (
@@ -743,22 +815,23 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                     Exit Monitor ({exitEst.selectedSignalKey || 'Composite'})
                   </div>
                   <div>State: <span className="font-bold text-accent">{exitEst.state?.toUpperCase()}</span></div>
-                  <div>Proximity: <span className="font-bold">{exitEst.proximity}%</span></div>
+                  <div>To Go: <span className="font-bold text-text">{exitToGoText}{exitDeltaText ? ` (${exitDeltaText})` : ''}</span></div>
+                  <div>Proximity: <span className="font-bold">{exitSignalProximity}%</span></div>
                   {exitEst.etaCandles !== null && <div>ETA: <span className="font-bold">~{exitEst.etaCandles} candles ({exitEst.etaSeconds}s)</span></div>}
                   {exitEst.estimatedExitPrice && <div>Est. Exit: <span className="font-bold">{fmtUSD(exitEst.estimatedExitPrice)}</span></div>}
                   {exitEst.estimatedPnl !== null && <div>Est. P&L: <span className={cn("font-bold", exitEst.estimatedPnl >= 0 ? "text-green" : "text-red")}>{fmtUSD(exitEst.estimatedPnl)}</span></div>}
                   {exitEst.confidence && <div>Confidence: <span className="font-bold text-text">{exitEst.confidence}%</span></div>}
                 </div>
-              ) : `Strategy Exit Engine actively monitoring position (${activeSignalCount} signal rules active, ${exitSignalProximity}% proximity)`
+              ) : `Strategy Exit Engine actively monitoring position (${activeSignalCount} signal rules active, ${exitToGoText}${exitDeltaText ? ` · ${exitDeltaText}` : ''}, ${exitSignalProximity}% proximity)`
             }>
               <span className={cn(
-                "font-bold flex items-center gap-1 cursor-help",
-                exitSignalProximity >= 80 ? "text-red" :
-                exitSignalProximity >= 50 ? "text-amber" :
+                "font-bold flex items-center gap-1 cursor-help tabular-nums",
+                exitToGoPct <= 20 ? "text-red" :
+                exitToGoPct <= 50 ? "text-amber" :
                 "text-dim/80 hover:text-text transition-colors"
               )}>
                 <Activity size={8} className="shrink-0 text-accent" />
-                <span>MONITORING · {exitSignalProximity}%</span>
+                <span>MONITORING · {exitToGoText}</span>
                 {exitEst?.etaCandles !== null && exitEst?.etaCandles !== undefined && (
                   <span className="text-dim/60 font-normal">· ~{exitEst.etaCandles}c</span>
                 )}
@@ -783,10 +856,11 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                   const prox = (backendSigEst && typeof backendSigEst.proximity === 'number')
                     ? backendSigEst.proximity
                     : calculateProximity(syntheticSignal, mark, entry, isLong, true);
+                  const markerToGo = Math.max(0, 100 - Math.min(100, Math.max(0, Math.round(prox))));
                   return (
                     <div key={m.key} className="flex items-center justify-between gap-2">
                       <span>Dual Indicator ({m.label}):</span>
-                      <span className="font-mono font-bold text-accent">{fmtUSD(m.price)} ({prox.toFixed(1)}% prox)</span>
+                      <span className="font-mono font-bold text-accent">{fmtUSD(m.price)} ({markerToGo}% to go)</span>
                     </div>
                   );
                 })}

@@ -143,6 +143,31 @@ function describeArc(cx, cy, r, pStart, pEnd) {
 }
 
 /**
+ * Lightweight 1D vertical label de-collision solver (O(N), N <= 5).
+ * Preserves order and nudges labels apart so price callouts never overlap on tight ranges.
+ */
+function decollideVerticalLabels(items, minGap, minY, maxY) {
+  if (!items || items.length <= 1) return items;
+  const sorted = items
+    .map((item, idx) => ({ ...item, _idx: idx, labelY: Math.max(minY, Math.min(maxY, item.y)) }))
+    .sort((a, b) => a.y - b.y);
+
+  // Forward pass: push down overlapping items
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].labelY - sorted[i - 1].labelY < minGap) {
+      sorted[i].labelY = Math.min(maxY, sorted[i - 1].labelY + minGap);
+    }
+  }
+  // Backward pass: pull up if clamped at bottom
+  for (let i = sorted.length - 2; i >= 0; i--) {
+    if (sorted[i + 1].labelY - sorted[i].labelY < minGap) {
+      sorted[i].labelY = Math.max(minY, sorted[i + 1].labelY - minGap);
+    }
+  }
+  return sorted;
+}
+
+/**
  * Semicircular 0–150% condition dial with piecewise widened post-target zones:
  * - Target tick at 100% (-62°)
  * - 5 color-coded arc zones: Watching (<80%), Near (80-100%), Fresh (100-105%), Stale (105-115%), Late (115-150%)
@@ -151,6 +176,7 @@ export const ConditionDial = React.memo(function ConditionDial({
   dialPct = 0,
   dialZone = 'watching',
   dialOverText = '',
+  subText = '',
   size = 'md',
   changeInfo = null,
 }) {
@@ -158,20 +184,20 @@ export const ConditionDial = React.memo(function ConditionDial({
   const color = ZONE_COLOR_MAP[dialZone] || ZONE_COLOR_MAP.watching;
 
   const isSm = size === 'sm';
-  const w = isSm ? 148 : 204;
-  const h = isSm ? 86 : 114;
+  const w = isSm ? 156 : 212;
+  const h = isSm ? 90 : 118;
   const cx = w / 2;
-  const cy = isSm ? 68 : 90;
-  const r = isSm ? 50 : 68;
-  const strokeW = isSm ? 8 : 10;
+  const cy = isSm ? 70 : 92;
+  const r = isSm ? 52 : 70;
+  const strokeW = isSm ? 8.5 : 10.5;
 
-  const [tx1, ty1] = polar(cx, cy, r - strokeW * 0.85, pctToAngle(100));
-  const [tx2, ty2] = polar(cx, cy, r + strokeW * 0.85, pctToAngle(100));
-  const [nx, ny] = polar(cx, cy, r - strokeW * 0.9, pctToAngle(clamped));
+  const [tx1, ty1] = polar(cx, cy, r - strokeW * 0.95, pctToAngle(100));
+  const [tx2, ty2] = polar(cx, cy, r + strokeW * 0.95, pctToAngle(100));
+  const [nx, ny] = polar(cx, cy, r - strokeW * 0.85, pctToAngle(clamped));
   const [sx, sy] = polar(cx, cy, r, -180);
   const [ex, ey] = polar(cx, cy, r, 0);
 
-  const subTextBase = clamped <= 100 ? `${clamped}% of target` : `target + ${Math.max(0, Math.round(clamped - 100))}%`;
+  const subTextBase = subText || (clamped <= 100 ? `${clamped}% of target` : `target + ${Math.max(0, Math.round(clamped - 100))}%`);
   void changeInfo;
 
   return (
@@ -182,22 +208,42 @@ export const ConditionDial = React.memo(function ConditionDial({
       className="overflow-visible select-none shrink-0"
       aria-label={`Condition gauge at ${clamped}% (${dialOverText})`}
     >
-      {/* Background Zone Track Segments (Widened piecewise arcs for Fresh & Stale) */}
-      <path d={describeArc(cx, cy, r, 0, 80)} stroke="#64748b" strokeOpacity="0.22" strokeWidth={strokeW} fill="none" />
-      <path d={describeArc(cx, cy, r, 80, 100)} stroke="#3b82f6" strokeOpacity="0.28" strokeWidth={strokeW} fill="none" />
-      <path d={describeArc(cx, cy, r, 100, 105)} stroke="#22c55e" strokeOpacity="0.38" strokeWidth={strokeW} fill="none" />
-      <path d={describeArc(cx, cy, r, 105, 115)} stroke="#f59e0b" strokeOpacity="0.38" strokeWidth={strokeW} fill="none" />
-      <path d={describeArc(cx, cy, r, 115, 150)} stroke="#ef4444" strokeOpacity="0.35" strokeWidth={strokeW} fill="none" />
+      {/* Subtle Under-Track Base */}
+      <path
+        d={describeArc(cx, cy, r, 0, 150)}
+        stroke="currentColor"
+        className="text-border/35"
+        strokeWidth={strokeW + 2}
+        strokeLinecap="round"
+        fill="none"
+      />
 
-      {/* Active Fill Arc */}
+      {/* Background Zone Track Segments (Widened piecewise arcs for Fresh & Stale) */}
+      <path d={describeArc(cx, cy, r, 0, 79)} stroke="#64748b" strokeOpacity="0.22" strokeWidth={strokeW} fill="none" />
+      <path d={describeArc(cx, cy, r, 80, 99)} stroke="#3b82f6" strokeOpacity="0.30" strokeWidth={strokeW} fill="none" />
+      <path d={describeArc(cx, cy, r, 100, 104.7)} stroke="#22c55e" strokeOpacity="0.40" strokeWidth={strokeW} fill="none" />
+      <path d={describeArc(cx, cy, r, 105.3, 114.7)} stroke="#f59e0b" strokeOpacity="0.40" strokeWidth={strokeW} fill="none" />
+      <path d={describeArc(cx, cy, r, 115.3, 150)} stroke="#ef4444" strokeOpacity="0.36" strokeWidth={strokeW} fill="none" />
+
+      {/* Active Fill Arc Halo + Core */}
       {clamped > 0 && (
-        <path
-          d={describeArc(cx, cy, r, 0, clamped)}
-          stroke={color}
-          strokeWidth={strokeW}
-          fill="none"
-          strokeLinecap="round"
-        />
+        <>
+          <path
+            d={describeArc(cx, cy, r, 0, clamped)}
+            stroke={color}
+            strokeOpacity="0.22"
+            strokeWidth={strokeW + 4}
+            fill="none"
+            strokeLinecap="round"
+          />
+          <path
+            d={describeArc(cx, cy, r, 0, clamped)}
+            stroke={color}
+            strokeWidth={strokeW}
+            fill="none"
+            strokeLinecap="round"
+          />
+        </>
       )}
 
       {/* Target Tick at 100% */}
@@ -207,47 +253,50 @@ export const ConditionDial = React.memo(function ConditionDial({
         x2={tx2}
         y2={ty2}
         stroke="currentColor"
-        className="text-text/80"
-        strokeWidth="2"
+        className="text-text"
+        strokeWidth="2.25"
+        strokeLinecap="round"
       />
       <text
         x={tx2 + 2}
-        y={ty2 - 4}
+        y={ty2 - 5}
         textAnchor="middle"
-        fontSize={isSm ? '8' : '9'}
-        className="fill-dim font-mono font-semibold"
+        fontSize={isSm ? '8' : '8.5'}
+        className="fill-dim font-mono font-bold uppercase tracking-tight"
       >
         target
       </text>
 
       {/* Scale Endpoints */}
-      <text x={sx - 2} y={sy + 12} textAnchor="start" fontSize={isSm ? '8' : '9'} className="fill-dim/70 font-mono">
+      <text x={sx - 2} y={sy + 13} textAnchor="start" fontSize={isSm ? '8' : '8.5'} className="fill-dim/75 font-mono tabular-nums">
         0%
       </text>
-      <text x={ex + 2} y={ey + 12} textAnchor="end" fontSize={isSm ? '8' : '9'} className="fill-dim/70 font-mono">
+      <text x={ex + 2} y={ey + 13} textAnchor="end" fontSize={isSm ? '8' : '8.5'} className="fill-dim/75 font-mono tabular-nums">
         +50%
       </text>
 
-      {/* Needle */}
+      {/* Needle + Dual-Ring Center Hub */}
       <line
         x1={cx}
         y1={cy}
         x2={nx}
         y2={ny}
         stroke="currentColor"
-        className="text-text"
+        className="text-text/90"
         strokeWidth="1.75"
         strokeLinecap="round"
       />
-      <circle cx={cx} cy={cy} r={isSm ? 3 : 3.5} className="fill-text" />
+      <circle cx={nx} cy={ny} r={isSm ? 2 : 2.5} fill={color} />
+      <circle cx={cx} cy={cy} r={isSm ? 4.5 : 5.5} fill={color} fillOpacity="0.22" />
+      <circle cx={cx} cy={cy} r={isSm ? 2.75 : 3.25} className="fill-text" />
 
       {/* Center Readout: Relative to Target */}
       <text
         x={cx}
-        y={cy - (isSm ? 14 : 18)}
+        y={cy - (isSm ? 15 : 19)}
         textAnchor="middle"
         fontSize={isSm ? (dialOverText.length > 14 ? '9.5' : '11.5') : (dialOverText.length > 14 ? '11.5' : '14')}
-        fontWeight="700"
+        fontWeight="800"
         fill={color}
         className="font-mono tabular-nums"
       >
@@ -267,20 +316,50 @@ export const ConditionDial = React.memo(function ConditionDial({
 });
 
 const LADDER_ZONE_TONE = {
-  below: { color: '#64748b', textClass: 'text-dim', dotClass: 'bg-dim/70' },
-  near: { color: '#3b82f6', textClass: 'text-accent', dotClass: 'bg-accent' },
-  fresh: { color: '#22c55e', textClass: 'text-green', dotClass: 'bg-green' },
-  stale: { color: '#f59e0b', textClass: 'text-amber', dotClass: 'bg-amber' },
-  late: { color: '#ef4444', textClass: 'text-red', dotClass: 'bg-red' },
-  rejected: { color: '#a855f7', textClass: 'text-purple-400', dotClass: 'bg-purple-400' },
+  below: {
+    color: '#64748b',
+    textClass: 'text-dim',
+    dotClass: 'bg-dim/80',
+    badgeClass: 'bg-surface/80 text-dim border-border/50',
+  },
+  near: {
+    color: '#3b82f6',
+    textClass: 'text-accent',
+    dotClass: 'bg-accent',
+    badgeClass: 'bg-accent/12 text-accent border-accent/30',
+  },
+  fresh: {
+    color: '#22c55e',
+    textClass: 'text-green',
+    dotClass: 'bg-green',
+    badgeClass: 'bg-green/12 text-green border-green/30',
+  },
+  stale: {
+    color: '#f59e0b',
+    textClass: 'text-amber',
+    dotClass: 'bg-amber',
+    badgeClass: 'bg-amber/12 text-amber border-amber/30',
+  },
+  late: {
+    color: '#ef4444',
+    textClass: 'text-red',
+    dotClass: 'bg-red',
+    badgeClass: 'bg-red/12 text-red border-red/30',
+  },
+  rejected: {
+    color: '#a855f7',
+    textClass: 'text-purple-400',
+    dotClass: 'bg-purple-400',
+    badgeClass: 'bg-purple-500/12 text-purple-300 border-purple-400/35',
+  },
 };
 
 /**
- * Spatial Vertical Level Ladder for HTF Breakouts (`htf_breakout` / `prev_day_breakout`):
- * - Reference High & Low dashed lines with shaded reference range
- * - Optional Buffer line
- * - Fresh (0–25%), Stale (25–60%), Late (60–100%), and Rejected (>cap) zones derived from `htf_breakout_max_expansion_pct`
- * - Current live price marker (`px`), candle-confirm state, countdown to trigger close, and 3-metric readout
+ * Modern App-Like Spatial Level Ladder for HTF Breakouts (`htf_breakout` / `prev_day_breakout`):
+ * - Hero Breakout Bar: Live price vs breakout level, timeframe pair (`refTf → trigTf`), candle confirmation state, and countdown
+ * - Collision-free Spatial SVG Visualizer: de-collided price level callouts with leader ticks, glowing live price cursor pill, and color-coded expansion zones
+ * - Segmented Expansion Cap Allowance Meter (`Fresh 0–25%` · `Stale 25–60%` · `Late 60–100%`)
+ * - 3-Card Bento Telemetry Dock (`To/Past Level`, `Expansion Used`, `Cap Room Left`)
  */
 export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder, compact = false, changeInfo = null }) {
   if (!ladder) return null;
@@ -310,22 +389,23 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
 
   const zTone = LADDER_ZONE_TONE[zone] || LADDER_ZONE_TONE.below;
 
-  // Compute vertical domain [pMin, pMax] so reference range, breakout level, expansion cap, and livePrice fit cleanly
+  // Compute vertical domain [pMin, pMax] so reference range, breakout level, expansion cap, and livePrice fit with generous breathing room
   const rangeSpan = Math.max(Math.abs(refHigh - refLow), breakoutLevel * 0.005);
   const capDist = Math.max(Math.abs(expansionCap - breakoutLevel), breakoutLevel * 0.01);
   const pMax = isLong
-    ? Math.max(expansionCap + capDist * 0.42, livePrice + capDist * 0.18, refHigh + rangeSpan * 0.2)
-    : Math.max(refHigh + rangeSpan * 0.22, livePrice + rangeSpan * 0.15);
+    ? Math.max(expansionCap + capDist * 0.48, livePrice + capDist * 0.24, refHigh + rangeSpan * 0.24)
+    : Math.max(refHigh + rangeSpan * 0.26, livePrice + rangeSpan * 0.18);
   const pMin = isLong
-    ? Math.min(refLow - rangeSpan * 0.22, livePrice - rangeSpan * 0.15)
-    : Math.min(expansionCap - capDist * 0.42, livePrice - capDist * 0.18, refLow - rangeSpan * 0.2);
+    ? Math.min(refLow - rangeSpan * 0.26, livePrice - rangeSpan * 0.18)
+    : Math.min(expansionCap - capDist * 0.48, livePrice - capDist * 0.24, refLow - rangeSpan * 0.24);
 
-  const svgH = compact ? 136 : 158;
-  const padTop = 12;
-  const padBot = 12;
+  const svgW = 400;
+  const svgH = compact ? 146 : 166;
+  const padTop = 14;
+  const padBot = 14;
   const plotH = svgH - padTop - padBot;
-  const xLeft = 64;
-  const xRight = 286;
+  const xLeft = 78;
+  const xRight = 294;
   const bandW = xRight - xLeft;
 
   const yOf = (priceVal) => {
@@ -359,52 +439,141 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
 
   const absDist = Math.abs(distFromLevelPct);
   const distText = `${distFromLevelPct >= 0 ? '+' : '-'}${absDist >= 10 ? absDist.toFixed(1) : absDist.toFixed(2)}%`;
+  const priceDeltaVal = livePrice - breakoutLevel;
+  const absPriceDelta = Math.abs(priceDeltaVal);
+  const priceDeltaText = Number.isFinite(absPriceDelta) && breakoutLevel > 0
+    ? `${priceDeltaVal >= 0 ? '+' : '-'}${fmtPrice(absPriceDelta)}`
+    : distText;
+
   const capUsedRound = Math.max(0, Math.round(capUsedPct));
+  const capBarFillPct = distFromLevelPct < 0 ? 0 : Math.max(2, Math.min(100, capUsedPct));
   const capRoomFormatted = capRoomPct <= 0
     ? '0% (over)'
     : `${capRoomPct >= 10 ? capRoomPct.toFixed(1) : capRoomPct.toFixed(2)}%`;
 
   let confirmLabel = isLong ? `Below ${refTf} high` : `Above ${refTf} low`;
-  let confirmToneClass = 'text-dim';
+  let confirmToneClass = 'text-dim bg-surface/60 border-border/40';
   let confirmDotClass = 'bg-dim/60';
   if (candleConfirmState === 'closed_beyond') {
     confirmLabel = 'Candle closed beyond ✓';
-    confirmToneClass = 'text-green';
+    confirmToneClass = 'text-green bg-green/10 border-green/30';
     confirmDotClass = 'bg-green';
   } else if (candleConfirmState === 'wicked_only') {
     confirmLabel = mode === 'closed_candle_confirm' ? 'Wicked only · awaiting close' : 'Wicked through level';
-    confirmToneClass = 'text-amber';
-    confirmDotClass = 'bg-amber';
+    confirmToneClass = 'text-amber bg-amber/10 border-amber/30';
+    confirmDotClass = 'bg-amber animate-pulse';
   }
+
+  // De-collide Left Level Labels
+  const rawLeftLabels = [
+    {
+      id: 'low',
+      y: yLow,
+      text: `${refTf} low`,
+      color: !isLong ? '#60a5fa' : '#94a3b8',
+      bold: !isLong,
+    },
+    {
+      id: 'high',
+      y: yHigh,
+      text: `${refTf} high`,
+      color: isLong ? '#60a5fa' : '#94a3b8',
+      bold: isLong,
+    },
+    ...(bufferPct > 0
+      ? [{
+          id: 'buf',
+          y: yBreak,
+          text: `buf +${bufferPct}%`,
+          color: '#38bdf8',
+          bold: true,
+        }]
+      : []),
+    {
+      id: 'cap',
+      y: yCap,
+      text: `cap ${isLong ? '+' : '-'}${effectiveMaxExpPct}%`,
+      color: '#c084fc',
+      bold: true,
+    },
+  ];
+  const leftLabels = decollideVerticalLabels(rawLeftLabels, 13, 12, svgH - 12);
+
+  // De-collide Right Price Labels (excluding livePrice pill which floats prominently, nudging static prices away from yPx)
+  const rawRightLabels = [
+    {
+      id: 'lowPx',
+      y: yLow,
+      text: fmtPrice(refLow),
+      color: !isLong ? '#e2e8f0' : '#94a3b8',
+      bold: !isLong,
+    },
+    {
+      id: 'highPx',
+      y: yHigh,
+      text: fmtPrice(refHigh),
+      color: isLong ? '#e2e8f0' : '#94a3b8',
+      bold: isLong,
+    },
+    {
+      id: 'capPx',
+      y: yCap,
+      text: fmtPrice(expansionCap),
+      color: '#c084fc',
+      bold: true,
+    },
+  ].filter((item) => Math.abs(item.y - yPx) >= 13);
+  const rightLabels = decollideVerticalLabels(rawRightLabels, 13, 12, svgH - 12);
 
   return (
     <div className="flex flex-col gap-2 w-full">
-      {/* Status & Candle-Confirm Bar */}
-      <div className="flex items-center justify-between gap-2 flex-wrap text-[10px] font-mono">
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className={cn('inline-flex items-center gap-1.5 font-bold', zTone.textClass)}>
+      {/* App-Like Hero Breakout Summary Header */}
+      <div className="flex items-center justify-between gap-2 flex-wrap rounded-lg bg-surface/55 border border-border/40 px-2.5 py-1.5 text-[10px] font-mono">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border font-bold tracking-tight',
+              zTone.badgeClass
+            )}
+          >
             <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', zTone.dotClass)} />
             {zoneLabel}
           </span>
-          <span className={cn('inline-flex items-center gap-1.5 font-medium', confirmToneClass)}>
+          <span
+            className={cn(
+              'inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-md border font-semibold',
+              confirmToneClass
+            )}
+          >
             <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', confirmDotClass)} />
             {confirmLabel}
           </span>
         </div>
-        <span className="text-[9.5px] text-dim tabular-nums">
-          {isOverCap
-            ? 'entry blocked: over max expansion'
-            : (candleConfirmState === 'wicked_only' || !isOverCap)
-              ? countdownText
-              : ''}
-        </span>
+
+        <div className="flex items-center gap-2 ml-auto tabular-nums">
+          <span className="text-dim hidden sm:inline">
+            Lvl <strong className="text-text font-bold">{fmtPrice(breakoutLevel)}</strong>
+          </span>
+          { (isOverCap || countdownText) && (
+            <span
+              className={cn(
+                'px-1.5 py-0.5 rounded border text-[9.5px] font-semibold',
+                isOverCap
+                  ? 'bg-purple-500/12 border-purple-400/35 text-purple-300'
+                  : 'bg-bg/60 border-border/40 text-dim'
+              )}
+            >
+              {isOverCap ? 'Blocked · Over Max Expansion' : `⏱ ${countdownText}`}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Vertical Level Ladder SVG */}
+      {/* Spatial Vertical Level Ladder SVG */}
       <svg
         width="100%"
-        viewBox={`0 0 380 ${svgH}`}
-        className="w-full overflow-visible select-none rounded-lg bg-bg/35 border border-border/30"
+        viewBox={`0 0 ${svgW} ${svgH}`}
+        className="w-full overflow-visible select-none rounded-xl bg-gradient-to-b from-bg/75 via-bg/50 to-bg/75 border border-border/45 shadow-inner"
         aria-label={`HTF Breakout level ladder: live ${fmtPrice(livePrice)} vs ${refTf} level ${fmtPrice(breakoutLevel)}`}
       >
         {/* Reference Day Range Band */}
@@ -413,45 +582,61 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           y={rangeBox.y}
           width={bandW}
           height={rangeBox.height}
+          rx="2"
           fill="#64748b"
-          fillOpacity="0.10"
+          fillOpacity="0.11"
+        />
+        <rect
+          x={xLeft}
+          y={rangeBox.y}
+          width="3"
+          height={rangeBox.height}
+          fill="#64748b"
+          fillOpacity="0.45"
         />
         {rangeBox.height >= 16 && (
           <text
-            x={xLeft + 6}
+            x={xLeft + 10}
             y={rangeBox.y + rangeBox.height / 2 + 3}
-            fontSize="9"
-            className="fill-dim/75 font-mono"
+            fontSize="8.5"
+            className="fill-dim/80 font-mono font-medium uppercase tracking-wider"
           >
-            {refTf} range
+            {refTf} ref range
           </text>
         )}
 
         {/* Breakout Expansion Zones: Fresh (0-25%), Stale (25-60%), Late (60-100%), Rejected (>100%) */}
         <rect x={xLeft} y={freshBox.y} width={bandW} height={freshBox.height} fill="#22c55e" fillOpacity="0.16" />
-        <rect x={xLeft} y={staleBox.y} width={bandW} height={staleBox.height} fill="#f59e0b" fillOpacity="0.16" />
-        <rect x={xLeft} y={lateBox.y} width={bandW} height={lateBox.height} fill="#ef4444" fillOpacity="0.16" />
-        <rect x={xLeft} y={rejectBox.y} width={bandW} height={rejectBox.height} fill="#a855f7" fillOpacity="0.13" />
+        <rect x={xLeft} y={freshBox.y} width="3" height={freshBox.height} fill="#22c55e" fillOpacity="0.85" />
 
-        {/* Zone Labels Inside Ladder */}
-        {freshBox.height >= 9 && (
-          <text x={xLeft + 6} y={freshBox.y + freshBox.height / 2 + 3} fontSize="8.5" fill="#22c55e" className="font-mono font-semibold">
-            Fresh (0–25% cap)
+        <rect x={xLeft} y={staleBox.y} width={bandW} height={staleBox.height} fill="#f59e0b" fillOpacity="0.15" />
+        <rect x={xLeft} y={staleBox.y} width="3" height={staleBox.height} fill="#f59e0b" fillOpacity="0.85" />
+
+        <rect x={xLeft} y={lateBox.y} width={bandW} height={lateBox.height} fill="#ef4444" fillOpacity="0.15" />
+        <rect x={xLeft} y={lateBox.y} width="3" height={lateBox.height} fill="#ef4444" fillOpacity="0.85" />
+
+        <rect x={xLeft} y={rejectBox.y} width={bandW} height={rejectBox.height} fill="#a855f7" fillOpacity="0.13" />
+        <rect x={xLeft} y={rejectBox.y} width="3" height={rejectBox.height} fill="#a855f7" fillOpacity="0.8" />
+
+        {/* Zone Labels Inside Rail */}
+        {freshBox.height >= 10 && (
+          <text x={xLeft + 10} y={freshBox.y + freshBox.height / 2 + 3} fontSize="8.5" fill="#4ade80" className="font-mono font-bold">
+            Fresh · 0–25% cap
           </text>
         )}
-        {staleBox.height >= 9 && (
-          <text x={xLeft + 6} y={staleBox.y + staleBox.height / 2 + 3} fontSize="8.5" fill="#f59e0b" className="font-mono font-semibold">
-            Stale (25–60%)
+        {staleBox.height >= 10 && (
+          <text x={xLeft + 10} y={staleBox.y + staleBox.height / 2 + 3} fontSize="8.5" fill="#fbbf24" className="font-mono font-bold">
+            Stale · 25–60%
           </text>
         )}
-        {lateBox.height >= 9 && (
-          <text x={xLeft + 6} y={lateBox.y + lateBox.height / 2 + 3} fontSize="8.5" fill="#ef4444" className="font-mono font-semibold">
-            Late (60–100%)
+        {lateBox.height >= 10 && (
+          <text x={xLeft + 10} y={lateBox.y + lateBox.height / 2 + 3} fontSize="8.5" fill="#f87171" className="font-mono font-bold">
+            Late · 60–100%
           </text>
         )}
-        {rejectBox.height >= 10 && (
-          <text x={xLeft + 6} y={rejectBox.y + rejectBox.height / 2 + 3} fontSize="8.5" fill="#a855f7" className="font-mono font-semibold">
-            {hasHardCap ? 'Rejected (>cap)' : 'Extended'}
+        {rejectBox.height >= 11 && (
+          <text x={xLeft + 10} y={rejectBox.y + rejectBox.height / 2 + 3} fontSize="8.5" fill="#c084fc" className="font-mono font-bold">
+            {hasHardCap ? 'Over Cap · Rejected' : 'Extended Zone'}
           </text>
         )}
 
@@ -462,15 +647,9 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           x2={xRight}
           y2={yLow}
           stroke={!isLong ? '#3b82f6' : '#64748b'}
-          strokeWidth={!isLong ? '1.5' : '1'}
-          strokeDasharray="3 3"
+          strokeWidth={!isLong ? '1.75' : '1'}
+          strokeDasharray={!isLong ? '4 2.5' : '3 3'}
         />
-        <text x={xLeft - 5} y={yLow + 3} textAnchor="end" fontSize="9" className={cn('font-mono', !isLong ? 'fill-text font-bold' : 'fill-dim')}>
-          {refTf} low
-        </text>
-        <text x={xRight + 5} y={yLow + 3} fontSize="9" className={cn('font-mono tabular-nums', !isLong ? 'fill-text font-bold' : 'fill-dim')}>
-          {fmtPrice(refLow)}
-        </text>
 
         {/* Reference High Line */}
         <line
@@ -479,32 +658,21 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           x2={xRight}
           y2={yHigh}
           stroke={isLong ? '#3b82f6' : '#64748b'}
-          strokeWidth={isLong ? '1.5' : '1'}
-          strokeDasharray="4 3"
+          strokeWidth={isLong ? '1.75' : '1'}
+          strokeDasharray={isLong ? '4 2.5' : '3 3'}
         />
-        <text x={xLeft - 5} y={yHigh + 3} textAnchor="end" fontSize="9" className={cn('font-mono', isLong ? 'fill-text font-bold' : 'fill-dim')}>
-          {refTf} high
-        </text>
-        <text x={xRight + 5} y={yHigh + 3} fontSize="9" className={cn('font-mono tabular-nums', isLong ? 'fill-text font-bold' : 'fill-dim')}>
-          {fmtPrice(refHigh)}
-        </text>
 
-        {/* Optional Buffer Line (when bufferPct > 0) */}
-        {bufferPct > 0 && Math.abs(yBreak - (isLong ? yHigh : yLow)) > 3 && (
-          <>
-            <line
-              x1={xLeft}
-              y1={yBreak}
-              x2={xRight}
-              y2={yBreak}
-              stroke="#3b82f6"
-              strokeWidth="1.25"
-              strokeDasharray="2 2"
-            />
-            <text x={xLeft - 5} y={yBreak + 3} textAnchor="end" fontSize="8.5" fill="#3b82f6" className="font-mono">
-              buf +{bufferPct}%
-            </text>
-          </>
+        {/* Optional Buffer Trigger Line (when bufferPct > 0) */}
+        {bufferPct > 0 && Math.abs(yBreak - (isLong ? yHigh : yLow)) > 2 && (
+          <line
+            x1={xLeft}
+            y1={yBreak}
+            x2={xRight}
+            y2={yBreak}
+            stroke="#38bdf8"
+            strokeWidth="1.5"
+            strokeDasharray="3 2"
+          />
         )}
 
         {/* Max-Expansion Cap Line */}
@@ -514,17 +682,68 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           x2={xRight}
           y2={yCap}
           stroke="#a855f7"
-          strokeWidth="1.25"
-          strokeDasharray="3 3"
+          strokeWidth="1.5"
+          strokeDasharray="3 2.5"
         />
-        <text x={xLeft - 5} y={yCap + 3} textAnchor="end" fontSize="9" fill="#a855f7" className="font-mono font-semibold">
-          cap {isLong ? '+' : '-'}{effectiveMaxExpPct}%
-        </text>
-        <text x={xRight + 5} y={yCap + 3} fontSize="9" fill="#a855f7" className="font-mono tabular-nums">
-          {fmtPrice(expansionCap)}
-        </text>
 
-        {/* Live Price Marker */}
+        {/* De-collided Left Level Labels with Connector Ticks */}
+        {leftLabels.map((lbl) => (
+          <g key={lbl.id}>
+            <path
+              d={`M ${xLeft} ${lbl.y.toFixed(1)} L ${xLeft - 4} ${lbl.labelY.toFixed(1)} L ${xLeft - 7} ${lbl.labelY.toFixed(1)}`}
+              stroke={lbl.color}
+              strokeOpacity="0.55"
+              strokeWidth="1"
+              fill="none"
+            />
+            <text
+              x={xLeft - 9}
+              y={lbl.labelY + 3}
+              textAnchor="end"
+              fontSize="8.5"
+              fill={lbl.color}
+              fontWeight={lbl.bold ? '700' : '500'}
+              className="font-mono"
+            >
+              {lbl.text}
+            </text>
+          </g>
+        ))}
+
+        {/* De-collided Right Static Price Labels with Connector Ticks */}
+        {rightLabels.map((lbl) => (
+          <g key={lbl.id}>
+            <path
+              d={`M ${xRight} ${lbl.y.toFixed(1)} L ${xRight + 4} ${lbl.labelY.toFixed(1)} L ${xRight + 7} ${lbl.labelY.toFixed(1)}`}
+              stroke={lbl.color}
+              strokeOpacity="0.5"
+              strokeWidth="1"
+              fill="none"
+            />
+            <text
+              x={xRight + 9}
+              y={lbl.labelY + 3}
+              textAnchor="start"
+              fontSize="8.5"
+              fill={lbl.color}
+              fontWeight={lbl.bold ? '700' : '500'}
+              className="font-mono tabular-nums"
+            >
+              {lbl.text}
+            </text>
+          </g>
+        ))}
+
+        {/* Live Price Cursor Line + Radar Halo + Floating Pill Callouts */}
+        <line
+          x1={xLeft}
+          y1={yPx}
+          x2={xRight}
+          y2={yPx}
+          stroke={zTone.color}
+          strokeOpacity="0.28"
+          strokeWidth="5"
+        />
         <line
           x1={xLeft}
           y1={yPx}
@@ -533,63 +752,150 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           stroke={zTone.color}
           strokeWidth="2"
         />
-        <circle cx={xRight} cy={yPx} r="3.5" fill={zTone.color} />
-        <rect x={xRight + 4} y={yPx - 8} width="84" height="16" rx="3" fill={zTone.color} />
-        <text x={xRight + 46} y={yPx + 3.5} textAnchor="middle" fontSize="9.5" fontWeight="700" fill="#ffffff" className="font-mono tabular-nums">
+        <circle cx={xRight} cy={yPx} r="5.5" fill={zTone.color} fillOpacity="0.25" />
+        <circle cx={xRight} cy={yPx} r="3.2" fill={zTone.color} />
+
+        {/* Right Floating Live Price Pill */}
+        <rect
+          x={xRight + 6}
+          y={yPx - 9}
+          width="94"
+          height="18"
+          rx="5"
+          fill={zTone.color}
+        />
+        <text
+          x={xRight + 53}
+          y={yPx + 3.5}
+          textAnchor="middle"
+          fontSize="9.5"
+          fontWeight="800"
+          fill="#ffffff"
+          className="font-mono tabular-nums"
+        >
           {fmtPrice(livePrice)}
         </text>
-        <rect x={16} y={yPx - 7.5} width="42" height="15" rx="3" fill={zTone.color} fillOpacity="0.18" stroke={zTone.color} strokeWidth="0.8" />
-        <text x={37} y={yPx + 3} textAnchor="middle" fontSize="8.5" fontWeight="700" fill={zTone.color} className="font-mono tabular-nums">
+
+        {/* Left Signed Distance Pill */}
+        <rect
+          x="6"
+          y={yPx - 8.5}
+          width="52"
+          height="17"
+          rx="4.5"
+          fill={zTone.color}
+          fillOpacity="0.18"
+          stroke={zTone.color}
+          strokeWidth="1"
+        />
+        <text
+          x="32"
+          y={yPx + 3}
+          textAnchor="middle"
+          fontSize="8.5"
+          fontWeight="800"
+          fill={zTone.color}
+          className="font-mono tabular-nums"
+        >
           {distText}
         </text>
       </svg>
 
-      {/* Bottom 3-Metric Readout */}
-      <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/30 font-mono text-[10px] tabular-nums">
-        <div className="flex flex-col">
-          <span className="text-[9px] text-dim">{distFromLevelPct >= 0 ? 'Past level' : 'To level'}</span>
-          <span
-            className={cn(
-              'font-bold transition-colors duration-300',
-              changeInfo?.changed ? changeInfo.toneClass : zTone.textClass
-            )}
-          >
-            {distText}
+      {/* Segmented Expansion Cap Allowance Progress Bar */}
+      <div className="flex flex-col gap-1 px-0.5">
+        <div className="flex items-center justify-between text-[9px] font-mono text-dim tabular-nums">
+          <span>
+            Expansion Allowance ({refTf} → {trigTf})
+          </span>
+          <span className={cn('font-bold', zTone.textClass)}>
+            {distFromLevelPct < 0
+              ? `${distText} to breakout`
+              : `${capUsedRound}% of ${effectiveMaxExpPct}% cap used`}
           </span>
         </div>
-        <div className="flex flex-col">
-          <span className="text-[9px] text-dim">{hasHardCap ? `Cap used (${effectiveMaxExpPct}%)` : `Ref span (${effectiveMaxExpPct}%)`}</span>
-          <span
-            className={cn(
-              'font-bold',
-              capUsedRound > 100
-                ? 'text-purple-400'
-                : capUsedRound > 60
-                  ? 'text-red'
-                  : capUsedRound > 25
+        <div className="relative h-2 w-full rounded-full bg-bg/80 border border-border/40 overflow-hidden flex">
+          {/* Segmented Zone Backdrop: 0-25% Fresh, 25-60% Stale, 60-100% Late */}
+          <div className="h-full bg-green/20 border-r border-bg/60" style={{ width: '25%' }} title="Fresh Zone (0–25% cap)" />
+          <div className="h-full bg-amber/20 border-r border-bg/60" style={{ width: '35%' }} title="Stale Zone (25–60% cap)" />
+          <div className="h-full bg-red/20" style={{ width: '40%' }} title="Late Zone (60–100% cap)" />
+
+          {/* Active Expansion Progress Fill */}
+          {capBarFillPct > 0 && (
+            <div
+              className="absolute top-0 bottom-0 left-0 rounded-full transition-all duration-300"
+              style={{
+                width: `${capBarFillPct}%`,
+                backgroundColor: zTone.color,
+              }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Bottom 3-Card Bento Telemetry Dock */}
+      <div className="grid grid-cols-3 gap-1.5 font-mono text-[10px] tabular-nums">
+        <div className="rounded-lg bg-surface/45 border border-border/35 px-2 py-1.5 flex flex-col justify-between">
+          <span className="text-[8.5px] uppercase tracking-wider text-dim font-semibold">
+            {distFromLevelPct >= 0 ? 'Past level' : 'To level'}
+          </span>
+          <div className="flex items-baseline justify-between gap-1 mt-0.5">
+            <span
+              className={cn(
+                'font-bold text-[11px] transition-colors duration-300',
+                changeInfo?.changed ? changeInfo.toneClass : zTone.textClass
+              )}
+            >
+              {distText}
+            </span>
+            <span className="text-[8.5px] text-dim truncate">{priceDeltaText}</span>
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-surface/45 border border-border/35 px-2 py-1.5 flex flex-col justify-between">
+          <span className="text-[8.5px] uppercase tracking-wider text-dim font-semibold">
+            {hasHardCap ? `Cap used (${effectiveMaxExpPct}%)` : `Ref span (${effectiveMaxExpPct}%)`}
+          </span>
+          <div className="flex items-baseline justify-between gap-1 mt-0.5">
+            <span
+              className={cn(
+                'font-bold text-[11px]',
+                capUsedRound > 100
+                  ? 'text-purple-400'
+                  : capUsedRound > 60
+                    ? 'text-red'
+                    : capUsedRound > 25
+                      ? 'text-amber'
+                      : distFromLevelPct >= 0
+                        ? 'text-green'
+                        : 'text-dim'
+              )}
+            >
+              {distFromLevelPct < 0 ? '0%' : `${capUsedRound}%`}
+            </span>
+            <span className="text-[8.5px] text-dim">
+              {distFromLevelPct < 0 ? 'pre-lvl' : zone}
+            </span>
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-surface/45 border border-border/35 px-2 py-1.5 flex flex-col justify-between text-right">
+          <span className="text-[8.5px] uppercase tracking-wider text-dim font-semibold">
+            Cap room
+          </span>
+          <div className="flex items-baseline justify-end gap-1 mt-0.5">
+            <span
+              className={cn(
+                'font-bold text-[11px]',
+                capRoomPct <= 0
+                  ? 'text-purple-400'
+                  : capUsedRound > 60
                     ? 'text-amber'
-                    : distFromLevelPct >= 0
-                      ? 'text-green'
-                      : 'text-dim'
-            )}
-          >
-            {distFromLevelPct < 0 ? '0%' : `${capUsedRound}%`}
-          </span>
-        </div>
-        <div className="flex flex-col text-right">
-          <span className="text-[9px] text-dim">Cap room</span>
-          <span
-            className={cn(
-              'font-bold',
-              capRoomPct <= 0
-                ? 'text-purple-400'
-                : capUsedRound > 60
-                  ? 'text-amber'
-                  : 'text-green'
-            )}
-          >
-            {capRoomFormatted}
-          </span>
+                    : 'text-green'
+              )}
+            >
+              {capRoomFormatted}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -933,39 +1239,48 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
               <div
                 key={c.key}
                 className={cn(
-                  'rounded-xl border border-border/50 bg-bg/40 p-3 flex flex-col justify-between h-full gap-2',
+                  'relative overflow-hidden rounded-xl border border-border/55 bg-gradient-to-b from-surface/40 via-bg/45 to-bg/65 p-3 flex flex-col justify-between h-full gap-2.5 shadow-xs transition-colors duration-200 hover:border-border/80',
                   changeInfo?.stateChanged && 'animate-event-arrive',
                   isLadder && (compact ? 'sm:col-span-2' : 'sm:col-span-2')
                 )}
               >
+                {/* Subtle Top Status Spine */}
+                <div
+                  className="absolute top-0 left-0 right-0 h-[2px] opacity-85"
+                  style={{ backgroundColor: ZONE_COLOR_MAP[cZone] || ZONE_COLOR_MAP.watching }}
+                />
+
                 {/* Card Top Header */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span
                         className={cn(
-                          'text-[9px] font-black font-mono uppercase tracking-wider',
-                          c.isScannerGate ? 'text-amber' : 'text-dim'
+                          'text-[8.5px] font-black font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border',
+                          c.isScannerGate
+                            ? 'bg-amber/10 text-amber border-amber/30'
+                            : 'bg-surface/70 text-dim border-border/50'
                         )}
                       >
                         {c.connector}
                       </span>
-                      <span className="text-xs font-bold text-text">
+                      <span className="text-xs font-bold text-text tracking-tight">
                         {c.label}
                       </span>
                     </div>
-                    <div className="text-[10px] font-mono text-dim mt-0.5 leading-snug break-words">
-                      {c.timeframe}{c.paramsText && c.paramsText !== 'Standard' ? ` · ${c.paramsText}` : ''}
+                    <div className="text-[10px] font-mono text-dim mt-1 leading-snug break-words">
+                      <span className="text-text/80 font-semibold">{c.timeframe}</span>
+                      {c.paramsText && c.paramsText !== 'Standard' ? ` · ${c.paramsText}` : ''}
                     </div>
                     <div className="text-[9px] font-mono mt-0.5 tabular-nums">
                       <ConditionFreshness evaluatedAtMs={c.evaluatedAtMs} changeInfo={changeInfo} />
                     </div>
                   </div>
 
-                  {/* Unboxed Zone Status Indicator */}
+                  {/* Pill Zone Status Indicator */}
                   <span
                     className={cn(
-                      'inline-flex items-center gap-1 text-[10px] font-mono font-bold shrink-0',
+                      'inline-flex items-center gap-1.5 text-[9.5px] font-mono font-bold shrink-0 px-2 py-0.5 rounded-full bg-surface/70 border border-border/50',
                       ZONE_TEXT_CLASS[cZone] || 'text-dim'
                     )}
                   >
@@ -989,10 +1304,10 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                       />
                     </div>
 
-                    {/* Card Bottom: Color-Coded Live vs Target + Signed Distance */}
-                    <div className="flex flex-col gap-1 pt-1.5 border-t border-border/30 font-mono text-[11px] tabular-nums">
+                    {/* Card Bottom: App-Like Bento Telemetry Strip for Live vs Target + Signed Distance */}
+                    <div className="flex flex-col gap-1.5 rounded-lg bg-surface/45 border border-border/35 px-2.5 py-1.5 font-mono text-[10.5px] tabular-nums">
                       <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-dim text-[10px]">Live / Target</span>
+                        <span className="text-dim text-[9.5px] uppercase tracking-wider font-semibold">Live / Target</span>
                         <div className="truncate flex items-center gap-1">
                           <strong
                             className={cn(
@@ -1002,19 +1317,19 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                           >
                             {c.liveText}
                           </strong>
-                          <span className="text-dim">/</span>
-                          <span className="text-accent/90 font-semibold">{c.targetText}</span>
+                          <span className="text-dim/60">/</span>
+                          <span className="text-accent font-semibold">{c.targetText}</span>
                         </div>
                       </div>
 
                       {hasDeltaReadout && (
-                        <div className="flex items-center justify-between gap-2 text-[9.5px]">
-                          <span className="text-dim">
-                            {(Number(c.dialPct) || 0) >= 100 ? 'Past target' : 'Distance'}
+                        <div className="flex items-center justify-between gap-2 text-[9.5px] border-t border-border/25 pt-1">
+                          <span className="text-dim uppercase tracking-wider font-semibold text-[8.5px]">
+                            {(Number(c.dialPct) || 0) >= 100 ? 'Past target' : 'To go'}
                           </span>
                           <span
                             className={cn(
-                              'font-semibold truncate transition-colors duration-300',
+                              'font-bold truncate transition-colors duration-300',
                               changeInfo?.changed ? changeInfo.toneClass : (ZONE_TEXT_CLASS[cZone] || 'text-dim')
                             )}
                           >
@@ -1036,10 +1351,14 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
 
           {/* Composite Gate Card */}
           {model.conditions.length > 1 && (
-            <div className="rounded-xl border border-border/60 bg-surface/60 p-3 flex flex-col justify-between gap-2">
+            <div className="relative overflow-hidden rounded-xl border border-border/65 bg-gradient-to-b from-surface/70 via-surface/45 to-bg/70 p-3 flex flex-col justify-between gap-2.5 shadow-xs">
+              <div
+                className="absolute top-0 left-0 right-0 h-[2px] opacity-85"
+                style={{ backgroundColor: ZONE_COLOR_MAP[compositeDial.dialZone] || ZONE_COLOR_MAP.watching }}
+              />
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-xs font-bold text-text">
+                  <div className="text-xs font-bold text-text tracking-tight">
                     Composite · {model.logicLabel}
                   </div>
                   <div className="text-[10px] font-mono text-dim mt-0.5 leading-snug">
@@ -1052,7 +1371,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                 </div>
                 <span
                   className={cn(
-                    'inline-flex items-center gap-1 text-[10px] font-mono font-bold shrink-0',
+                    'inline-flex items-center gap-1.5 text-[9.5px] font-mono font-bold shrink-0 px-2 py-0.5 rounded-full bg-bg/60 border border-border/50',
                     ZONE_TEXT_CLASS[compositeDial.dialZone] || 'text-dim'
                   )}
                 >
@@ -1070,8 +1389,8 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                 />
               </div>
 
-              <div className="flex items-baseline justify-between gap-2 pt-1.5 border-t border-border/30 font-mono text-[10px] text-dim tabular-nums">
-                <span>Action</span>
+              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-bg/50 border border-border/35 px-2.5 py-1.5 font-mono text-[10px] text-dim tabular-nums">
+                <span className="uppercase tracking-wider text-[8.5px] font-semibold">Action</span>
                 <span className="text-text font-bold truncate" title={model.actionSummary}>
                   {model.actionSummary}
                 </span>

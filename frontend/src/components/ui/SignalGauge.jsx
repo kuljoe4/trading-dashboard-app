@@ -24,6 +24,16 @@ const ZONE_DOT_CLASS = {
   blocked: 'bg-purple-400',
 };
 
+const ZONE_COLOR_MAP = {
+  watching: '#64748b',
+  near: '#3b82f6',
+  fresh: '#22c55e',
+  stale: '#f59e0b',
+  late: '#ef4444',
+  warming: '#f59e0b',
+  blocked: '#a855f7',
+};
+
 /**
  * SignalGauge: Renders the vertical HtfBreakoutLadder for HTF Breakout signals
  * or the 0–150% semicircular ConditionDial for threshold/spread signals,
@@ -40,7 +50,10 @@ export const SignalGauge = React.memo(({
   rejected = false,
   status,
   description = '',
-  proximity = 0,
+  signalDescription = '',
+  signalKey: propSignalKey = '',
+  signalMetric = '',
+  proximity,
   etaCandles = null,
   estimatedPnl = null,
   estimatedR = null,
@@ -48,15 +61,21 @@ export const SignalGauge = React.memo(({
   insufficientData = false,
   thresholdIsPrice = false,
   isExit = false,
+  type = '',
   isLong = true,
+  markPrice,
   className,
   compact = false,
+  children,
 }) => {
+  const effectiveIsExit = Boolean(isExit || type === 'exit');
   const resolvedEstPnl = signalEstimation?.estimatedPnl ?? estimatedPnl;
   const resolvedEstR = signalEstimation?.estimatedR ?? estimatedR;
-  const resolvedProx = signalEstimation?.proximity ?? proximity;
+  const resolvedProx = signalEstimation?.proximity ?? proximity ?? 0;
   const resolvedEta = signalEstimation?.etaCandles ?? etaCandles;
   const s = signal || {
+    key: propSignalKey,
+    metric: signalMetric,
     label,
     value,
     threshold,
@@ -65,7 +84,7 @@ export const SignalGauge = React.memo(({
     active,
     rejected,
     status,
-    description,
+    description: description || signalDescription,
     proximity: resolvedProx,
     etaCandles: resolvedEta,
     estimatedPnl: resolvedEstPnl,
@@ -74,18 +93,18 @@ export const SignalGauge = React.memo(({
     threshold_is_price: thresholdIsPrice,
   };
 
-  const finalLabel = s.label || label || s.key || 'Signal';
-  const finalValue = s.value !== undefined ? s.value : value;
+  const finalLabel = s.label || label || s.key || propSignalKey || 'Signal';
+  const finalValue = s.value !== undefined ? s.value : (value !== undefined ? value : markPrice);
   const finalThreshold = s.threshold !== undefined ? s.threshold : threshold;
   const finalUnit = s.unit !== undefined ? s.unit : unit;
   const isFired = s.fired !== undefined ? s.fired : fired;
   const isActive = s.active !== undefined ? s.active : active;
   const isRejected = s.rejected !== undefined ? s.rejected : (s.status === 'blocked' || rejected);
-  const finalProx = Math.min(100, Math.max(0, Math.round(s.proximity !== undefined ? s.proximity : resolvedProx)));
+  const finalProx = Math.min(100, Math.max(0, Math.round(Number(s.proximity !== undefined ? s.proximity : resolvedProx) || 0)));
   const finalEta = s.etaCandles !== undefined ? s.etaCandles : resolvedEta;
   const finalInsufficient = s.insufficientData !== undefined ? s.insufficientData : insufficientData;
   const isPrice = s.threshold_is_price !== undefined ? s.threshold_is_price : thresholdIsPrice;
-  const sigKey = String(s.key || finalLabel || '').toLowerCase();
+  const sigKey = String(s.key || propSignalKey || finalLabel || '').toLowerCase();
   const isHtfBreakout =
     sigKey.includes('htf_breakout') ||
     sigKey.includes('prev_day_breakout') ||
@@ -95,13 +114,13 @@ export const SignalGauge = React.memo(({
   const ladder = useMemo(() => {
     if (!isHtfBreakout || finalInsufficient) return null;
     return buildHtfLadderModel({
-      sigKey: s.key || 'htf_breakout',
+      sigKey: s.key || propSignalKey || 'htf_breakout',
       signalDetail: s,
-      markPrice: Number(finalValue || 0),
+      markPrice: Number(finalValue || markPrice || 0),
       isLong,
-      isExit,
+      isExit: effectiveIsExit,
     });
-  }, [isHtfBreakout, finalInsufficient, s, finalValue, isLong, isExit]);
+  }, [isHtfBreakout, finalInsufficient, s, propSignalKey, finalValue, markPrice, isLong, effectiveIsExit]);
 
   const meter = useMemo(() => computeConditionMeter({
     value: finalValue,
@@ -109,15 +128,19 @@ export const SignalGauge = React.memo(({
     thresholdIsPrice: Boolean(isPrice),
     unit: finalUnit || '',
     isLong,
-    isExit,
+    isExit: effectiveIsExit,
     fired: Boolean(isFired),
     active: isActive !== false,
     rejected: Boolean(isRejected),
     insufficientData: Boolean(finalInsufficient),
-    signalKey: s.key || finalLabel,
+    signalKey: s.key || propSignalKey || finalLabel,
     proximity: finalProx,
-    isIndicatorPair: String(s.key || finalLabel).toLowerCase().includes('dual') || String(s.key || finalLabel).toLowerCase().includes('cross'),
-  }), [finalValue, finalThreshold, isPrice, finalUnit, isLong, isExit, isFired, isActive, isRejected, finalInsufficient, s.key, finalLabel, finalProx]);
+    isIndicatorPair:
+      sigKey.includes('dual') ||
+      sigKey.includes('cross') ||
+      String(s.metric || signalMetric || '').toLowerCase().includes('dual') ||
+      String(s.metric || signalMetric || '').toLowerCase().includes('cross'),
+  }), [finalValue, finalThreshold, isPrice, finalUnit, isLong, effectiveIsExit, isFired, isActive, isRejected, finalInsufficient, s.key, propSignalKey, finalLabel, finalProx, sigKey, s.metric, signalMetric]);
 
   const formatVal = (val) => {
     if (val === undefined || val === null || Number.isNaN(Number(val))) return '---';
@@ -133,12 +156,12 @@ export const SignalGauge = React.memo(({
   const macdFilter = useMemo(() => {
     if (finalInsufficient) return null;
     return buildMacdFilterModel({
-      sigKey: s.key || finalLabel,
+      sigKey: s.key || propSignalKey || finalLabel,
       signalDetail: s,
       isLong,
-      isExit,
+      isExit: effectiveIsExit,
     });
-  }, [finalInsufficient, s, finalLabel, isLong, isExit]);
+  }, [finalInsufficient, s, propSignalKey, finalLabel, isLong, effectiveIsExit]);
 
   const prevItemRef = useRef(null);
   const [changeInfo, setChangeInfo] = useState(null);
@@ -169,30 +192,36 @@ export const SignalGauge = React.memo(({
   const hasDeltaReadout = Boolean(meter.deltaValueText || meter.deltaPctText);
 
   return (
-    <Tooltip content={s.description || description || `${finalLabel}: ${formatVal(finalValue)} / ${formatVal(finalThreshold)}`}>
+    <Tooltip content={s.description || description || signalDescription || `${finalLabel}: ${formatVal(finalValue)} / ${formatVal(finalThreshold)}`}>
       <div
         className={cn(
-          'rounded-xl border border-border/50 bg-bg/40 flex flex-col justify-between',
-          compact ? 'p-2.5 gap-1.5' : 'p-3 gap-2',
+          'relative overflow-hidden rounded-xl border border-border/55 bg-gradient-to-b from-surface/40 via-bg/45 to-bg/65 flex flex-col justify-between shadow-xs transition-colors duration-200 hover:border-border/80',
+          compact ? 'p-2.5 gap-2' : 'p-3 gap-2.5',
           isHtfBreakout && 'sm:col-span-2',
           className
         )}
       >
-        {/* Top Row: Label + Unboxed Zone Status */}
+        {/* Subtle Top Status Spine */}
+        <div
+          className="absolute top-0 left-0 right-0 h-[2px] opacity-85"
+          style={{ backgroundColor: ZONE_COLOR_MAP[zone] || ZONE_COLOR_MAP.watching }}
+        />
+
+        {/* Top Row: Label + Pill Zone Status */}
         <div className="flex items-start justify-between gap-2 min-w-0">
           <div className="min-w-0">
-            <span className="text-[11px] font-bold text-text leading-snug break-words block">
+            <span className="text-[11.5px] font-bold text-text tracking-tight leading-snug break-words block">
               {finalLabel}
             </span>
             {finalEta !== null && finalEta > 0 && !isFired && (
-              <span className="text-[9.5px] font-mono text-dim">
+              <span className="text-[9.5px] font-mono text-dim tabular-nums">
                 ~{finalEta} bars to target
               </span>
             )}
           </div>
           <span
             className={cn(
-              'inline-flex items-center gap-1 text-[10px] font-mono font-bold shrink-0',
+              'inline-flex items-center gap-1.5 text-[9.5px] font-mono font-bold shrink-0 px-2 py-0.5 rounded-full bg-surface/70 border border-border/50',
               ZONE_TEXT_CLASS[zone] || 'text-dim'
             )}
           >
@@ -216,9 +245,9 @@ export const SignalGauge = React.memo(({
               />
             </div>
 
-            <div className="flex flex-col gap-1 pt-1.5 border-t border-border/30 font-mono text-[10.5px] tabular-nums">
+            <div className="flex flex-col gap-1.5 rounded-lg bg-surface/45 border border-border/35 px-2.5 py-1.5 font-mono text-[10.5px] tabular-nums">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-dim text-[9.5px]">Live / Target</span>
+                <span className="text-dim text-[9px] uppercase tracking-wider font-semibold">Live / Target</span>
                 <div className="truncate flex items-center gap-1">
                   <strong
                     className={cn(
@@ -230,21 +259,21 @@ export const SignalGauge = React.memo(({
                   </strong>
                   {finalThreshold !== undefined && finalThreshold !== null && (
                     <>
-                      <span className="text-dim">/</span>
-                      <span className="text-accent/90 font-semibold">{formatVal(finalThreshold)}</span>
+                      <span className="text-dim/60">/</span>
+                      <span className="text-accent font-semibold">{formatVal(finalThreshold)}</span>
                     </>
                   )}
                 </div>
               </div>
 
               {hasDeltaReadout && (
-                <div className="flex items-center justify-between gap-2 text-[9px]">
-                  <span className="text-dim">
-                    {(Number(meter.dialPct) || 0) >= 100 ? 'Past target' : 'Distance'}
+                <div className="flex items-center justify-between gap-2 text-[9px] border-t border-border/25 pt-1">
+                  <span className="text-dim uppercase tracking-wider font-semibold text-[8.5px]">
+                    {(Number(meter.dialPct) || 0) >= 100 ? 'Past target' : 'To go'}
                   </span>
                   <span
                     className={cn(
-                      'font-semibold truncate transition-colors duration-300',
+                      'font-bold truncate transition-colors duration-300',
                       changeInfo?.changed ? changeInfo.toneClass : (ZONE_TEXT_CLASS[zone] || 'text-dim')
                     )}
                   >
@@ -259,6 +288,12 @@ export const SignalGauge = React.memo(({
               )}
             </div>
           </>
+        )}
+
+        {children && (
+          <div className="pt-1 border-t border-border/25">
+            {children}
+          </div>
         )}
       </div>
     </Tooltip>

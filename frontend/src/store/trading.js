@@ -473,27 +473,28 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
     const rawEstPnl = t.est_pnl_to_realize !== undefined ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize;
     const est_pnl_to_realize = resolveNonZeroMetric(rawEstPnl, p.est_pnl_to_realize, isMetricResuming);
 
-    const rawExitRr = t.exit_rr !== undefined ? toNumber(t.exit_rr) : p.exit_rr;
+    const rawExitRr = t.exit_rr != null ? toNumber(t.exit_rr) : p.exit_rr;
     const exit_rr = resolveNonZeroMetric(rawExitRr, p.exit_rr, isMetricResuming);
 
-    const rawMinRr = t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved;
+    const rawMinRr = t.min_rr_achieved != null ? toNumber(t.min_rr_achieved) : p.min_rr_achieved;
     const min_rr_achieved = resolveNonZeroMetric(rawMinRr, p.min_rr_achieved, isMetricResuming);
 
     return {
       ...p, ...t,
       pnl,
-      pnl_pct: t.pnl_pct !== undefined ? toNumber(t.pnl_pct) : (p.pnl_pct !== undefined ? toNumber(p.pnl_pct) : calculatedPnlPct),
+      pnl_pct: t.pnl_pct != null ? toNumber(t.pnl_pct) : (p.pnl_pct != null ? toNumber(p.pnl_pct) : calculatedPnlPct),
       rr,
-      current_price: t.current_price !== undefined ? toNumber(t.current_price) : p.current_price,
-      sl_price: t.sl_price !== undefined ? toNumber(t.sl_price) : p.sl_price,
+      current_price: t.current_price != null ? toNumber(t.current_price) : p.current_price,
+      sl_price: t.sl_price != null ? toNumber(t.sl_price) : p.sl_price,
+      current_sl: t.current_sl != null ? toNumber(t.current_sl) : (t.sl_price != null ? toNumber(t.sl_price) : p.current_sl),
       max_rr,
       max_rr_achieved,
       est_pnl_to_realize,
       est_pnl_source: t.est_pnl_source !== undefined ? t.est_pnl_source : p.est_pnl_source,
       exit_rr,
       min_rr_achieved,
-      entry_price: t.entry_price !== undefined ? toNumber(t.entry_price) : p.entry_price,
-      qty: t.qty !== undefined ? toNumber(t.qty) : p.qty,
+      entry_price: t.entry_price != null ? toNumber(t.entry_price) : p.entry_price,
+      qty: t.qty != null ? toNumber(t.qty) : p.qty,
       exit_signals_status: sigStatus || p.exit_signals_status || {},
       strategy_config: t.strategy_config || p.strategy_config,
       entry_signal_snapshot: t.entry_signal_snapshot || p.entry_signal_snapshot,
@@ -503,11 +504,15 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
       active_trade_events: t.active_trade_events || p.active_trade_events || [],
       exit_signal_logic: t.exit_signal_logic || p.exit_signal_logic,
       tp_mode: t.tp_mode || p.tp_mode,
-      tp_ratio: t.tp_ratio !== undefined ? toNumber(t.tp_ratio) : p.tp_ratio,
-      mark_price: t.mark_price !== undefined ? toNumber(t.mark_price) : p.mark_price,
-      last_price: t.last_price !== undefined ? toNumber(t.last_price) : p.last_price,
-      realized_fee: t.realized_fee !== undefined ? toNumber(t.realized_fee) : p.realized_fee,
-      funding_fee: t.funding_fee !== undefined ? toNumber(t.funding_fee) : p.funding_fee,
+      tp_ratio: t.tp_ratio != null ? toNumber(t.tp_ratio) : p.tp_ratio,
+      mark_price: t.mark_price != null ? toNumber(t.mark_price) : p.mark_price,
+      last_price: t.last_price != null ? toNumber(t.last_price) : p.last_price,
+      realized_fee: t.realized_fee != null ? toNumber(t.realized_fee) : p.realized_fee,
+      funding_fee: t.funding_fee != null ? toNumber(t.funding_fee) : p.funding_fee,
+      risk_usdt: t.risk_usdt != null ? toNumber(t.risk_usdt) : p.risk_usdt,
+      initial_risk_usdt: t.initial_risk_usdt != null ? toNumber(t.initial_risk_usdt) : p.initial_risk_usdt,
+      entry_daily_change_pct: t.entry_daily_change_pct != null ? toNumber(t.entry_daily_change_pct) : p.entry_daily_change_pct,
+      martingale_multiplier: t.martingale_multiplier != null ? toNumber(t.martingale_multiplier) : p.martingale_multiplier,
       is_reconciliation: t.is_reconciliation ?? p.is_reconciliation,
       exit_estimation: t.exit_estimation !== undefined ? t.exit_estimation : p.exit_estimation,
       exit_ts_ms,
@@ -518,7 +523,7 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
   const cp = toNumber(t.current_price ?? t.current ?? p.current_price ?? t.exit_price ?? ep, ep);
   const isLong = (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase() === 'LONG';
   const calculatedPnlPct = ep > 0 ? ((cp - ep) / ep) * 100 * (isLong ? 1 : -1) : 0;
-  const pnlPct = t.pnl_pct !== undefined ? toNumber(t.pnl_pct) : (p.pnl_pct !== undefined ? toNumber(p.pnl_pct) : calculatedPnlPct);
+  const pnlPct = t.pnl_pct != null ? toNumber(t.pnl_pct) : (p.pnl_pct != null ? toNumber(p.pnl_pct) : calculatedPnlPct);
 
   // BOLT OPTIMIZATION: Pre-calculate exit_ts_ms and entry_ts_ms to avoid redundant parsing inside sort comparators and analytics.
   const exit_ts = t.exit_ts ?? p.exit_ts;
@@ -527,29 +532,77 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
   const exit_ts_ms = exit_ts ? new Date(exit_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
   const entry_ts_ms = entry_ts ? new Date(entry_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
 
-  const rawPnl = t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0;
+  const rawPnl = t.pnl != null ? toNumber(t.pnl) : p.pnl ?? 0;
   const pnl = resolveNonZeroMetric(rawPnl, p.pnl ?? 0, isMetricResuming);
 
-  const rawRr = t.rr !== undefined ? toNumber(t.rr) : p.rr ?? 0;
+  const rawRr = t.rr != null ? toNumber(t.rr) : p.rr ?? 0;
   const rr = resolveNonZeroMetric(rawRr, p.rr ?? 0, isMetricResuming);
 
   const maxRrVal = toNumber(t.max_rr ?? t.max_rr_achieved ?? p.max_rr ?? p.max_rr_achieved ?? 0);
   const max_rr = resolveNonZeroMetric(maxRrVal, p.max_rr ?? p.max_rr_achieved ?? 0, isMetricResuming);
 
-  const rawEstPnl = t.est_pnl_to_realize !== undefined ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize ?? 0;
+  const rawEstPnl = t.est_pnl_to_realize != null ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize ?? 0;
   const est_pnl_to_realize = resolveNonZeroMetric(rawEstPnl, p.est_pnl_to_realize ?? 0, isMetricResuming);
 
-  const rawExitRr = t.exit_rr !== undefined ? toNumber(t.exit_rr) : p.exit_rr ?? 0;
+  const rawExitRr = t.exit_rr != null ? toNumber(t.exit_rr) : p.exit_rr ?? 0;
   const exit_rr = resolveNonZeroMetric(rawExitRr, p.exit_rr ?? 0, isMetricResuming);
 
-  const rawMinRr = t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved ?? 0;
+  const rawMinRr = t.min_rr_achieved != null ? toNumber(t.min_rr_achieved) : p.min_rr_achieved ?? 0;
   const min_rr_achieved = resolveNonZeroMetric(rawMinRr, p.min_rr_achieved ?? 0, isMetricResuming);
 
   const rawTradingMode = t.trading_mode ?? t.tradingMode ?? p.trading_mode ?? p.tradingMode;
   const resolvedPaperMode = t.paper_mode ?? t.paperMode ?? p.paper_mode ?? p.paperMode ?? (rawTradingMode ? rawTradingMode === 'paper' : true);
   const resolvedTradingMode = rawTradingMode || (resolvedPaperMode ? 'paper' : 'live');
 
-  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl, pnl_pct: pnlPct, rr, max_rr, est_pnl_to_realize, est_pnl_source: t.est_pnl_source ?? p.est_pnl_source ?? 'sl', exit_rr, min_rr_achieved, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], active_trade_events: t.active_trade_events || p.active_trade_events || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: resolvedPaperMode, trading_mode: resolvedTradingMode, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: max_rr, exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, entry_signal_snapshot: t.entry_signal_snapshot || p.entry_signal_snapshot, exit_estimation: t.exit_estimation !== undefined ? t.exit_estimation : p.exit_estimation, _fingerprint: f, exit_ts_ms, entry_ts_ms };
+  return {
+    ...t,
+    symbol: t.symbol ?? p.symbol ?? '---',
+    strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy',
+    direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(),
+    entry_price: ep,
+    current_price: cp,
+    sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price),
+    current_sl: toNumber(t.current_sl ?? t.sl_price ?? t.sl ?? t.initial_sl ?? p.current_sl ?? p.sl_price),
+    initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl),
+    tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp),
+    pnl,
+    pnl_pct: pnlPct,
+    rr,
+    max_rr,
+    est_pnl_to_realize,
+    est_pnl_source: t.est_pnl_source ?? p.est_pnl_source ?? 'sl',
+    exit_rr,
+    min_rr_achieved,
+    realized_fee: t.realized_fee != null ? toNumber(t.realized_fee) : (p.realized_fee != null ? toNumber(p.realized_fee) : 0),
+    funding_fee: t.funding_fee != null ? toNumber(t.funding_fee) : (p.funding_fee != null ? toNumber(p.funding_fee) : 0),
+    risk_usdt: t.risk_usdt != null ? toNumber(t.risk_usdt) : (p.risk_usdt != null ? toNumber(p.risk_usdt) : 0),
+    initial_risk_usdt: t.initial_risk_usdt != null ? toNumber(t.initial_risk_usdt) : (p.initial_risk_usdt != null ? toNumber(p.initial_risk_usdt) : (t.risk_usdt != null ? toNumber(t.risk_usdt) : undefined)),
+    entry_daily_change_pct: t.entry_daily_change_pct != null ? toNumber(t.entry_daily_change_pct) : (p.entry_daily_change_pct != null ? toNumber(p.entry_daily_change_pct) : 0),
+    mark_price: t.mark_price != null ? toNumber(t.mark_price) : (p.mark_price != null ? toNumber(p.mark_price) : undefined),
+    last_price: t.last_price != null ? toNumber(t.last_price) : (p.last_price != null ? toNumber(p.last_price) : undefined),
+    rr_sequence_index: t.rr_sequence_index != null ? toNumber(t.rr_sequence_index, -1) : p.rr_sequence_index,
+    entry_signal_confidence: t.entry_signal_confidence != null ? toNumber(t.entry_signal_confidence) : p.entry_signal_confidence,
+    martingale_multiplier: t.martingale_multiplier != null ? toNumber(t.martingale_multiplier, 1) : p.martingale_multiplier,
+    live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [],
+    exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [],
+    tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'),
+    tp_ratio: (t.tp_ratio != null) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0,
+    sl_adjustments: t.sl_adjustments || p.sl_adjustments || [],
+    active_trade_events: t.active_trade_events || p.active_trade_events || [],
+    exit_reason: t.exit_reason ?? p.exit_reason,
+    exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price),
+    paper_mode: resolvedPaperMode,
+    trading_mode: resolvedTradingMode,
+    qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0),
+    max_rr_achieved: max_rr,
+    exit_signals_status: sigStatus || p.exit_signals_status || {},
+    strategy_config: t.strategy_config || p.strategy_config,
+    entry_signal_snapshot: t.entry_signal_snapshot || p.entry_signal_snapshot,
+    exit_estimation: t.exit_estimation !== undefined ? t.exit_estimation : p.exit_estimation,
+    _fingerprint: f,
+    exit_ts_ms,
+    entry_ts_ms
+  };
 }
 
 const deepMerge = (target, source) => {

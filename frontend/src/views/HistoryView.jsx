@@ -4,7 +4,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, getRrRecommendationStatus, calculatePerformanceMetrics } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
-import { useTradingStore } from '../store/trading'
+import { useTradingStore, normalizeTrade } from '../store/trading'
 import { resolveAdaptiveHistoryTradeLimit, resolveAdaptiveSessionLimit, filterHistorySessions, getNextAdaptiveTradeStep } from '../utils/periodicPerformance'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader, Btn } from '../components/ui/primitives'
 import { ConfirmationModal } from '../components/ConfirmationModal'
@@ -2084,7 +2084,12 @@ export const HistoryView = () => {
     if (trade.id) {
       sessionAPI.getTrade(trade.id).then(res => {
         if (res?.data && selectedTradeIdRef.current === trade.id) {
-          setSelectedTrade(prev => prev && prev.id === res.data.id ? { ...prev, ...res.data, _is_full: true } : res.data);
+          setSelectedTrade(prev => {
+            const base = prev && prev.id === res.data.id ? prev : null;
+            const normalized = normalizeTrade(res.data, base, false);
+            if (!normalized) return prev;
+            return { ...(base || {}), ...normalized, _is_full: true };
+          });
         }
       }).catch(() => {});
     }

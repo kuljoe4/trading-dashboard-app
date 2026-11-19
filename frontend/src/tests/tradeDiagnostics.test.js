@@ -88,3 +88,30 @@ test('analyzeTradeDiagnostics detects close blocked and exit warmup status', () 
   assert.ok(result.issues.some(i => i.code === 'EXIT_WARMUP_INCOMPLETE'));
   assert.ok(result.issues.some(i => i.code === 'RECONCILIATION_ADOPTED'));
 });
+
+test('analyzeTradeDiagnostics safely handles DB decimal strings and string exit signal progress without TypeError', () => {
+  const trade = {
+    symbol: 'NAORISUSDT',
+    direction: 'LONG',
+    strategy_label: 'Gain5 1H hl 3 9 ema 1h L 7R',
+    entry_price: '0.03732000',
+    current_price: '0.03188000',
+    initial_sl: '0.03630000',
+    current_sl: '0.03630000',
+    qty: '134.00000000',
+    pnl: '0.00000000',
+    pnl_pct: '0.0000',
+    rr: '0.00000000',
+    max_rr_achieved: '0.00000000',
+    min_rr_achieved: '-0.01000000',
+    status: 'CLOSED_ORPHANED',
+    exit_signals_status: {
+      ema_dual_cross: { fired: false, active: true, progress: '42.5', distPct: '57.5' }
+    }
+  };
+
+  const result = analyzeTradeDiagnostics(trade, { paper_mode: false });
+  assert.ok(result.traceSnippet.includes('Progress=42.5%'));
+  assert.ok(result.traceSnippet.includes('(0.00%)'));
+});
+

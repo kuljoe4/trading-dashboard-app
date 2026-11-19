@@ -104,3 +104,32 @@ test('TradeDetailContent includes copy and paste actions for Active Exit Guard C
     'Paste Guard Ladder Milestones button should specify aria-label'
   )
 })
+
+test('TradeDetailContent, HistoryView, and TradeDetailView guard DB decimal strings against toFixed TypeError', () => {
+  const baseDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const detailContent = fs.readFileSync(path.join(baseDir, 'components/trade/TradeDetailContent.jsx'), 'utf8')
+  const historyView = fs.readFileSync(path.join(baseDir, 'views/HistoryView.jsx'), 'utf8')
+  const detailView = fs.readFileSync(path.join(baseDir, 'views/TradeDetailView.jsx'), 'utf8')
+
+  assert.ok(
+    detailContent.includes('const safeMinRr = toSafeNum(trade.min_rr_achieved, 0);'),
+    'Min RR (Drawdown) must coerce trade.min_rr_achieved with toSafeNum before calling .toFixed(2)'
+  )
+  assert.ok(
+    detailContent.includes('const safePnlPct = toSafeNum(pnlPct, 0);'),
+    'ROI from Entry must coerce pnlPct with toSafeNum before calling .toFixed(2)'
+  )
+  assert.ok(
+    !detailContent.includes('return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2)'),
+    'Unsafe uncoerced v.toFixed(2) must not exist in TradeDetailContent.jsx'
+  )
+  assert.ok(
+    historyView.includes('normalizeTrade(res.data, base, false)'),
+    'HistoryView.handleInspectTrade must pass getTrade responses through normalizeTrade'
+  )
+  assert.ok(
+    detailView.includes('normalizeTrade(res.data, null, false)'),
+    'TradeDetailView must pass getTrade responses through normalizeTrade'
+  )
+})
+

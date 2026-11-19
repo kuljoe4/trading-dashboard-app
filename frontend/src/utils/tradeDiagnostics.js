@@ -177,7 +177,11 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
     ``,
     `#### Exit Signal Telemetry:`,
     trade.exit_signals_status && Object.keys(trade.exit_signals_status).length > 0
-      ? Object.entries(trade.exit_signals_status).map(([k, s]) => `- \`${k}\`: Fired=${!!s?.fired}, Active=${!!s?.active}, Progress=${(s?.progress ?? s?.distPct ?? 0).toFixed(1)}%${s?.is_warming_up ? ` (Warming: ${s.warmup_candles}/${s.required_warmup} - ${s.warmup_tf})` : ''}`).join('\n')
+      ? Object.entries(trade.exit_signals_status).map(([k, s]) => {
+          const rawProg = Number(s?.progress ?? s?.distPct ?? 0);
+          const safeProg = Number.isFinite(rawProg) ? rawProg : 0;
+          return `- \`${k}\`: Fired=${!!s?.fired}, Active=${!!s?.active}, Progress=${safeProg.toFixed(1)}%${s?.is_warming_up ? ` (Warming: ${s.warmup_candles}/${s.required_warmup} - ${s.warmup_tf})` : ''}`;
+        }).join('\n')
       : '- None active',
     ``,
     `#### Execution & Recovery Flags:`,

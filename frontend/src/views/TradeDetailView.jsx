@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { useTradingStore } from '../store/trading'
+import { useTradingStore, normalizeTrade } from '../store/trading'
 import {
   StatusBadge, PaperBadge, DemoBadge, LiveBadge, cn, CopyButton, ViewHeader
 } from '../components/ui/primitives'
@@ -33,17 +33,23 @@ const TradeDetailView = ({ tradeId }) => {
       sessionAPI.getTrade(tradeId).then(res => {
          if (res.data) {
            if (res.data.status && res.data.status !== 'OPEN') {
-             setHistoricalTrade({ ...res.data, _is_full: true });
+             const normalized = normalizeTrade(res.data, null, false);
+             if (normalized) setHistoricalTrade({ ...normalized, _is_full: true });
              return;
            }
            const currentState = useTradingStore.getState();
            // Map current active trades, replacing the hydrated one if it matches
-           const nextTrades = currentState.activeTrades.map(t =>
-             (t.id === res.data.id || t.symbol === res.data.symbol) ? { ...t, ...res.data, _is_full: true } : t
-           );
+           const nextTrades = currentState.activeTrades.map(t => {
+             if (t.id === res.data.id || t.symbol === res.data.symbol) {
+               const normalized = normalizeTrade(res.data, t, false);
+               return normalized ? { ...t, ...normalized, _is_full: true } : { ...t, ...res.data, _is_full: true };
+             }
+             return t;
+           });
            // If it wasn't in activeTrades yet and is OPEN, add it
            if (!nextTrades.some(t => t.id === res.data.id || t.symbol === res.data.symbol)) {
-             nextTrades.push({ ...res.data, _is_full: true });
+             const normalized = normalizeTrade(res.data, null, false);
+             if (normalized) nextTrades.push({ ...normalized, _is_full: true });
            }
            updateStats({ activeTrades: nextTrades });
          }

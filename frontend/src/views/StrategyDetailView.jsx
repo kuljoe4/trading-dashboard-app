@@ -871,7 +871,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       }
 
       // Prospective SL bound rejection/clamp
-      if (typeof opp.sl_dist_pct === 'number' && opp.sl_dist_pct > slMaxPct) {
+      const oppSlDistPct = opp.sl_dist_pct != null ? Number(opp.sl_dist_pct) : NaN;
+      if (Number.isFinite(oppSlDistPct) && oppSlDistPct > slMaxPct) {
         list.push({
           id: `cand-sl-${opp.symbol}`,
           outcome: slOobAction === 'reject' ? 'rejected' : 'waiting',
@@ -881,11 +882,11 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           symbol: opp.symbol,
           direction: candDir,
           title: slOobAction === 'reject'
-            ? `SL Distance Rejected (${opp.sl_dist_pct.toFixed(2)}% > ${slMaxPct}% Max)`
-            : `SL Distance Clamped (${opp.sl_dist_pct.toFixed(2)}% → ${slMaxPct}% Max)`,
-          reason: `Prospective ${strategyConfig.sl_type || 'pct'} SL distance of ${opp.sl_dist_pct.toFixed(2)}% exceeds configured sl_max_pct (${slMaxPct}%). Action: ${slOobAction.toUpperCase()}.`,
+            ? `SL Distance Rejected (${oppSlDistPct.toFixed(2)}% > ${slMaxPct}% Max)`
+            : `SL Distance Clamped (${oppSlDistPct.toFixed(2)}% → ${slMaxPct}% Max)`,
+          reason: `Prospective ${strategyConfig.sl_type || 'pct'} SL distance of ${oppSlDistPct.toFixed(2)}% exceeds configured sl_max_pct (${slMaxPct}%). Action: ${slOobAction.toUpperCase()}.`,
           timestamp: candTs,
-          details: { slType: strategyConfig.sl_type || 'pct', prospectiveSlPct: `${opp.sl_dist_pct.toFixed(2)}%`, maxSlPct: `${slMaxPct}%`, action: slOobAction }
+          details: { slType: strategyConfig.sl_type || 'pct', prospectiveSlPct: `${oppSlDistPct.toFixed(2)}%`, maxSlPct: `${slMaxPct}%`, action: slOobAction }
         });
       }
 
@@ -948,7 +949,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             ? `Stage 2 conditions matched [${conditionFormula}] on ${strategyConfig.scan_interval || '5m'}, held at Stage 3 (${blockCause}).`
             : `All required conditions matched [${conditionFormula}] on ${strategyConfig.scan_interval || '5m'}; routed to risk engine.`,
           timestamp: candTs,
-          details: { formula: conditionFormula, firedSignals: (sigRes.firedSignals || []).map(formatSignalLabel), prospectiveSlPct: opp.sl_dist_pct ? `${opp.sl_dist_pct.toFixed(2)}%` : undefined, ...(isStage3Blocked ? { stage3Hold: blockCause } : {}) }
+          details: { formula: conditionFormula, firedSignals: (sigRes.firedSignals || []).map(formatSignalLabel), prospectiveSlPct: Number.isFinite(oppSlDistPct) && oppSlDistPct !== 0 ? `${oppSlDistPct.toFixed(2)}%` : undefined, ...(isStage3Blocked ? { stage3Hold: blockCause } : {}) }
         });
       }
     });

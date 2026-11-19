@@ -140,3 +140,71 @@ test('normalizeTrade calculates and preserves exit_ts_ms & entry_ts_ms', (t) => 
   assert.strictEqual(normDelta.exit_ts_ms, new Date('2026-07-20T12:00:00.000Z').getTime());
   assert.strictEqual(normDelta.entry_ts_ms, new Date('2026-07-20T11:00:00.000Z').getTime());
 });
+
+test('normalizeTrade coerces PostgreSQL decimal string columns on CLOSED_ORPHANED variant trades', () => {
+  const rawDbRow = {
+    id: 'orphaned-naoris-1',
+    symbol: 'NAORISUSDT',
+    direction: 'LONG',
+    strategy_label: 'Gain5 1H hl 3 9 ema 1h L 7R',
+    status: 'CLOSED_ORPHANED',
+    entry_price: '0.03732000',
+    exit_price: '0.03188000',
+    current_price: '0.03188000',
+    qty: '134.00000000',
+    initial_sl: '0.03630000',
+    current_sl: '0.03630000',
+    sl_price: '0.03630000',
+    pnl: '0.00000000',
+    pnl_pct: '0.0000',
+    rr: '0.00000000',
+    exit_rr: '0.00000000',
+    max_rr_achieved: '0.00000000',
+    min_rr_achieved: '-0.01000000',
+    realized_fee: '0.00250000',
+    funding_fee: '0.00000000',
+    risk_usdt: '0.75000000',
+    initial_risk_usdt: '0.75000000',
+    entry_daily_change_pct: '59.1600',
+    mark_price: '0.03188000',
+    last_price: '0.03188000',
+    martingale_multiplier: '1.0000',
+    tp_ratio: '0.6700'
+  };
+
+  const normalized = normalizeTrade(rawDbRow, null, false);
+
+  assert.strictEqual(typeof normalized.min_rr_achieved, 'number');
+  assert.strictEqual(normalized.min_rr_achieved, -0.01);
+  assert.strictEqual(normalized.min_rr_achieved.toFixed(2), '-0.01');
+  assert.strictEqual(typeof normalized.pnl_pct, 'number');
+  assert.strictEqual(normalized.pnl_pct, 0);
+  assert.strictEqual(typeof normalized.entry_price, 'number');
+  assert.strictEqual(normalized.entry_price, 0.03732);
+  assert.strictEqual(typeof normalized.qty, 'number');
+  assert.strictEqual(normalized.qty, 134);
+  assert.strictEqual(typeof normalized.realized_fee, 'number');
+  assert.strictEqual(normalized.realized_fee, 0.0025);
+  assert.strictEqual(typeof normalized.funding_fee, 'number');
+  assert.strictEqual(typeof normalized.risk_usdt, 'number');
+  assert.strictEqual(normalized.risk_usdt, 0.75);
+  assert.strictEqual(typeof normalized.initial_risk_usdt, 'number');
+  assert.strictEqual(normalized.initial_risk_usdt, 0.75);
+  assert.strictEqual(typeof normalized.entry_daily_change_pct, 'number');
+  assert.strictEqual(normalized.entry_daily_change_pct, 59.16);
+  assert.strictEqual(typeof normalized.exit_rr, 'number');
+  assert.strictEqual(typeof normalized.max_rr_achieved, 'number');
+  assert.strictEqual(typeof normalized.tp_ratio, 'number');
+  assert.strictEqual(normalized.tp_ratio, 0.67);
+
+  // Null pnl_pct from DB should fall back to calculated pnl_pct instead of 0
+  const nullPnlPctRow = {
+    entry_price: '100.0000',
+    current_price: '105.0000',
+    direction: 'LONG',
+    pnl_pct: null
+  };
+  const normNullPnl = normalizeTrade(nullPnlPctRow, null, false);
+  assert.strictEqual(normNullPnl.pnl_pct, 5);
+});
+

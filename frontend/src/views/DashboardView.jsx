@@ -1396,7 +1396,7 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
                               </div>
                               <div className="flex flex-col">
                                 <span className="text-[8px] text-dim font-black uppercase tracking-wider">Notional</span>
-                                <span className="text-xs font-bold font-mono">${pos.notional.toFixed(2)}</span>
+                                <span className="text-xs font-bold font-mono">${(Number.isFinite(Number(pos.notional)) ? Number(pos.notional) : 0).toFixed(2)}</span>
                               </div>
                             </div>
                           </div>

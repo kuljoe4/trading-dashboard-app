@@ -31,6 +31,11 @@ const FRIENDLY_SIGNAL_NAMES = {
   ema_price_cross: 'EMA Price Cross',
 };
 
+const toSafeNum = (val, fallback = 0) => {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : fallback;
+};
+
 const Metric = memo(({ label, value }) => (
   <div className="flex flex-col gap-1.5 group/metric">
     <div className="flex items-center gap-1">
@@ -44,10 +49,10 @@ Metric.displayName = 'Metric'
 const RRLadder = memo(({ trade, interactiveEnabled }) => {
   const triggers = trade.live_rr_sequence || []
   const exits = trade.exit_rr_sequence || []
-  const liveRR = trade.rr || 0
-  const storedMaxRR = Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)
+  const liveRR = toSafeNum(trade.rr, 0)
+  const storedMaxRR = toSafeNum(trade.max_rr ?? trade.max_rr_achieved, 0)
   const maxRR = Math.max(storedMaxRR, liveRR)
-  const risk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price))
+  const risk = Math.abs(toSafeNum(trade.entry_price) - toSafeNum(trade.initial_sl || trade.sl_price))
   const activeIdx = triggers.reduce((idx, trigger, i) => maxRR >= trigger ? i : idx, -1)
 
   const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
@@ -741,7 +746,7 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
                 </div>
                 <div className="flex flex-col gap-0.5">
                   <span className="text-dim/70 text-[7.5px] uppercase font-black">Dist to SL</span>
-                  <span className="font-bold text-amber">{slDistPct.toFixed(2)}%</span>
+                  <span className="font-bold text-amber">{toSafeNum(slDistPct).toFixed(2)}%</span>
                 </div>
                 <div className="flex flex-col gap-0.5 col-span-2 md:col-span-1">
                   <span className="text-dim/70 text-[7.5px] uppercase font-black">Floor P&L at Trigger</span>
@@ -1013,8 +1018,8 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
   const entryType = trade.entry_signal_type || trade.strategy_label || 'combo';
   const entryReason = trade.entry_reason || trade.entry_signal_reason || 'Signal conditions satisfied on entry evaluation pass';
   const strategyLabel = trade.strategy_label || activeSessionConfig?.strategy_label || 'Momentum Strategy';
-  const initialRisk = Number(trade.initial_risk_usdt || trade.risk_usdt || 0);
-  const entryDailyChange = Number(trade.entry_daily_change_pct || 0);
+  const initialRisk = toSafeNum(trade.initial_risk_usdt || trade.risk_usdt, 0);
+  const entryDailyChange = toSafeNum(trade.entry_daily_change_pct, 0);
   const scanInterval = trade.strategy_config?.scan_interval || activeSessionConfig?.scan_interval || '1m';
 
   return (
@@ -1665,38 +1670,39 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       qtyFormatted: '0.0000', riskFormatted: '$0.00', slDistPct: 0, slInitialDistPct: 0, enhancedExitSignals: {}, estPnlToRealize: 0, targetProjectedPnl: 0, indicatorEstPrice: null, indicatorEstPos: 0
     }
     const isLong = trade.direction === 'LONG'
-    const entry = Number(trade.entry_price || 0)
-    const mark = Number(trade.current_price || trade.mark_price || 0)
-    const sl = Number(trade.sl_price || 0)
-    const initialSl = Number(trade.initial_sl || trade.sl_price || 0)
-    const tp = Number(trade.tp_price || trade.tp || 0)
+    const entry = toSafeNum(trade.entry_price, 0)
+    const mark = toSafeNum(trade.current_price || trade.mark_price || trade.exit_price, 0)
+    const sl = toSafeNum(trade.sl_price || trade.current_sl, 0)
+    const initialSl = toSafeNum(trade.initial_sl || trade.sl_price, 0)
+    const tp = toSafeNum(trade.tp_price || trade.tp, 0)
 
-    const pnlPct = mark > 0 ? (trade.pnl_pct ?? (entry ? ((mark - entry) / entry) * 100 * (isLong ? 1 : -1) : 0)) : 0
+    const fallbackPnlPct = entry > 0 ? ((mark - entry) / entry) * 100 * (isLong ? 1 : -1) : 0
+    const pnlPct = mark > 0 ? (trade.pnl_pct != null ? toSafeNum(trade.pnl_pct, fallbackPnlPct) : fallbackPnlPct) : 0
 
     let progress = 50
     if (entry && mark && sl) {
       if (tp) {
         const totalRange = isLong ? (tp - sl) : (sl - tp)
         const currentFromSl = isLong ? (mark - sl) : (sl - mark)
-        progress = Math.max(0, Math.min(100, (currentFromSl / totalRange) * 100))
+        progress = totalRange !== 0 ? Math.max(0, Math.min(100, (currentFromSl / totalRange) * 100)) : 50
       } else {
-        const currentRR = Number(trade.rr || 0)
+        const currentRR = toSafeNum(trade.rr, 0)
         if (currentRR < 0) {
            const distToSl = Math.abs(entry - sl)
            const distToMark = Math.abs(entry - mark)
-           progress = Math.max(0, 50 - (distToMark / distToSl) * 50)
+           progress = distToSl > 0 ? Math.max(0, 50 - (distToMark / distToSl) * 50) : 50
         } else {
            progress = Math.min(100, 50 + (currentRR / 3) * 50)
         }
       }
     }
 
-    const qtyVal = Number(trade.qty || 0)
-    const qtyFormatted = Number.isFinite(qtyVal) ? qtyVal.toFixed(4) : '0.0000'
+    const qtyVal = toSafeNum(trade.qty, 0)
+    const qtyFormatted = qtyVal.toFixed(4)
     const riskFormatted = fmtUSD(trade.risk_usdt || 0)
 
-    const slDistPct = mark ? (Math.abs(mark - sl) / mark) * 100 : 0
-    const slInitialDistPct = entry ? (Math.abs(entry - initialSl) / entry) * 100 : 0
+    const slDistPct = mark > 0 ? (Math.abs(mark - sl) / mark) * 100 : 0
+    const slInitialDistPct = entry > 0 ? (Math.abs(entry - initialSl) / entry) * 100 : 0
 
     // Enhanced Exit Signals with proximity (filtered by active config exit signals if defined)
     const exitSignals = trade.exit_signals_status || {}
@@ -1883,7 +1889,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             </div>
             <div className="flex items-center gap-2.5 flex-wrap justify-center text-xs font-mono font-bold mt-1">
               <span className={cn("text-xs font-bold font-mono", pnlClass(trade.pnl))}>
-                ROI: {Number(pnlPct || 0) >= 0 ? '+' : ''}{Number(pnlPct || 0).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
+                ROI: {toSafeNum(pnlPct) >= 0 ? '+' : ''}{toSafeNum(pnlPct).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
               </span>
               {trade.is_knife && (
                 <>
@@ -2072,7 +2078,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                       </span>
                     </div>
                     <div className="text-dim">Trigger Level: <span className="text-text font-mono font-semibold">{fmtUSD(sigPrice)}</span></div>
-                    {sig.value !== undefined && <div className="text-dim">Current Value: <span className="text-accent font-mono">{typeof sig.value === 'number' ? sig.value.toFixed(2) : sig.value} {sig.unit || ''}</span></div>}
+                    {sig.value !== undefined && <div className="text-dim">Current Value: <span className="text-accent font-mono">{typeof sig.value === 'number' && Number.isFinite(sig.value) ? sig.value.toFixed(2) : sig.value} {sig.unit || ''}</span></div>}
                   </div>
                 }
               >
@@ -2142,8 +2148,8 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           })()}
 
           {/* Trailing Stop Activation RR Flag Marker on Runway Track */}
-          {trade.strategy_config?.trailing_stop_enabled && (trade.strategy_config?.trailing_activation_rr || 0) > 0 && (() => {
-            const activationRr = Number(trade.strategy_config.trailing_activation_rr);
+          {trade.strategy_config?.trailing_stop_enabled && toSafeNum(trade.strategy_config?.trailing_activation_rr) > 0 && (() => {
+            const activationRr = toSafeNum(trade.strategy_config.trailing_activation_rr);
             const risk = Math.abs(entry - initialSl);
             if (risk <= 0) return null;
             const activationPrice = isLong ? entry + (risk * activationRr) : entry - (risk * activationRr);
@@ -2153,12 +2159,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             if (tp > 0) {
               const totalRange = isLong ? (tp - sl) : (sl - tp);
               const distFromSl = isLong ? (activationPrice - sl) : (sl - activationPrice);
-              activationPos = Math.max(0, Math.min(100, (distFromSl / totalRange) * 100));
+              activationPos = totalRange !== 0 ? Math.max(0, Math.min(100, (distFromSl / totalRange) * 100)) : 50;
             } else {
               activationPos = Math.min(100, 50 + (activationRr / 3) * 50);
             }
 
-            const currentRr = Number(trade.rr || 0);
+            const currentRr = toSafeNum(trade.rr, 0);
             const isActivated = currentRr >= activationRr;
 
             return (
@@ -2204,7 +2210,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
        <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-3 md:gap-4 gap-y-4">
          <StatCard label="Mark Price" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} compact tooltipText="Latest traded mark price from Binance WebSocket" />
          <StatCard label="Position Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" compact tooltipText="Contract size currently allocated to this trade" />
-         <StatCard label="Stop Distance (Live)" value={riskFormatted} subValue={`${slDistPct.toFixed(2)}% distance`} color="text-red" compact tooltipText="Current dollar risk and percentage distance to the active stop-loss level" />
+         <StatCard label="Stop Distance (Live)" value={riskFormatted} subValue={`${toSafeNum(slDistPct).toFixed(2)}% distance`} color="text-red" compact tooltipText="Current dollar risk and percentage distance to the active stop-loss level" />
          <StatCard label="Entry Price" value={price(entry)} color="text-dim" compact tooltipText="Weighted execution fill price at trade open" />
       </div>
 
@@ -2236,25 +2242,31 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           {(() => {
             const sessionReturnBlock = (() => {
               if (trade.exit_ts || !sessionActive) return null;
-              const tradingMode = activeSessionConfig.trading_mode || (activeSessionConfig.paper_mode ? 'paper' : 'live');
-              const storeBal = activeSessionBalance || 0;
+              const tradingMode = activeSessionConfig?.trading_mode || (activeSessionConfig?.paper_mode ? 'paper' : 'live');
+              const storeBal = toSafeNum(activeSessionBalance, 0);
               const startingBalance = tradingMode === 'paper'
-                ? (activeSessionConfig.paper_starting_balance || 10000)
+                ? toSafeNum(activeSessionConfig?.paper_starting_balance, 10000)
                 : (tradingMode === 'testnet'
-                    ? (activeSessionConfig.testnet_starting_balance && activeSessionConfig.testnet_starting_balance !== 10000
-                        ? activeSessionConfig.testnet_starting_balance
+                    ? (activeSessionConfig?.testnet_starting_balance && activeSessionConfig.testnet_starting_balance !== 10000
+                        ? toSafeNum(activeSessionConfig.testnet_starting_balance, 10000)
                         : (storeBal ? Math.max(1, storeBal - activeSessionPnl) : 10000))
-                    : (activeSessionConfig.live_starting_balance && activeSessionConfig.live_starting_balance !== 10000
-                        ? activeSessionConfig.live_starting_balance
+                    : (activeSessionConfig?.live_starting_balance && activeSessionConfig.live_starting_balance !== 10000
+                        ? toSafeNum(activeSessionConfig.live_starting_balance, 10000)
                         : (storeBal ? Math.max(1, storeBal - activeSessionPnl) : 10000)));
-              const returnPct = startingBalance > 0 ? (activeSessionPnl / startingBalance) * 100 : 0;
+              const returnPct = startingBalance > 0 ? (toSafeNum(activeSessionPnl) / startingBalance) * 100 : 0;
               const modeLabel = tradingMode === 'paper' ? 'Paper' : tradingMode === 'testnet' ? 'Testnet' : 'Live';
               return {
                 label: `Session Return (${modeLabel})`,
-                value: `${fmtUSD(activeSessionPnl)} (${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%)`,
+                value: `${fmtUSD(activeSessionPnl)} (${returnPct >= 0 ? '+' : ''}${toSafeNum(returnPct).toFixed(2)}%)`,
                 color: pnlClass(activeSessionPnl)
               };
             })();
+            const safeMinRr = toSafeNum(trade.min_rr_achieved, 0);
+            const safePnlPct = toSafeNum(pnlPct, 0);
+            const safeSlDistPct = toSafeNum(slDistPct, 0);
+            const safeSlInitialDistPct = toSafeNum(slInitialDistPct, 0);
+            const safeDailyDelta = toSafeNum(trade.entry_daily_change_pct, 0);
+            const safeRiskUsdt = toSafeNum(trade.risk_usdt, 0);
             return (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
                  {[
@@ -2277,17 +2289,14 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    },
                    {
                      label: 'Min RR (Drawdown)',
-                     value: `${(() => {
-                       const v = trade.min_rr_achieved !== undefined && trade.min_rr_achieved !== null ? trade.min_rr_achieved : 0;
-                       return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2);
-                     })()} R`,
-                     color: (trade.min_rr_achieved || 0) < 0 ? 'text-red' : 'text-dim',
+                     value: `${safeMinRr >= 0 ? `+${safeMinRr.toFixed(2)}` : safeMinRr.toFixed(2)} R`,
+                     color: safeMinRr < 0 ? 'text-red' : 'text-dim',
                      tooltip: 'The lowest RR (deepest drawdown) reached during this trade.'
                    },
-                    { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70', tooltip: 'Realized trading fees.' },
-                    { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70', tooltip: 'Funding fees paid/received.' },
-                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Percentage return on investment from entry price.' },
-                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Distance between mark price and current SL.' },
+                    { label: 'Commission', value: fmtUSD(-(toSafeNum(trade.realized_fee))), color: 'text-red/70', tooltip: 'Realized trading fees.' },
+                    { label: 'Funding Fee', value: fmtUSD(-(toSafeNum(trade.funding_fee))), color: toSafeNum(trade.funding_fee) > 0 ? 'text-red/70' : 'text-green/70', tooltip: 'Funding fees paid/received.' },
+                   { label: 'ROI from Entry', value: `${safePnlPct.toFixed(2)}%`, color: safePnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Percentage return on investment from entry price.' },
+                   { label: 'Stop Distance (Live)', value: `${safeSlDistPct.toFixed(2)}%`, tooltip: 'Distance between mark price and current SL.' },
                    trade.strategy_config?.trailing_stop_enabled && {
                      label: 'Trailing Stop',
                      value: trade.strategy_config.trailing_stop_type === 'rr'
@@ -2298,18 +2307,18 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                        ? 'Trailing stop-loss distance expressed as initial R multiple.'
                        : 'Trailing stop-loss distance percentage.'
                    },
-                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Initial SL distance percentage from entry.' },
+                   { label: 'Initial SL Dist', value: `${safeSlInitialDistPct.toFixed(2)}%`, tooltip: 'Initial SL distance percentage from entry.' },
                    { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Maximum risk defined at trade entry.' },
                    {
                      label: 'Risk Lock State',
-                     value: trade.risk_usdt === 0 ? `Released (${trade.risk_lock_reason || 'BE'})` : `Locked (${fmtUSD(trade.risk_usdt)})`,
-                     color: trade.risk_usdt === 0 ? 'text-green' : 'text-amber',
-                     tooltip: `Risk lock state: ${trade.risk_lock_reason || (trade.risk_usdt === 0 ? 'SL at or above breakeven' : 'Active capital at risk')}`
+                     value: safeRiskUsdt === 0 ? `Released (${trade.risk_lock_reason || 'BE'})` : `Locked (${fmtUSD(safeRiskUsdt)})`,
+                     color: safeRiskUsdt === 0 ? 'text-green' : 'text-amber',
+                     tooltip: `Risk lock state: ${trade.risk_lock_reason || (safeRiskUsdt === 0 ? 'SL at or above breakeven' : 'Active capital at risk')}`
                    },
                    {
                      label: 'Daily Δ at Entry',
-                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,
-                     color: pnlClass(trade.entry_daily_change_pct),
+                     value: `${safeDailyDelta > 0 ? '▲' : safeDailyDelta < 0 ? '▼' : ''} ${Math.abs(safeDailyDelta).toFixed(2)}%`,
+                     color: pnlClass(safeDailyDelta),
                      tooltip: 'Market price change % at trade entry.'
                    },
                    trade.exit_ts && {
@@ -2557,7 +2566,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                           <div className="flex justify-between">
                             <span>Risk Distance:</span>
                             <span className="font-bold text-red">
-                              {Number(entry) > 0 ? `${Number(Math.abs(entry - Number(formSl)) / entry * 100).toFixed(2)}%` : '0.00%'}
+                              {toSafeNum(entry) > 0 ? `${toSafeNum(Math.abs(entry - toSafeNum(formSl)) / entry * 100).toFixed(2)}%` : '0.00%'}
                             </span>
                           </div>
                           <div className="flex justify-between">

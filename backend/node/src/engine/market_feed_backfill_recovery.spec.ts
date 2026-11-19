@@ -11,6 +11,7 @@ describe('MarketFeedService - Backfill Queue Recovery and Ban Parser', () => {
   beforeEach(() => {
     sessionStateMock = {
       isBanned: jest.fn(() => false),
+      isGated: jest.fn(() => false),
       config: { trading_mode: 'live' },
       activeTrades: [],
       binanceRateLimit: { used_1m: 0, limit: 2400 },
@@ -87,4 +88,59 @@ describe('MarketFeedService - Backfill Queue Recovery and Ban Parser', () => {
     const parsedFallback = parseBan('Generic error message without timestamp');
     expect(parsedFallback).toBeGreaterThanOrEqual(now + 23 * 60 * 60 * 1000);
   });
+
+  it('prunes dropped candidates from backfillQueue when watchlist changes and detects interior candle gaps', async () => {
+    service.activeWatchlist = new Map([
+      ['DROPPEDUSDT', new Set(['1h', '1m'])],
+      ['BTCUSDT', new Set(['1h'])],
+    ]);
+    service.hasSuccessfullyBuiltWatchlist = true;
+    service.backfillQueue = [
+      { symbol: 'DROPPEDUSDT', interval: '1h' },
+      { symbol: 'DROPPEDUSDT', interval: '1m' },
+      { symbol: 'BTCUSDT', interval: '1h' },
+    ];
+    service.tickerCache = {
+      topByVolume: jest.fn().mockResolvedValue([{ symbol: 'BTCUSDT', price: 65000, volume_24h: 1e9 }]),
+      getLatestTickers: jest.fn(() => []),
+      getCacheSize: jest.fn(() => 1),
+    };
+    service.getSymbolFilters = jest.fn(() => ({ tickSize: 0.1 }));
+    service.klineStore = {
+      getRawCandles: jest.fn(() => Array.from({ length: 80 }, (_, idx) => ({
+        time: 1_700_000_000_000 + idx * 3_600_000,
+        open: 1,
+        high: 1,
+        low: 1,
+        close: 1,
+        volume: 1,
+      }))),
+      pruneExcept: jest.fn(),
+    };
+    service.rebuildCombinedKlineStream = jest.fn().mockResolvedValue(undefined);
+    service.processBackfillQueue = jest.fn().mockResolvedValue(undefined);
+
+    await service.executeWatchlistUpdate({
+      trading_mode: 'live',
+      global_scanner_enabled: true,
+      scan_interval: '1h',
+      symbols: ['BTCUSDT'],
+      enabled_signals: ['ema_dual'],
+    });
+
+    // Only BTCUSDT_1h remains in backfillQueue; dropped candidate tasks are removed before dispatching REST calls
+    expect(service.backfillQueue.some((t: any) => t.symbol === 'DROPPEDUSDT')).toBe(false);
+
+    // Verify interior time-gap detection catches gaps masked by fresh tail candle
+    const hour = 3_600_000;
+    const base = Date.now() - 10 * hour;
+    const gappedCandles = [
+      { time: base, close: 1 },
+      { time: base + hour, close: 1 },
+      { time: base + 5 * hour, close: 1 }, // 4h gap
+      { time: Date.now() - 10_000, close: 1 }, // fresh tail
+    ];
+    expect(service.hasBufferTimeGap(gappedCandles, '1h', 4)).toBe(true);
+  });
 });
+

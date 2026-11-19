@@ -87,6 +87,21 @@ export class SignalEngineService {
 
   constructor(private readonly klineStore: KlineStoreService) {}
 
+  private formatAdaptiveNumber(value: number, signed = false): string {
+    if (!Number.isFinite(value)) return '0';
+    if (value === 0) return signed ? '+0.00' : '0.00';
+    const abs = Math.abs(value);
+    let decimals = 2;
+    if (abs < 0.000001) decimals = 8;
+    else if (abs < 0.0001) decimals = 6;
+    else if (abs < 0.01) decimals = 5;
+    else if (abs < 1) decimals = 4;
+    else if (abs < 10) decimals = 3;
+    const formatted = abs.toFixed(decimals);
+    const sign = value < 0 ? '-' : (signed ? '+' : '');
+    return `${sign}${formatted}`;
+  }
+
   public resolveSignalParam(
     params: any,
     signalType: string,
@@ -1220,7 +1235,7 @@ export class SignalEngineService {
                   label: `MACD(${mFast}/${mSlow}/${mSig}) ${expectPositive ? '> 0 (Green)' : '< 0 (Red)'}`,
                   passed: isMacdAligned,
                   rejected: macdRejected,
-                  value: `${macdHistValue >= 0 ? '+' : ''}${roundTo(macdHistValue, 6)}`,
+                  value: this.formatAdaptiveNumber(macdHistValue, true),
                 },
               ],
             };
@@ -1238,7 +1253,9 @@ export class SignalEngineService {
         threshold: currSlow,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
-        description: macdRejected ? `Rejected by MACD (${macdHistValue.toFixed(2)})` : `Fast (${fastPeriod}): ${currFast.toFixed(2)}, Slow (${slowPeriod}): ${currSlow.toFixed(2)}`,
+        description: macdRejected
+          ? `Rejected by MACD (${this.formatAdaptiveNumber(macdHistValue, false)})`
+          : `Fast (${fastPeriod}): ${this.formatAdaptiveNumber(currFast)}, Slow (${slowPeriod}): ${this.formatAdaptiveNumber(currSlow)}`,
         threshold_is_price: true,
         ...(macdFilterMeta ? { macd_filter: macdFilterMeta } : {}),
       };
@@ -1377,7 +1394,7 @@ export class SignalEngineService {
                   label: `MACD(${mFast}/${mSlow}/${mSig}) ${expectPositive ? '> 0 (Green)' : '< 0 (Red)'}`,
                   passed: isMacdAligned,
                   rejected: macdRejected,
-                  value: `${macdHistValue >= 0 ? '+' : ''}${roundTo(macdHistValue, 6)}`,
+                  value: this.formatAdaptiveNumber(macdHistValue, true),
                 },
               ],
             };
@@ -1403,7 +1420,7 @@ export class SignalEngineService {
         const expectedColor = purpose === 'exit'
           ? (side === 'SHORT' ? 'Green' : 'Red')
           : (side === 'SHORT' ? 'Red' : 'Green');
-        description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
+        description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod}), but rejected by MACD histogram (${this.formatAdaptiveNumber(macdHistValue, false)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
       }
 
       return {
@@ -1567,7 +1584,7 @@ export class SignalEngineService {
                   label: `MACD(${mFast}/${mSlow}/${mSig}) ${expectPositive ? '> 0 (Green)' : '< 0 (Red)'}`,
                   passed: isMacdAligned,
                   rejected: macdRejected,
-                  value: `${macdHistValue >= 0 ? '+' : ''}${roundTo(macdHistValue, 6)}`,
+                  value: this.formatAdaptiveNumber(macdHistValue, true),
                 },
               ],
             };
@@ -1577,12 +1594,12 @@ export class SignalEngineService {
 
       if (minimal) return fired;
 
-      let description = `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`;
+      let description = `Last closed candle (${this.formatAdaptiveNumber(completedClose)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`;
       if (macdRejected) {
         const expectedColor = purpose === 'exit'
           ? (side === 'SHORT' ? 'Green' : 'Red')
           : (side === 'SHORT' ? 'Red' : 'Green');
-        description = `Closed candle aligned with EMA(${fastPeriod}/${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
+        description = `Closed candle aligned with EMA(${fastPeriod}/${slowPeriod}), but rejected by MACD histogram (${this.formatAdaptiveNumber(macdHistValue, false)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
       }
 
       return {

@@ -677,16 +677,6 @@ export class SessionLifecycleService {
         const isCorrectPositionSide = pos.ps === 'BOTH' || pos.ps === undefined; // Fallback to BOTH if ps is omitted by exchange or mock
 
         if (amount === 0 && (!prevPos || prevPos.amount !== 0 || hasActiveTrade) && isActionableReason && isCorrectPositionSide) {
-          this.logger.warn(`[UDS] Edge Case: Position reached zero for ${symbol} via ACCOUNT_UPDATE. If no ORDER_TRADE_UPDATE immediately precedes or follows this, it was closed externally (e.g., 'Close All' UI, Liquidation, ADL, or Settlement).`);
-          let tEntity = this.sessionState.activeTrades?.find(
-            (t) => t.symbol === symbol,
-          );
-          if (!tEntity && this.sessionState.closedTrades) {
-            tEntity = this.sessionState.closedTrades.find(
-              (t) => t.symbol === symbol && t.status !== "OPEN",
-            );
-          }
-
           // SRE: Race condition guard - ignore UDS zero-fills if we are already in the process of entering, ratcheting, or closing
           if (
             this.orderManager.isRatcheting(symbol) ||
@@ -697,6 +687,16 @@ export class SessionLifecycleService {
               `[UDS] Ignoring zero-amount update for ${symbol} during lifecycle transition.`,
             );
             continue;
+          }
+
+          this.logger.warn(`[UDS] Edge Case: Position reached zero for ${symbol} via ACCOUNT_UPDATE. If no ORDER_TRADE_UPDATE immediately precedes or follows this, it was closed externally (e.g., 'Close All' UI, Liquidation, ADL, or Settlement).`);
+          let tEntity = this.sessionState.activeTrades?.find(
+            (t) => t.symbol === symbol,
+          );
+          if (!tEntity && this.sessionState.closedTrades) {
+            tEntity = this.sessionState.closedTrades.find(
+              (t) => t.symbol === symbol && t.status !== "OPEN",
+            );
           }
 
           const trade = activeTradesBySymbol.get(symbol);

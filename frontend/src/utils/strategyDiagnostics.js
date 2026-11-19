@@ -736,3 +736,47 @@ export function formatDiagnosticDetailEntry(key, value) {
   return str ? { label, value: str } : null;
 }
 
+/**
+ * Formats an array of decision log entries for clipboard export (Visible / Filtered / All).
+ */
+export function formatDecisionLogsForCopy(
+  items = [],
+  {
+    strategyLabel = 'Strategy',
+    scope = 'filtered',
+    totalAvailable = items.length,
+    filters = undefined,
+  } = {},
+) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const entries = safeItems.map((item) => {
+    const ms = typeof item?.timestamp === 'number'
+      ? item.timestamp
+      : (item?.timestamp ? new Date(item.timestamp).getTime() : NaN);
+    const iso = Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null;
+    return {
+      timestamp: iso,
+      outcome: item?.outcome ?? 'waiting',
+      stage: item?.stage ?? '',
+      symbol: item?.symbol ?? '---',
+      ...(item?.direction ? { direction: String(item.direction).toUpperCase() } : {}),
+      title: item?.title ?? '',
+      reason: item?.reason ?? '',
+      ...(item?.details ? { details: item.details } : {}),
+    };
+  });
+
+  return JSON.stringify(
+    {
+      strategy: strategyLabel,
+      scope,
+      count: entries.length,
+      totalAvailable,
+      ...(filters ? { filters } : {}),
+      exportedAt: new Date().toISOString(),
+      entries,
+    },
+    null,
+    2,
+  );
+}

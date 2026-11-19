@@ -67,7 +67,9 @@ server {
     gzip_types text/css application/javascript application/json image/svg+xml;
     gzip_min_length 1024;
 
-    # SRE: Increase proxy buffer sizes to prevent 'upstream sent too big header' (HTTP 502)
+    # SRE: Increase proxy and client body buffers to handle multi-variant session configs & presets in memory
+    client_body_buffer_size 256k;
+    client_max_body_size 2m;
     proxy_buffer_size 128k;
     proxy_buffers 4 256k;
     proxy_busy_buffers_size 256k;

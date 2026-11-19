@@ -637,6 +637,32 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
       expect(Array.isArray(detail.macd_filter.gates)).toBe(true);
       expect(detail.macd_filter.gates[0].key).toBe('macd_hist');
     });
+
+    it('should preserve adaptive precision for small-price MACD filter rejections (never -0.00)', () => {
+      // Downtrend followed by sharp single-bar bounce on a low-priced ~$0.04 asset so EMA 2>5 crosses above while MACD hist stays negative
+      const prices = Array.from({ length: 80 }, (_, i) =>
+        i < 60 ? 0.05 : (i < 79 ? 0.05 - (i - 59) * 0.0004 : 0.0445),
+      );
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const config = new SessionConfig();
+      config.enabled_signals = ['ema_dual'];
+      config.signal_params = {
+        entry_ema_fast: 2,
+        entry_ema_slow: 5,
+        ema_dual_macd_filter: true,
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+      };
+
+      const result = service.checkEntry('1000LUNCUSDT', config, '1h', 'LONG', 'entry');
+      const detail = result.details?.ema_dual as any;
+      expect(detail).toBeDefined();
+      expect(detail.rejected).toBe(true);
+      expect(detail.description).toMatch(/Rejected by MACD \(-0\.0\d+\)/);
+      expect(detail.description).not.toContain('(-0.00)');
+    });
   });
 });
-

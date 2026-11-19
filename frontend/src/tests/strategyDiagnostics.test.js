@@ -9,6 +9,7 @@ import {
   getStrategyRulesDiagnostics,
   buildStrategyNarrative,
   formatDiagnosticDetailEntry,
+  formatDecisionLogsForCopy,
 } from '../utils/strategyDiagnostics.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -273,5 +274,40 @@ describe('Strategy Diagnostics & UX Clarity', () => {
     assert.ok(src.includes('rulesMobileSection'), 'Must provide mobile section focus filter for Entry/Exit/Risk rules');
     assert.ok(src.includes('visibleReasonsLimit'), 'Must paginate Decision Log items on mobile to avoid double-scroll traps');
     assert.ok(src.includes('sm:max-h-[540px] sm:overflow-y-auto'), 'Decision Log nested scroll must apply only at sm+ breakpoints');
+    assert.ok(src.includes('handleCopyLogScope'), 'Must expose bulk log copy handler in Decision Log');
+    assert.ok(src.includes("id: 'visible'") && src.includes("id: 'filtered'") && src.includes("id: 'all'"), 'Must expose Visible, Filtered, and All log copy options');
+    assert.ok(src.includes('· Standby'), 'Must display honest Standby status for buffers when no candidate is focused');
+  });
+
+  test('formatDecisionLogsForCopy serializes visible, filtered, and all decision logs cleanly', () => {
+    const sample = [
+      {
+        id: '1',
+        outcome: 'rejected',
+        stage: '2. Entry Signals',
+        symbol: 'SOLUSDT',
+        direction: 'long',
+        title: 'Signal Filter Rejected: EMA Dual #2',
+        reason: 'Rejected by MACD (-0.00042)',
+        timestamp: 1700000000000,
+        details: { message: 'Rejected by MACD (-0.00042)' },
+      },
+    ];
+    const json = formatDecisionLogsForCopy(sample, {
+      strategyLabel: '1H hl 3 9 ema dyn',
+      scope: 'filtered',
+      totalAvailable: 25,
+      filters: { outcome: 'rejected', hideRoutineMisses: true },
+    });
+    const parsed = JSON.parse(json);
+    assert.strictEqual(parsed.strategy, '1H hl 3 9 ema dyn');
+    assert.strictEqual(parsed.scope, 'filtered');
+    assert.strictEqual(parsed.count, 1);
+    assert.strictEqual(parsed.totalAvailable, 25);
+    assert.strictEqual(parsed.filters.outcome, 'rejected');
+    assert.strictEqual(parsed.entries[0].symbol, 'SOLUSDT');
+    assert.strictEqual(parsed.entries[0].direction, 'LONG');
+    assert.strictEqual(parsed.entries[0].reason, 'Rejected by MACD (-0.00042)');
   });
 });
+

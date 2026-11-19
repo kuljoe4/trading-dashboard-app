@@ -11,6 +11,7 @@ import {
   getStrategyRulesDiagnostics,
   buildStrategyNarrative,
   formatDiagnosticDetailEntry,
+  formatDecisionLogsForCopy,
 } from '../utils/strategyDiagnostics'
 import {
   StatCard, SectionLabel, StatusBadge,
@@ -196,6 +197,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [reasonsViewMode, setReasonsViewMode] = useState('timeline') // 'timeline' | 'story'
   const [reasonsSearch, setReasonsSearch] = useState('')
   const [copiedReasonId, setCopiedReasonId] = useState(null)
+  const [copiedLogScope, setCopiedLogScope] = useState(null)
 
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
   const strategyConfig = useMemo(() => {
@@ -576,7 +578,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         candles: knownCandleCount,
         required: slPeriod,
         isWarming: false,
-        statusMsg: `${slPeriod} bars`
+        statusMsg: !hasCand ? 'Standby' : `${slPeriod} bars`
       });
     }
 
@@ -750,7 +752,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
   const regimeInfo = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: isStrategyPaused });
 
-  const handleCopyReason = useCallback((item) => {
+  const handleCopyReason = useCallback(async (item) => {
     try {
       const payload = JSON.stringify({
         outcome: item.outcome,
@@ -761,7 +763,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         timestamp: new Date(item.timestamp).toISOString(),
         details: item.details
       }, null, 2);
-      navigator.clipboard.writeText(payload);
+      await navigator.clipboard.writeText(payload);
       setCopiedReasonId(item.id);
       setTimeout(() => setCopiedReasonId(null), 1800);
     } catch (e) {
@@ -1507,6 +1509,66 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     return filteredReasons.slice(0, visibleReasonsLimit);
   }, [filteredReasons, visibleReasonsLimit]);
 
+  const displayedLogItems = useMemo(() => {
+    return reasonsViewMode === 'timeline'
+      ? displayedTimelineReasons
+      : groupedStories.flatMap(g => g.events);
+  }, [reasonsViewMode, displayedTimelineReasons, groupedStories]);
+
+  const handleCopyLogScope = useCallback(async (scope) => {
+    const targetItems = scope === 'all'
+      ? strategyReasons
+      : scope === 'filtered'
+        ? filteredReasons
+        : displayedLogItems;
+
+    if (!targetItems || targetItems.length === 0) return;
+
+    const scopeLabel = scope === 'all'
+      ? 'all'
+      : scope === 'filtered'
+        ? 'filtered'
+        : 'visible';
+
+    try {
+      const text = formatDecisionLogsForCopy(targetItems, {
+        strategyLabel: s?.strategy_label || 'Strategy',
+        scope: scopeLabel,
+        totalAvailable: strategyReasons.length,
+        filters: scope === 'all'
+          ? undefined
+          : {
+              outcome: reasonsOutcome,
+              stage: reasonsStage,
+              symbol: reasonsSymbol,
+              search: reasonsSearch.trim() || undefined,
+              hideRoutineMisses,
+              viewMode: reasonsViewMode,
+              visibleLimit: scope === 'visible' && reasonsViewMode === 'timeline' ? visibleReasonsLimit : undefined,
+            },
+      });
+      await navigator.clipboard.writeText(text);
+      setCopiedLogScope(scope);
+      setTimeout(() => setCopiedLogScope(prev => (prev === scope ? null : prev)), 1800);
+      useTradingStore.getState().addAlert({
+        level: 'success',
+        title: 'Logs Copied',
+        message: `Copied ${targetItems.length} ${scopeLabel} log entr${targetItems.length === 1 ? 'y' : 'ies'} to clipboard.`,
+      });
+    } catch (e) {
+      console.warn('Bulk copy logs failed', e);
+      useTradingStore.getState().addAlert({
+        level: 'error',
+        title: 'Copy Failed',
+        message: 'Unable to write decision logs to clipboard.',
+      });
+    }
+  }, [
+    strategyReasons, filteredReasons, displayedLogItems, s?.strategy_label,
+    reasonsOutcome, reasonsStage, reasonsSymbol, reasonsSearch,
+    hideRoutineMisses, reasonsViewMode, visibleReasonsLimit
+  ]);
+
   return (
     <div className={cn(
       "max-w-[1300px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-5 md:pt-5 lg:px-6 lg:pt-6 animate-in fade-in duration-300",
@@ -1632,7 +1694,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       <div
         role="status"
         className={cn(
-          "mb-3 px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border text-left transition-colors",
+          "mb-3 px-3 py-2 sm:px-3.5 sm:py-2.5 min-h-[42px] rounded-xl border text-left transition-colors flex flex-col justify-center",
           narrative.tone === 'danger' ? "bg-red/5 border-red/30" :
           narrative.tone === 'warning' ? "bg-amber/5 border-amber/30" :
           narrative.tone === 'positive' ? "bg-green/5 border-green/30" :
@@ -1811,7 +1873,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 >
                   <Clock size={12} className={anyWarming ? "text-amber" : "text-accent"} />
                   <span>
-                    Buffers: {timeframeDebugItems.filter(i => !i.isWarming).length}/{timeframeDebugItems.length} Ready
+                    {bestOpp.symbol === '---'
+                      ? `Buffers: ${timeframeDebugItems.length} TFs · Standby`
+                      : `Buffers: ${timeframeDebugItems.filter(i => !i.isWarming).length}/${timeframeDebugItems.length} Ready`}
                   </span>
                   <ChevronDown size={12} className={cn("transition-transform duration-150", isWarmupOpen && "rotate-180")} />
                 </button>
@@ -2348,6 +2412,45 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                     Reset
                   </button>
                 )}
+              </div>
+            </div>
+
+            {/* Bulk Copy Actions: Visible / Filtered / All */}
+            <div className="pt-2 border-t border-border/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono">
+              <div className="flex items-center gap-1.5 text-dim min-w-0">
+                <Copy size={12} className="text-accent shrink-0" />
+                <span className="truncate">
+                  Copy logs (<span className="tabular-nums text-text/90">{displayedLogItems.length}</span> visible · <span className="tabular-nums text-text/90">{filteredReasons.length}</span> filtered · <span className="tabular-nums text-text/90">{strategyReasons.length}</span> all)
+                </span>
+              </div>
+              <div className="grid grid-cols-3 sm:inline-flex items-center gap-1.5 shrink-0">
+                {[
+                  { id: 'visible', label: 'Visible', count: displayedLogItems.length, title: 'Copy currently visible log entries' },
+                  { id: 'filtered', label: 'Filtered', count: filteredReasons.length, title: 'Copy all log entries matching active filters' },
+                  { id: 'all', label: 'All', count: strategyReasons.length, title: 'Copy all unfiltered decision log entries for this strategy' },
+                ].map(opt => {
+                  const isCopied = copiedLogScope === opt.id;
+                  const isDisabled = opt.count === 0;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={isDisabled}
+                      title={opt.title}
+                      onClick={() => handleCopyLogScope(opt.id)}
+                      className={cn(
+                        "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg border text-[11px] font-mono transition-colors flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        isCopied
+                          ? "bg-green/10 border-green/40 text-green font-semibold"
+                          : "bg-background/60 border-border/50 text-text/85 hover:text-accent hover:border-accent/40"
+                      )}
+                    >
+                      {isCopied ? <Check size={11} className="shrink-0" /> : <Copy size={11} className="shrink-0 text-dim" />}
+                      <span>{isCopied ? 'Copied' : opt.label}</span>
+                      <span className="text-[10px] text-dim tabular-nums">({opt.count})</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>

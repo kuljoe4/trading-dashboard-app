@@ -537,11 +537,20 @@ export class OrderManagerService {
              }
 
              // Distinguish between app-initiated manual close and external exchange events
-             const isAppManualClose = clientOrderId && clientOrderId.startsWith('cls-');
-             const isAppSignalClose = clientOrderId && clientOrderId.startsWith('sig-');
+             const isAppLimitFallbackClose = Boolean(clientOrderId && clientOrderId.startsWith('cls-lim-'));
+             const isAppManualClose = Boolean(clientOrderId && clientOrderId.startsWith('cls-') && !isAppLimitFallbackClose);
+             const isAppSignalClose = Boolean(clientOrderId && clientOrderId.startsWith('sig-'));
+             const isAppTpClose = Boolean(clientOrderId && clientOrderId.startsWith('tp-'));
+
+             if ((isAppManualClose || isAppSignalClose || isAppTpClose) && (this.closureLocks.get(symbol) || this.positionTracker?.isClosing?.(symbol))) {
+               this.markAsExecuted(symbol, orderId, 'FILLED');
+               this.logger.debug(`[${tradeIdShort8}] [Idempotency] Suppressing redundant EXCHANGE_CLOSE for ${symbol} (${clientOrderId}): local closure already active.`);
+               return;
+             }
+
              let reason = EXIT_REASONS.EXCHANGE_FILL;
 
-             if (isAppManualClose) {
+             if (isAppManualClose || isAppLimitFallbackClose) {
                reason = EXIT_REASONS.MANUAL_CLOSE;
                trade.exit_signal_reason = `Manual close confirmed by exchange at ${exitPrice}`;
              } else if (isAppSignalClose) {

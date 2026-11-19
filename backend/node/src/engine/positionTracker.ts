@@ -1449,14 +1449,16 @@ export class PositionTrackerService {
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       }
 
-      this.logger.log(`[Knife Engine] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}). Triggering trailing stop exit.`);
+      if (!this.closingSymbols.has(symbol)) {
+        this.logger.log(`[Knife Engine] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}). Triggering trailing stop exit.`);
 
-      this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
-        symbol,
-        exitPrice: currentPrice,
-        reason: EXIT_REASONS.TRAILING_STOP,
-        needsMarketClose: true,
-      });
+        this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+          symbol,
+          exitPrice: currentPrice,
+          reason: EXIT_REASONS.TRAILING_STOP,
+          needsMarketClose: true,
+        });
+      }
       return;
     }
 
@@ -1651,14 +1653,16 @@ export class PositionTrackerService {
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       }
 
-      this.logger.log(`[TrailingStop] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}). Triggering trailing stop exit.`);
+      if (!this.closingSymbols.has(symbol)) {
+        this.logger.log(`[TrailingStop] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}). Triggering trailing stop exit.`);
 
-      this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
-        symbol,
-        exitPrice: currentPrice,
-        reason: EXIT_REASONS.TRAILING_STOP,
-        needsMarketClose: true,
-      });
+        this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+          symbol,
+          exitPrice: currentPrice,
+          reason: EXIT_REASONS.TRAILING_STOP,
+          needsMarketClose: true,
+        });
+      }
       return;
     }
 

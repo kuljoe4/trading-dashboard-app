@@ -20,6 +20,7 @@ export class SessionStateService {
   public lastUdsBalanceUpdate = 0;
   public paused = false;
   public binanceRateLimit: { used_1m: number; limit: number } = { used_1m: 0, limit: 2400 };
+  private rateLimitWindowMinute = Math.floor(Date.now() / 60000);
   public binanceOrderLimit: {
     used_10s: number;
     limit_10s: number;
@@ -143,6 +144,7 @@ export class SessionStateService {
     // SRE: Preserve the existing weight limit and any active IP ban/cooldown during reset (AGENTS.md §8)
     const currentLimit = this.binanceRateLimit.limit || 2400;
     this.binanceRateLimit = { used_1m: 0, limit: currentLimit };
+    this.rateLimitWindowMinute = Math.floor(Date.now() / 60000);
     const now = Date.now();
     const hasActiveBan = (this.apiStatus.isBanned || this.apiStatus.isRateLimited) && this.apiStatus.banUntil && now < this.apiStatus.banUntil;
     if (!hasActiveBan) {
@@ -315,9 +317,26 @@ export class SessionStateService {
     }
   }
 
+  private reconcileRateLimitWindow(now = Date.now()): void {
+    const currentMinute = Math.floor(now / 60000);
+    if (currentMinute > this.rateLimitWindowMinute) {
+      this.rateLimitWindowMinute = currentMinute;
+      if (
+        this.binanceRateLimit.used_1m > 0 &&
+        this.binanceRateLimit.used_1m !== 9999 &&
+        !this.isBanned() &&
+        !this.isGeoBlocked() &&
+        !(this.apiStatus.isRateLimited && this.apiStatus.banUntil && now < this.apiStatus.banUntil)
+      ) {
+        this.binanceRateLimit.used_1m = 0;
+      }
+    }
+  }
+
   @OnEvent('binance.weight_update')
   updateRateLimit(used1m: number, limit?: number) {
     this.binanceRateLimit.used_1m = used1m;
+    this.rateLimitWindowMinute = Math.floor(Date.now() / 60000);
     const effectiveLimit = limit || this.binanceRateLimit.limit || 2400;
     if (limit) {
       this.binanceRateLimit.limit = limit;
@@ -444,6 +463,7 @@ export class SessionStateService {
     if (this.apiStatus.isRateLimited && this.apiStatus.banUntil && now < this.apiStatus.banUntil) {
       return true;
     }
+    this.reconcileRateLimitWindow(now);
     const used = this.binanceRateLimit.used_1m;
     const limit = this.binanceRateLimit.limit;
     return (used / limit) > threshold;
@@ -516,6 +536,7 @@ export class SessionStateService {
   }
 
   getBinanceRateLimit() {
+    this.reconcileRateLimitWindow();
     return {
       used_weight_1m: this.binanceRateLimit.used_1m,
       limit: this.binanceRateLimit.limit,
@@ -784,6 +805,7 @@ export class SessionStateService {
   minimize() {
     this.activeTrades = [];
     this.binanceRateLimit = { used_1m: 0, limit: 2400 };
+    this.rateLimitWindowMinute = Math.floor(Date.now() / 60000);
     this.realTimePositions.clear();
     this.realTimeOrders.clear();
     // DATA-07: Preserve stats during hibernation so dashboard remains accurate

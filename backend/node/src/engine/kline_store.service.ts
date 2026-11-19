@@ -31,6 +31,8 @@ export class KlineStoreService {
   private readonly lastUpdatedMap = new Map<string, number>();
   private lastPersistErrLogTs = 0;
   private static readonly DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 minutes TTL for unmonitored candle buffers
+  private static readonly SOFT_1M_RETENTION_MS = 20 * 60 * 1000; // Retain fresh off-watchlist 1m buffers in RAM up to 20m
+  private static readonly SOFT_1M_MAX_OFF_WATCHLIST = 100;
 
   constructor(
     @InjectRepository(KlineEntity)
@@ -673,27 +675,83 @@ export class KlineStoreService {
   }
 
   /**
+   * Discards stale tails (> 1.5x interval old) or trims older segments prior to an interior time gap
+   * so retained buffers never evaluate indicators across an off-stream discontinuity.
+   * Returns true if the buffer was cleared or trimmed.
+   */
+  trimGapsAndStaleTail(symbol: string, interval: string): boolean {
+    const key = `${symbol}_${interval}`;
+    const candles = this.klines.get(key);
+    if (!candles || candles.length === 0) return false;
+
+    const intervalMs = this.parseIntervalToMs(interval);
+    if (!Number.isFinite(intervalMs) || intervalMs <= 0) return false;
+
+    const now = Date.now();
+    const lastCandle = candles[candles.length - 1];
+    if (lastCandle && lastCandle.time > 1000000000000 && (now - lastCandle.time) > intervalMs * 2.5) {
+      this.klines.delete(key);
+      this.synthesizedKeys.delete(key);
+      this.synthMeta.delete(key);
+      this.lastUpdatedMap.delete(key);
+      this.invalidateSymbolIntervalCaches(symbol, interval);
+      return true;
+    }
+
+    for (let i = candles.length - 1; i >= 1; i--) {
+      if ((candles[i].time - candles[i - 1].time) > intervalMs * 1.5) {
+        const contiguousTail = candles.slice(i);
+        this.klines.set(key, contiguousTail);
+        this.invalidateSymbolIntervalCaches(symbol, interval);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Prune symbol/interval keys that are no longer monitored in the active watchlist
-   * to keep heap memory bounded during long multi-strategy runs.
+   * to keep heap memory bounded during long multi-strategy runs, while preserving
+   * recently active 1m buffers for a 20m soft TTL to avoid REST re-backfills on churn.
    */
   pruneExcept(activeKeys: Set<string>): number {
     let pruned = 0;
+    const now = Date.now();
+    const retainedKeys = new Set<string>(activeKeys);
+    let soft1mRetainedCount = 0;
+
     for (const key of Array.from(this.klines.keys())) {
-      if (!activeKeys.has(key)) {
-        this.klines.delete(key);
-        this.synthesizedKeys.delete(key);
-        this.synthMeta.delete(key);
-        this.lastUpdatedMap.delete(key);
-        pruned++;
+      if (retainedKeys.has(key)) continue;
+
+      if (key.endsWith('_1m') && soft1mRetainedCount < KlineStoreService.SOFT_1M_MAX_OFF_WATCHLIST) {
+        const candles = this.klines.get(key);
+        const lastUpdated = this.lastUpdatedMap.get(key) || 0;
+        const lastCandleTime = candles && candles.length > 0 ? candles[candles.length - 1].time : 0;
+        if (
+          lastCandleTime > 1000000000000 &&
+          (now - lastCandleTime) <= KlineStoreService.SOFT_1M_RETENTION_MS &&
+          (now - lastUpdated) <= KlineStoreService.SOFT_1M_RETENTION_MS
+        ) {
+          retainedKeys.add(key);
+          soft1mRetainedCount++;
+          continue;
+        }
       }
+
+      this.klines.delete(key);
+      this.synthesizedKeys.delete(key);
+      this.synthMeta.delete(key);
+      this.lastUpdatedMap.delete(key);
+      pruned++;
     }
     for (const key of Array.from(this.synthMeta.keys())) {
-      if (!activeKeys.has(key)) {
+      if (!retainedKeys.has(key)) {
         this.synthMeta.delete(key);
       }
     }
     for (const key of Array.from(this.lastUpdatedMap.keys())) {
-      if (!activeKeys.has(key)) {
+      if (!retainedKeys.has(key)) {
         this.lastUpdatedMap.delete(key);
       }
     }
@@ -702,7 +760,7 @@ export class KlineStoreService {
       const secondSep = firstSep !== -1 ? stableKey.indexOf(':', firstSep + 1) : -1;
       if (firstSep > 0 && secondSep > firstSep) {
         const pairKey = `${stableKey.slice(0, firstSep)}_${stableKey.slice(firstSep + 1, secondSep)}`;
-        if (!activeKeys.has(pairKey)) {
+        if (!retainedKeys.has(pairKey)) {
           this.hlStableCache.delete(stableKey);
         }
       }

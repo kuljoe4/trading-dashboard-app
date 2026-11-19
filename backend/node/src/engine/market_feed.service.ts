@@ -57,6 +57,7 @@ export class MarketFeedService {
   private lastBackfillAttemptMap: Map<string, number> = new Map();
   private failureBackoffMap: Map<string, number> = new Map();
   private shortHistoryMap: Map<string, { count: number; fetchedAt: number }> = new Map();
+  private ensureKlinesCooldownMap: Map<string, number> = new Map();
   private inFlightBackfills: Map<string, Promise<void>> = new Map();
   private binanceClient: any = null;
 
@@ -838,7 +839,7 @@ export class MarketFeedService {
             config.discovery_mode === 'change_pct' ||
             config.discovery_mode === 'loss_pct' ||
             config.discovery_mode === 'abs_change_pct';
-          const CACHE_TTL_MS = isChangeDiscovery ? 30 * 1000 : 5 * 60 * 1000;
+          const CACHE_TTL_MS = isChangeDiscovery ? 2 * 60 * 1000 : 5 * 60 * 1000;
 
           if (
             this.discoveredSymbolsCache &&
@@ -1088,28 +1089,38 @@ export class MarketFeedService {
             (this.signalEngine as any).pruneCaches(activeSymbolSet);
           }
         }
-        // Prune stale symbol/interval klines, queued backfills, and cooldowns when watchlist shrinks/rotates
+        // Prune queued backfills for dropped symbols and garbage-collect only expired cooldown/backoff entries
+        // so transient watchlist rotations keep their 5m cooldowns and 15m short-history ceilings.
+        const nowPrune = Date.now();
         if (this.backfillQueue.length > 0) {
           this.backfillQueue = this.backfillQueue.filter(task => activeKeys.has(`${task.symbol}_${task.interval}`));
         }
-        for (const cacheKey of Array.from(this.lastBackfillAttemptMap.keys())) {
-          if (!activeCacheKeys.has(cacheKey)) {
+        for (const [cacheKey, ts] of Array.from(this.lastBackfillAttemptMap.entries())) {
+          if (!activeCacheKeys.has(cacheKey) && nowPrune - ts >= 5 * 60 * 1000) {
             this.lastBackfillAttemptMap.delete(cacheKey);
           }
         }
-        for (const cacheKey of Array.from(this.failureBackoffMap.keys())) {
-          if (!activeCacheKeys.has(cacheKey)) {
+        for (const [cacheKey, retryAt] of Array.from(this.failureBackoffMap.entries())) {
+          if (!activeCacheKeys.has(cacheKey) && nowPrune >= retryAt) {
             this.failureBackoffMap.delete(cacheKey);
           }
         }
-        for (const cacheKey of Array.from(this.shortHistoryMap.keys())) {
-          if (!activeCacheKeys.has(cacheKey)) {
+        for (const [cacheKey, entry] of Array.from(this.shortHistoryMap.entries())) {
+          if (!activeCacheKeys.has(cacheKey) && nowPrune - entry.fetchedAt >= 15 * 60 * 1000) {
             this.shortHistoryMap.delete(cacheKey);
+          }
+        }
+        for (const [cacheKey, ts] of Array.from(this.ensureKlinesCooldownMap.entries())) {
+          if (!activeCacheKeys.has(cacheKey) && nowPrune - ts >= 60 * 1000) {
+            this.ensureKlinesCooldownMap.delete(cacheKey);
           }
         }
 
         await this.rebuildCombinedKlineStream();
         const nowCheck = Date.now();
+        const activeTradeSymbolSet = new Set(activeSymbolList);
+        const isSoloOrSmallWatchlist = newWatchlist.size <= 5;
+
         for (const [symbol, intervals] of newWatchlist) {
           for (const interval of intervals) {
             const requiredWarmup = this.getRequiredWarmupForSymbol(config, symbol, interval);
@@ -1118,8 +1129,24 @@ export class MarketFeedService {
             const isSynthOnly = typeof (this.klineStore as any).isSynthesizedOnly === 'function' ? (this.klineStore as any).isSynthesizedOnly(symbol, interval) : false;
             const lastCandle = rawCandles && rawCandles.length > 0 ? rawCandles[rawCandles.length - 1] : null;
             const intervalMs = this.parseIntervalToMs(interval);
-            const isStaleTail = Boolean(lastCandle && lastCandle.time > 1000000000000 && (nowCheck - lastCandle.time) >= intervalMs * 1.5);
+            const isStaleTail = Boolean(lastCandle && lastCandle.time > 1000000000000 && (nowCheck - lastCandle.time) >= intervalMs * 2.5);
             const hasGap = this.hasBufferTimeGap(rawCandles, interval, requiredWarmup);
+
+            // WS-first 1m optimization: on multi-symbol scanners (>5 symbols) with higher timeframes,
+            // accumulate 1m via WebSocket (0 REST weight) and only REST-heal if the symbol becomes an active trade
+            // or clears non-1m gates in ExecutionService. Trim stale/gapped segments so WS never stitches across holes.
+            const deferEager1m =
+              interval === '1m' &&
+              intervals.size > 1 &&
+              !isSoloOrSmallWatchlist &&
+              !activeTradeSymbolSet.has(symbol);
+            if (deferEager1m) {
+              if ((isStaleTail || hasGap) && typeof (this.klineStore as any).trimGapsAndStaleTail === 'function') {
+                (this.klineStore as any).trimGapsAndStaleTail(symbol, '1m');
+              }
+              continue;
+            }
+
             const needsWarmup = isSynthOnly || !rawCandles || rawCandles.length < requiredWarmup || isStaleTail || hasGap;
             if ((!oldIntervals || !oldIntervals.has(interval) || needsWarmup) && !this.isBackfillShortHistory(symbol, interval)) {
               const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === interval);
@@ -1562,9 +1589,9 @@ export class MarketFeedService {
       const pauseThreshold = Math.floor(limit * pauseRatio);
 
       if (usedWeight > pauseThreshold) {
-        const secondsInMinute = new Date().getSeconds();
-        if (secondsInMinute > 45) {
-           const waitMs = (60 - secondsInMinute + 1) * 1000;
+        const msIntoMinute = Date.now() % 60000;
+        if (msIntoMinute > 45000) {
+           const waitMs = (60000 - msIntoMinute) + 1200;
            this.logger.warn(`Backfill pausing: High weight (${usedWeight}/${limit}, limit ${(pauseRatio * 100).toFixed(0)}%) near window end. Waiting ${waitMs}ms for rollover...`);
            await new Promise(resolve => setTimeout(resolve, waitMs));
            continue;
@@ -1831,8 +1858,30 @@ export class MarketFeedService {
   }
 
   public async ensureKlinesAvailable(symbol: string, interval: string, minCandles: number = 20): Promise<void> {
+    if (this.sessionState.isBanned() || (typeof (this.sessionState as any).isGeoBlocked === 'function' && (this.sessionState as any).isGeoBlocked())) {
+      return;
+    }
+
     const resolvedInterval = this.resolveInterval(interval, this.sessionState.config) || interval;
     const cacheKey = `${symbol}:${resolvedInterval}`;
+    const isActiveTrade = (this.sessionState.activeTrades || []).some(t => t.symbol === symbol);
+    const rateLimit = this.sessionState.getBinanceRateLimit();
+    const usedWeight = Number(rateLimit.used_weight_1m || 0);
+    const limit = Number(rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT);
+    const pauseRatio = isActiveTrade ? 0.65 : 0.40;
+    if (limit > 0 && usedWeight > Math.floor(limit * pauseRatio)) {
+      this.logger.debug(`[MarketFeed] Skipping ensureKlinesAvailable for ${cacheKey}: weight ${usedWeight}/${limit} exceeds ${(pauseRatio * 100).toFixed(0)}% ceiling.`);
+      return;
+    }
+
+    const now = Date.now();
+    const lastHeal = this.ensureKlinesCooldownMap.get(cacheKey) || 0;
+    if (now - lastHeal < 60 * 1000) {
+      this.logger.debug(`[MarketFeed] Skipping ensureKlinesAvailable for ${cacheKey}: 60s auto-heal cooldown active.`);
+      return;
+    }
+
+    this.ensureKlinesCooldownMap.set(cacheKey, now);
     this.lastBackfillAttemptMap.delete(cacheKey);
     await this.backfillKlines(symbol, resolvedInterval);
   }

@@ -224,4 +224,40 @@ describe('KlineStoreService', () => {
       expect(service.getRawCandles('WLDUSDT', '1h').length).toBeGreaterThanOrEqual(25);
     });
   });
+
+  describe('1m soft-TTL retention & stale/gap trimming', () => {
+    it('pruneExcept retains fresh off-watchlist 1m buffers while pruning stale 1m and off-watchlist 5m buffers', async () => {
+      const now = Date.now();
+      // Fresh 1m off-watchlist buffer (within 20m retention window)
+      await service.upsertCandle('SOLUSDT', '1m', { t: now - 30_000, o: '100', h: '102', l: '99', c: '101', q: '1000' });
+      // Stale 1m off-watchlist buffer (> 20m old)
+      await service.upsertCandle('OLDUSDT', '1m', { t: now - 25 * 60_000, o: '10', h: '11', l: '9', c: '10', q: '100' });
+      // Fresh 5m off-watchlist buffer (should prune because HTF recovers from DB)
+      await service.upsertCandle('ETHUSDT', '5m', { t: now - 60_000, o: '2000', h: '2010', l: '1990', c: '2005', q: '5000' });
+
+      const pruned = service.pruneExcept(new Set(['BTCUSDT_1h']));
+      expect(pruned).toBe(2); // OLDUSDT_1m + ETHUSDT_5m pruned
+      expect(service.getRawCandles('SOLUSDT', '1m').length).toBe(1);
+      expect(service.getRawCandles('OLDUSDT', '1m').length).toBe(0);
+      expect(service.getRawCandles('ETHUSDT', '5m').length).toBe(0);
+    });
+
+    it('trimGapsAndStaleTail trims pre-gap segment on interior holes and clears stale tails', async () => {
+      const now = Date.now();
+      // Case A: Buffer with a 5-minute interior hole followed by 2 contiguous fresh candles
+      await service.upsertCandle('GAPUSDT', '1m', { t: now - 8 * 60_000, o: '1', h: '1', l: '1', c: '1', q: '10' });
+      await service.upsertCandle('GAPUSDT', '1m', { t: now - 90_000, o: '2', h: '2', l: '2', c: '2', q: '10' });
+      await service.upsertCandle('GAPUSDT', '1m', { t: now - 30_000, o: '3', h: '3', l: '3', c: '3', q: '10' });
+
+      expect(service.trimGapsAndStaleTail('GAPUSDT', '1m')).toBe(true);
+      const trimmed = service.getRawCandles('GAPUSDT', '1m');
+      expect(trimmed.length).toBe(2);
+      expect(trimmed[0].open).toBe(2);
+
+      // Case B: Tail older than 1.5x interval (>90s for 1m) clears entire buffer
+      await service.upsertCandle('STALEUSDT', '1m', { t: now - 5 * 60_000, o: '5', h: '5', l: '5', c: '5', q: '10' });
+      expect(service.trimGapsAndStaleTail('STALEUSDT', '1m')).toBe(true);
+      expect(service.getRawCandles('STALEUSDT', '1m').length).toBe(0);
+    });
+  });
 });

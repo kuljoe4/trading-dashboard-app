@@ -157,6 +157,26 @@ describe('SessionStateService PnL Restart Consistency', () => {
       expect((service.closedTrades[55] as any).exit_signals_status).toBeUndefined();
       expect(service.closedTrades[55].pnl).toBe(1.5);
     });
+
+    it('should decay stale previous-minute used_1m weight on minute boundary when not banned', () => {
+      const prevMinuteTs = (Math.floor(Date.now() / 60000) - 1) * 60000 + 50000;
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(prevMinuteTs);
+      service.updateRateLimit(1229, 2400);
+      expect(service.getBinanceRateLimit().used_weight_1m).toBe(1229);
+
+      // Advance clock past minute boundary (:01 of next minute)
+      nowSpy.mockReturnValue(prevMinuteTs + 11000);
+      expect(service.getBinanceRateLimit().used_weight_1m).toBe(0);
+      expect(service.isRateLimited(0.4)).toBe(false);
+
+      // Active ban (9999) must NOT decay across minute rollover
+      service.handleApiLimitReached({ type: 'BAN', message: 'Banned', until: prevMinuteTs + 120000 });
+      service.binanceRateLimit.used_1m = 9999;
+      nowSpy.mockReturnValue(prevMinuteTs + 75000);
+      expect(service.getBinanceRateLimit().used_weight_1m).toBe(9999);
+
+      nowSpy.mockRestore();
+    });
   });
 });
 

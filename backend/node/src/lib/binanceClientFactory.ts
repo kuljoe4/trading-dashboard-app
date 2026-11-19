@@ -497,7 +497,7 @@ export class BinanceRequestQueue {
       if (this.shouldRollover(now)) {
         this.executeRollover(now);
       }
-    }, 5000); // Check every 5s
+    }, 1000); // Check every 1s so :00 window rollover aligns with backfill resume
     if (BinanceRequestQueue.rolloverInterval?.unref) BinanceRequestQueue.rolloverInterval.unref();
   }
 
@@ -573,6 +573,9 @@ export class BinanceRequestQueue {
     // SRE: Critical guard - immediately reject non-emergency requests if currently in a hard ban cooldown.
     // Uses dedicated banCooldownUntil so emergency calls cannot overwrite an active ban window.
     const now = Date.now();
+    if (this.shouldRollover(now)) {
+      this.executeRollover(now);
+    }
     const cooldownUntil = BinanceRequestQueue.getEffectiveCooldownUntil(now);
     if (now < cooldownUntil && !effectiveIsEmergency) {
        const remaining = Math.ceil((cooldownUntil - now) / 1000);
@@ -653,7 +656,10 @@ export class BinanceRequestQueue {
   public static setCooldownUntil(until: number) {
     BinanceRequestQueue.banCooldownUntil = until;
     BinanceRequestQueue.lastRequestTs = until;
-    if (until === 0) BinanceRequestQueue.currentWeight1m = 0;
+    if (until === 0) {
+      BinanceRequestQueue.currentWeight1m = 0;
+      BinanceRequestQueue.windowStartTs = Date.now();
+    }
   }
 
   private async process() {

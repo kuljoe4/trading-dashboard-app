@@ -635,6 +635,18 @@ export class ExecutionService {
         // This avoids expensive metadata/description construction during the high-frequency entry scan.
         const entryScanInterval = this.marketFeedService.resolveInterval(resolvedConfig.scan_interval || '1m', resolvedConfig) || '1m';
         let signalResult = this.signalEngine.checkEntry(opp.symbol, resolvedConfig, entryScanInterval, opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
+        if (!signalResult.allFired && (signalResult.reason || '').includes('warm-up')) {
+          const healedResult = await this.tryHealCandidate1mWarmup(
+            opp.symbol,
+            resolvedConfig,
+            entryScanInterval,
+            opp.direction.toUpperCase() as 'LONG' | 'SHORT',
+            signalResult.reason || '',
+          );
+          if (healedResult) {
+            signalResult = healedResult;
+          }
+        }
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
             this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
@@ -1091,5 +1103,94 @@ export class ExecutionService {
         );
       }
     }
+  }
+
+  /**
+   * Candidate-gated 1m warmup healer:
+   * When multi-symbol scanners keep 1m on WS-first accumulation (0 REST weight),
+   * only trigger a single on-demand 1m REST backfill if the candidate actually
+   * clears all non-1m entry gates (e.g., 1h/5m HTF & MACD) and is solely waiting on 1m bars.
+   */
+  private async tryHealCandidate1mWarmup(
+    symbol: string,
+    resolvedConfig: SessionConfig,
+    entryScanInterval: string,
+    direction: 'LONG' | 'SHORT',
+    minimalReason: string,
+  ): Promise<{ allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, any> } | null> {
+    if (
+      typeof (this.marketFeedService as any)?.ensureKlinesAvailable !== 'function' ||
+      this.sessionState.isBanned?.() ||
+      this.sessionState.isGeoBlocked?.()
+    ) {
+      return null;
+    }
+
+    const fullCheck = this.signalEngine.checkEntry(symbol, resolvedConfig, entryScanInterval, direction, 'entry', false);
+    if (fullCheck.allFired) {
+      return fullCheck;
+    }
+
+    const enabledSignals = resolvedConfig.enabled_signals || [];
+    if (enabledSignals.length === 0) return null;
+
+    const details = fullCheck.details || {};
+    const firedSet = new Set(fullCheck.firedSignals || []);
+    const logic = resolvedConfig.signal_logic || 'all';
+
+    const resolveEffectiveTf = (sig: string): string => {
+      const detailTf = details[sig]?.timeframe;
+      if (detailTf && detailTf !== 'default') return detailTf;
+      const lastUnderscore = sig.lastIndexOf('_');
+      const baseSig = lastUnderscore > 0 ? sig.substring(0, lastUnderscore) : sig;
+      const configuredTf = resolvedConfig.signal_timeframes?.[sig] || resolvedConfig.signal_timeframes?.[baseSig];
+      if (configuredTf && configuredTf !== 'default') {
+        return this.marketFeedService.resolveInterval(configuredTf, resolvedConfig) || configuredTf;
+      }
+      if (baseSig === 'htf_breakout' || baseSig === 'prev_day_breakout') {
+        return this.marketFeedService.resolveInterval((resolvedConfig as any).htf_breakout_trigger_timeframe || '1h', resolvedConfig) || '1h';
+      }
+      return entryScanInterval;
+    };
+
+    let has1mWarmupBlock = Boolean(details.warmup?.insufficientData && details.warmup?.timeframe === '1m') || minimalReason.includes('on 1m');
+    const failedNon1m: string[] = [];
+
+    for (const sig of enabledSignals) {
+      const tf = resolveEffectiveTf(sig);
+      if (tf === '1m') {
+        if (details[sig]?.insufficientData) {
+          has1mWarmupBlock = true;
+        }
+      } else if (!firedSet.has(sig)) {
+        failedNon1m.push(sig);
+      }
+    }
+
+    if (!has1mWarmupBlock) {
+      return null;
+    }
+
+    if (logic === 'all' && failedNon1m.length > 0) {
+      return null;
+    }
+
+    if (logic === 'combo') {
+      const reqCfg = resolvedConfig.required_signals || [];
+      const requiredSignals = reqCfg.length > 0
+        ? enabledSignals.filter(s => reqCfg.includes(s))
+        : enabledSignals.filter(s => !/_\d+$/.test(s));
+      if (requiredSignals.some(reqSig => resolveEffectiveTf(reqSig) !== '1m' && !firedSet.has(reqSig))) {
+        return null;
+      }
+    }
+
+    if (typeof (this.klineStore as any)?.trimGapsAndStaleTail === 'function') {
+      (this.klineStore as any).trimGapsAndStaleTail(symbol, '1m');
+    }
+
+    this.logger.debug(`[Candidate 1m Heal] ${symbol} passed non-1m gates; healing 1m warmup on demand.`);
+    await this.marketFeedService.ensureKlinesAvailable(symbol, '1m', 20);
+    return this.signalEngine.checkEntry(symbol, resolvedConfig, entryScanInterval, direction, 'entry', true);
   }
 }

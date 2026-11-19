@@ -147,4 +147,69 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
     await service.handleBinanceOrderUpdate(udsPayload as any);
     expect(trade.realized_fee).toBe(2.5);
   });
+
+  it('should suppress redundant EXCHANGE_CLOSE emission for in-flight sig- closes while allowing cls-lim- async fills', async () => {
+    const trade = {
+      id: 'trade-sig-1',
+      symbol: 'EVAAUSDT',
+      qty: 10,
+      direction: 'LONG',
+      status: 'OPEN',
+      entry_price: 1.5,
+      exit_reason: 'SIGNAL_EMA_DUAL',
+    } as Trade;
+    sessionState.activeTrades = [trade];
+    (service as any).positionTracker.isClosing = jest.fn().mockReturnValue(true);
+
+    const emitSpy = jest.spyOn(eventEmitter, 'emit');
+
+    // 1. Signal market close UDS FILLED arrives while closeTrade is still holding lock -> suppress EXCHANGE_CLOSE
+    await service.handleBinanceOrderUpdate({
+      e: 'ORDER_TRADE_UPDATE',
+      E: Date.now(),
+      T: Date.now(),
+      o: {
+        s: 'EVAAUSDT',
+        X: 'FILLED',
+        i: 'ord-sig-1',
+        c: 'sig-tradesig1',
+        z: '10',
+        q: '10',
+        x: 'TRADE',
+        S: 'SELL',
+        ot: 'MARKET',
+        ap: '1.48',
+      },
+    } as any);
+
+    expect(emitSpy).not.toHaveBeenCalledWith(ENGINE_EVENTS.EXCHANGE_CLOSE, expect.anything());
+
+    // 2. Async limit fallback fill (cls-lim-) when local close lock is NOT held -> must still emit EXCHANGE_CLOSE
+    (service as any).positionTracker.isClosing = jest.fn().mockReturnValue(false);
+    await service.handleBinanceOrderUpdate({
+      e: 'ORDER_TRADE_UPDATE',
+      E: Date.now(),
+      T: Date.now(),
+      o: {
+        s: 'EVAAUSDT',
+        X: 'FILLED',
+        i: 'ord-lim-2',
+        c: 'cls-lim-tradesig1',
+        z: '10',
+        q: '10',
+        x: 'TRADE',
+        S: 'SELL',
+        ot: 'LIMIT',
+        ap: '1.47',
+      },
+    } as any);
+
+    expect(emitSpy).toHaveBeenCalledWith(
+      ENGINE_EVENTS.EXCHANGE_CLOSE,
+      expect.objectContaining({
+        symbol: 'EVAAUSDT',
+        reason: 'MANUAL_CLOSE',
+      }),
+    );
+  });
 });

@@ -214,4 +214,16 @@ describe('BinanceRequestQueue Shared State', () => {
     expect(until).toBeGreaterThanOrEqual(before + 55000);
     expect(until).toBeLessThanOrEqual(before + 70000);
   });
+
+  it('should lazily roll over stale previous-minute weight inside add() across minute boundary', async () => {
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
+    // Simulate weight 1436 recorded 65 seconds ago in the previous minute without rollover timer firing yet
+    (BinanceRequestQueue as any).currentWeight1m = 1436;
+    (BinanceRequestQueue as any).windowStartTs = Date.now() - 65000;
+
+    const klineFn = jest.fn().mockResolvedValue('candles-ok');
+    await expect(queue.add(klineFn, 'klineCandlestickData', false, { estimatedWeight: 2 })).resolves.toBe('candles-ok');
+    expect(klineFn).toHaveBeenCalledTimes(1);
+    expect((BinanceRequestQueue as any).currentWeight1m).toBe(2);
+  });
 });

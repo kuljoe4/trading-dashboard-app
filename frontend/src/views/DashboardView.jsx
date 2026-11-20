@@ -38,7 +38,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
-import { SmoothCollapse, SmoothSwap } from '../components/ui/SmoothMotion'
+import { SmoothCollapse, SmoothSwap, MOTION_EASE } from '../components/ui/SmoothMotion'
 import { StrategyDetailSkeleton, DecisionLogSkeleton, ScannerRowsSkeleton } from '../components/ui/Skeletons'
 import { useNow } from '../hooks/useNow'
 
@@ -2914,7 +2914,7 @@ export function DashboardView({ initialStrategy }) {
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.25 }}
+                  transition={{ duration: 0.24, ease: MOTION_EASE.glide }}
                   className="overflow-hidden pt-2 border-t border-border/20"
                 >
                   <Suspense fallback={<DecisionLogSkeleton />}>

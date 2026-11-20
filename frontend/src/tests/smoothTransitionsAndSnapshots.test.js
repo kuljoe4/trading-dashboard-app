@@ -140,10 +140,27 @@ describe('Smooth Transitions, Separated Snapshots, Rule Filters, Catalog & Slim 
     );
     assert.ok(
       smoothMotionSource.includes('useReducedMotion') &&
+      smoothMotionSource.includes('export const MOTION_EASE') &&
       smoothMotionSource.includes('export const SmoothCollapse') &&
       smoothMotionSource.includes('export const SmoothHeightContainer') &&
-      smoothMotionSource.includes('export const SmoothSwap'),
-      'SmoothMotion.jsx must export SmoothCollapse, SmoothHeightContainer, and SmoothSwap with reduced-motion support'
+      smoothMotionSource.includes('export const SmoothSwap') &&
+      smoothMotionSource.includes('export const MotionSegmentedPill') &&
+      smoothMotionSource.includes('export const FocusCueBar'),
+      'SmoothMotion.jsx must export MOTION_EASE, SmoothCollapse, SmoothHeightContainer, SmoothSwap, MotionSegmentedPill, and FocusCueBar with reduced-motion support'
+    );
+    assert.ok(
+      indexCssSource.includes('--ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);') &&
+      indexCssSource.includes('--ease-glide: cubic-bezier(0.22, 1, 0.36, 1);') &&
+      indexCssSource.includes('.animate-focus-sweep {'),
+      'index.css must define semantic cubic-bezier variables and compositor-only focus hairline sweep'
+    );
+    assert.ok(
+      strategyDetailSource.includes('layoutId="strategy-primary-tab"') &&
+      strategyDetailSource.includes('layoutId="strategy-inspect-scope"') &&
+      strategyDetailSource.includes('layoutId="strategy-rule-filter"') &&
+      strategyDetailSource.includes('layoutId="strategy-stage-active-rail"') &&
+      strategyDetailSource.includes('<FocusCueBar'),
+      'StrategyDetailView must use cubic-bezier sliding indicators and FocusCueBar highlights to guide user attention cleanly'
     );
   });
 

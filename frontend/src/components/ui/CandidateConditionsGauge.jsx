@@ -1240,29 +1240,29 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
               <div className="relative h-2 w-full rounded-full bg-surface/80 border border-border/40 overflow-hidden">
                 {/* SL -> Entry base fill & live position indicator via GPU transform */}
                 <div
-                  className="absolute inset-y-0 left-0 w-full bg-green/25 origin-left transition-transform duration-300 ease-out will-change-transform"
+                  className="absolute inset-y-0 left-0 w-full bg-green/25 origin-left transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform"
                   style={{ transform: `scaleX(${Math.max(0, Math.min(1, runway.livePct / 100))})` }}
                 />
                 <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-red/80 transition-[left] duration-300 ease-out"
+                  className="absolute top-0 bottom-0 w-0.5 bg-red/80 transition-[left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
                   style={{ left: `${runway.slPct}%` }}
                   title="Stop Loss"
                 />
                 <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-dim/80 transition-[left] duration-300 ease-out"
+                  className="absolute top-0 bottom-0 w-0.5 bg-dim/80 transition-[left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
                   style={{ left: `${runway.entryPct}%` }}
                   title="Entry Price"
                 />
                 {runway.tpPct !== null && (
                   <div
-                    className="absolute top-0 bottom-0 w-0.5 bg-green transition-[left] duration-300 ease-out"
+                    className="absolute top-0 bottom-0 w-0.5 bg-green transition-[left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
                     style={{ left: `${runway.tpPct}%` }}
                     title="Take Profit"
                   />
                 )}
                 <div
                   className={cn(
-                    'absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border border-bg shadow-xs transition-[left,background-color] duration-300 ease-out',
+                    'absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border border-bg shadow-xs transition-[left,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
                     (model.positionMeta?.currentR || 0) >= 0 ? 'bg-green' : 'bg-amber'
                   )}
                   style={{ left: `calc(${runway.livePct}% - 5px)` }}

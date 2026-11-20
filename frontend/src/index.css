@@ -82,8 +82,17 @@ html[data-low-glare="true"] .animate-pulse {
     font-family: inherit;
   }
 
+  :root {
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-glide: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-focus: cubic-bezier(0.25, 1, 0.5, 1);
+    --ease-snappy: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
   button {
-    @apply transition-all duration-150 ease-out;
+    transition-property: color, background-color, border-color, opacity, transform, box-shadow;
+    transition-duration: 160ms;
+    transition-timing-function: var(--ease-out-expo);
   }
   button:not(:disabled):active {
     @apply scale-[0.98];
@@ -163,12 +172,8 @@ html[data-low-glare="true"] .animate-pulse {
   }
   @keyframes event-arrive {
     0% {
-      opacity: 0.45;
-      transform: translate3d(0, 4px, 0) scale(0.985);
-    }
-    45% {
-      opacity: 1;
-      transform: translate3d(0, 0, 0) scale(1.012);
+      opacity: 0.6;
+      transform: translate3d(0, 3px, 0) scale(0.992);
     }
     100% {
       opacity: 1;
@@ -178,18 +183,37 @@ html[data-low-glare="true"] .animate-pulse {
   @keyframes handoff-slide {
     0% {
       opacity: 0;
-      transform: translate3d(-10px, 0, 0);
+      transform: translate3d(-8px, 0, 0);
     }
     100% {
       opacity: 1;
       transform: translate3d(0, 0, 0);
     }
   }
+  @keyframes focus-hairline-sweep {
+    0% {
+      opacity: 0;
+      transform: scaleX(0);
+    }
+    28% {
+      opacity: 0.95;
+      transform: scaleX(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
+    }
+  }
   .animate-event-arrive {
-    animation: event-arrive 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: event-arrive 320ms var(--ease-out-expo) both;
   }
   .animate-handoff-slide {
-    animation: handoff-slide 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: handoff-slide 280ms var(--ease-out-expo) both;
+  }
+  .animate-focus-sweep {
+    transform-origin: left center;
+    animation: focus-hairline-sweep 680ms var(--ease-out-expo) both;
+    will-change: transform, opacity;
   }
 
   /* Smooth GPU-composited enter utilities (compatible with Tailwind v4 without external animate plugin) */
@@ -206,8 +230,8 @@ html[data-low-glare="true"] .animate-pulse {
 
   .animate-in {
     animation-name: ui-enter;
-    animation-duration: var(--ui-enter-duration, 220ms);
-    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    animation-duration: var(--ui-enter-duration, 200ms);
+    animation-timing-function: var(--ease-out-expo);
     animation-fill-mode: both;
   }
   .fade-in {
@@ -238,19 +262,19 @@ html[data-low-glare="true"] .animate-pulse {
     --ui-enter-duration: 200ms;
   }
   .animate-in.duration-300 {
-    --ui-enter-duration: 300ms;
+    --ui-enter-duration: 280ms;
   }
 
   /* Smooth SVG indicator transitions for dials, ladders, and progress meters */
   .svg-smooth-transform {
-    transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform 340ms var(--ease-out-expo);
     will-change: transform;
   }
   .svg-smooth-stroke {
-    transition: stroke-dashoffset 320ms cubic-bezier(0.22, 1, 0.36, 1), stroke 260ms ease-out;
+    transition: stroke-dashoffset 340ms var(--ease-out-expo), stroke 240ms var(--ease-focus);
   }
   .svg-smooth-color {
-    transition: fill 260ms ease-out, stroke 260ms ease-out;
+    transition: fill 240ms var(--ease-focus), stroke 240ms var(--ease-focus);
   }
 
   /* GPU-composited zero-CLS skeleton shimmer (compositor-only translate3d) */
@@ -280,7 +304,8 @@ html[data-low-glare="true"] .animate-pulse {
     animation: skeleton-shimmer 1.65s cubic-bezier(0.4, 0, 0.2, 1) infinite;
     pointer-events: none;
   }
-  html[data-low-glare="true"] .skeleton-shimmer::after {
+  html[data-low-glare="true"] .skeleton-shimmer::after,
+  html[data-low-glare="true"] .animate-focus-sweep {
     animation: none !important;
     opacity: 0 !important;
   }
@@ -288,6 +313,7 @@ html[data-low-glare="true"] .animate-pulse {
   @media (prefers-reduced-motion: reduce) {
     .animate-event-arrive,
     .animate-handoff-slide,
+    .animate-focus-sweep,
     .animate-in {
       animation: none !important;
     }

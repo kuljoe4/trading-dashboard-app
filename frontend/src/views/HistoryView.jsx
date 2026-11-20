@@ -143,7 +143,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
                 className="bg-surface border border-border rounded-t-3xl rounded-b-none md:rounded-2xl p-5 md:p-6 shadow-2xl overflow-hidden max-h-[85vh] flex flex-col focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {/* Header */}
@@ -1660,7 +1660,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle, onInspec
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             className="border-t border-border/10"
           >
             <div className="p-4 flex flex-col gap-4 bg-background/20">
@@ -3447,7 +3447,7 @@ export const HistoryView = () => {
                       key={s.id}
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: Math.min(i * 0.03, 0.24) }}
+                      transition={{ duration: 0.22, delay: Math.min(i * 0.025, 0.2), ease: [0.16, 1, 0.3, 1] }}
                     >
                       <SessionGroup
                         session={s}

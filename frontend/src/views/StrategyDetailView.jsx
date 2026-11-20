@@ -18,7 +18,7 @@ import {
   CopyButton, cn, ViewHeader, Tooltip
 } from '../components/ui/primitives'
 import { CandidateConditionsGauge } from '../components/ui/CandidateConditionsGauge'
-import { SmoothCollapse, SmoothHeightContainer, SmoothSwap } from '../components/ui/SmoothMotion'
+import { SmoothCollapse, SmoothHeightContainer, SmoothSwap, MotionSegmentedPill, FocusCueBar } from '../components/ui/SmoothMotion'
 import { ChartPanelSkeleton, CalendarGridSkeleton } from '../components/ui/Skeletons'
 import { calculateOpportunityProximity } from '../lib/formatters'
 import { calculatePerformanceMetrics } from '../lib/analytics'
@@ -1964,15 +1964,21 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
           aria-selected={activeTab === 'pipeline'}
           onClick={() => setActiveTab('pipeline')}
           className={cn(
-            "min-h-[42px] sm:min-h-[38px] py-1.5 px-1.5 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-all cursor-pointer whitespace-nowrap min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+            "relative min-h-[42px] sm:min-h-[38px] py-1.5 px-1.5 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-colors cursor-pointer whitespace-nowrap min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
             activeTab === 'pipeline'
-              ? "bg-background text-text border border-border/60 shadow-xs"
+              ? "text-text"
               : "text-dim hover:text-text hover:bg-surface/40"
           )}
         >
-          <ShieldCheck size={13} className={cn("shrink-0", activeTab === 'pipeline' ? "text-accent" : "text-dim")} />
-          <span className="sm:hidden truncate">Rules</span>
-          <span className="hidden sm:inline">Rules &amp; Diagnostics</span>
+          {activeTab === 'pipeline' && (
+            <MotionSegmentedPill
+              layoutId="strategy-primary-tab"
+              className="rounded-lg bg-background border border-border/60 shadow-xs"
+            />
+          )}
+          <ShieldCheck size={13} className={cn("relative z-10 shrink-0 transition-colors duration-200", activeTab === 'pipeline' ? "text-accent" : "text-dim")} />
+          <span className="relative z-10 sm:hidden truncate">Rules</span>
+          <span className="relative z-10 hidden sm:inline">Rules &amp; Diagnostics</span>
         </button>
 
         <button
@@ -1981,16 +1987,22 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
           aria-selected={activeTab === 'decisions'}
           onClick={() => setActiveTab('decisions')}
           className={cn(
-            "min-h-[42px] sm:min-h-[38px] py-1.5 px-1.5 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-all cursor-pointer whitespace-nowrap min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+            "relative min-h-[42px] sm:min-h-[38px] py-1.5 px-1.5 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-colors cursor-pointer whitespace-nowrap min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
             activeTab === 'decisions'
-              ? "bg-background text-text border border-border/60 shadow-xs"
+              ? "text-text"
               : "text-dim hover:text-text hover:bg-surface/40"
           )}
         >
-          <FileText size={13} className={cn("shrink-0", activeTab === 'decisions' ? "text-accent" : "text-dim")} />
-          <span className="sm:hidden truncate">Log</span>
-          <span className="hidden sm:inline">Decision Log</span>
-          <span className="text-[10px] sm:text-[11px] font-mono text-dim tabular-nums">({strategyReasons.length})</span>
+          {activeTab === 'decisions' && (
+            <MotionSegmentedPill
+              layoutId="strategy-primary-tab"
+              className="rounded-lg bg-background border border-border/60 shadow-xs"
+            />
+          )}
+          <FileText size={13} className={cn("relative z-10 shrink-0 transition-colors duration-200", activeTab === 'decisions' ? "text-accent" : "text-dim")} />
+          <span className="relative z-10 sm:hidden truncate">Log</span>
+          <span className="relative z-10 hidden sm:inline">Decision Log</span>
+          <span className="relative z-10 text-[10px] sm:text-[11px] font-mono text-dim tabular-nums">({strategyReasons.length})</span>
         </button>
 
         <button
@@ -1999,16 +2011,22 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
           aria-selected={activeTab === 'performance'}
           onClick={() => setActiveTab('performance')}
           className={cn(
-            "min-h-[42px] sm:min-h-[38px] py-1.5 px-1.5 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-all cursor-pointer whitespace-nowrap min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+            "relative min-h-[42px] sm:min-h-[38px] py-1.5 px-1.5 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-colors cursor-pointer whitespace-nowrap min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
             activeTab === 'performance'
-              ? "bg-background text-text border border-border/60 shadow-xs"
+              ? "text-text"
               : "text-dim hover:text-text hover:bg-surface/40"
           )}
         >
-          <BarChart3 size={13} className={cn("shrink-0", activeTab === 'performance' ? "text-accent" : "text-dim")} />
-          <span className="sm:hidden truncate">Perf</span>
-          <span className="hidden sm:inline">Performance &amp; Charts</span>
-          <span className="text-[10px] sm:text-[11px] font-mono text-dim tabular-nums">({stratPerformance.total})</span>
+          {activeTab === 'performance' && (
+            <MotionSegmentedPill
+              layoutId="strategy-primary-tab"
+              className="rounded-lg bg-background border border-border/60 shadow-xs"
+            />
+          )}
+          <BarChart3 size={13} className={cn("relative z-10 shrink-0 transition-colors duration-200", activeTab === 'performance' ? "text-accent" : "text-dim")} />
+          <span className="relative z-10 sm:hidden truncate">Perf</span>
+          <span className="relative z-10 hidden sm:inline">Performance &amp; Charts</span>
+          <span className="relative z-10 text-[10px] sm:text-[11px] font-mono text-dim tabular-nums">({stratPerformance.total})</span>
         </button>
       </div>
 
@@ -2036,14 +2054,21 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                       aria-selected={inspectScope === 'live'}
                       onClick={() => handleSelectInspectScope('live')}
                       className={cn(
-                        "min-h-[30px] sm:min-h-[26px] px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        "relative min-h-[30px] sm:min-h-[26px] px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                         inspectScope === 'live'
-                          ? "bg-surface text-text border border-border/60 shadow-xs"
+                          ? "text-text"
                           : "text-dim hover:text-text"
                       )}
                     >
-                      <span>Live</span>
-                      <span className="text-[10px] text-dim tabular-nums">({liveCandidateChips.length})</span>
+                      {inspectScope === 'live' && (
+                        <MotionSegmentedPill
+                          layoutId="strategy-inspect-scope"
+                          duration={0.18}
+                          className="rounded-md bg-surface border border-border/60 shadow-xs"
+                        />
+                      )}
+                      <span className="relative z-10">Live</span>
+                      <span className="relative z-10 text-[10px] text-dim tabular-nums">({liveCandidateChips.length})</span>
                     </button>
                     <button
                       type="button"
@@ -2051,14 +2076,21 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                       aria-selected={inspectScope === 'snapshots'}
                       onClick={() => handleSelectInspectScope('snapshots')}
                       className={cn(
-                        "min-h-[30px] sm:min-h-[26px] px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        "relative min-h-[30px] sm:min-h-[26px] px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                         inspectScope === 'snapshots'
-                          ? "bg-accent/15 text-accent border border-accent/40 shadow-xs"
+                          ? "text-accent"
                           : "text-dim hover:text-text"
                       )}
                     >
-                      <span>Snapshots</span>
-                      <span className="text-[10px] opacity-80 tabular-nums">({allSnapshotChips.length})</span>
+                      {inspectScope === 'snapshots' && (
+                        <MotionSegmentedPill
+                          layoutId="strategy-inspect-scope"
+                          duration={0.18}
+                          className="rounded-md bg-accent/15 border border-accent/40 shadow-xs"
+                        />
+                      )}
+                      <span className="relative z-10">Snapshots</span>
+                      <span className="relative z-10 text-[10px] opacity-80 tabular-nums">({allSnapshotChips.length})</span>
                     </button>
                   </div>
 
@@ -2080,16 +2112,26 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                           aria-pressed={snapshotStatusFilter === opt.id}
                           onClick={() => handleSelectSnapshotStatusFilter(opt.id)}
                           className={cn(
-                            "min-h-[28px] sm:min-h-[24px] px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                            "relative min-h-[28px] sm:min-h-[24px] px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                             snapshotStatusFilter === opt.id
-                              ? (opt.id === 'open'
-                                  ? "bg-green/15 text-green border border-green/35"
-                                  : "bg-surface text-text border border-border/60")
+                              ? (opt.id === 'open' ? "text-green" : "text-text")
                               : "text-dim hover:text-text"
                           )}
                         >
-                          <span>{opt.label}</span>
-                          <span className="opacity-75 tabular-nums">{opt.count}</span>
+                          {snapshotStatusFilter === opt.id && (
+                            <MotionSegmentedPill
+                              layoutId="strategy-snapshot-status"
+                              duration={0.18}
+                              className={cn(
+                                "rounded-md",
+                                opt.id === 'open'
+                                  ? "bg-green/15 border border-green/35"
+                                  : "bg-surface border border-border/60"
+                              )}
+                            />
+                          )}
+                          <span className="relative z-10">{opt.label}</span>
+                          <span className="relative z-10 opacity-75 tabular-nums">{opt.count}</span>
                         </button>
                       ))}
                     </div>
@@ -2312,13 +2354,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
               </div>
             </SmoothCollapse>
 
-            {/* Row 2: Compact Interactive 6-Stage Lifecycle Stepper with GPU Progress Rail */}
+            {/* Row 2: Compact Interactive 6-Stage Lifecycle Stepper with Cubic-Bezier Progress Rail */}
             <div className="px-3 py-2.5 sm:px-3.5 bg-background/25 border-b border-border/30">
               <div className="flex items-center justify-between gap-2 mb-1.5 h-4 overflow-hidden">
                 <div className="h-1 flex-1 bg-background/70 rounded-full overflow-hidden border border-border/25" aria-hidden="true">
                   <div
                     className={cn(
-                      "h-full w-full origin-left transition-transform duration-500 ease-out will-change-transform rounded-full",
+                      "h-full w-full origin-left transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform rounded-full",
                       currentLifecycleStage.stageNumber >= 6 ? "bg-red" :
                       currentLifecycleStage.stageNumber >= 4 ? "bg-green" :
                       currentLifecycleStage.stageNumber === 3 ? "bg-amber" : "bg-accent"
@@ -2346,17 +2388,24 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                       aria-expanded={isSelected}
                       aria-label={`Milestone ${m.num}: ${m.title} (${m.status})`}
                       className={cn(
-                        "px-2 py-1.5 sm:px-2.5 min-h-[44px] sm:min-h-[34px] rounded-lg border text-left transition-all cursor-pointer flex flex-col items-start justify-center sm:flex-row sm:items-center sm:justify-between gap-0.5 sm:gap-1.5 min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        "relative overflow-hidden px-2 py-1.5 sm:px-2.5 min-h-[44px] sm:min-h-[34px] rounded-lg border text-left transition-colors cursor-pointer flex flex-col items-start justify-center sm:flex-row sm:items-center sm:justify-between gap-0.5 sm:gap-1.5 min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                         isSelected
                           ? "bg-accent/15 border-accent text-accent"
                           : isCurrent
-                          ? "bg-accent/10 border-accent/50 text-text"
+                          ? "bg-accent/10 border-accent/55 text-text"
                           : isPassed
                           ? "bg-green/5 border-green/25 text-green"
                           : "bg-surface/40 border-border/40 text-dim hover:text-text hover:border-border",
                         justArrived && "animate-event-arrive ring-1 ring-green/50"
                       )}
                     >
+                      {isCurrent && (
+                        <MotionSegmentedPill
+                          layoutId="strategy-stage-active-rail"
+                          duration={0.28}
+                          className="!inset-x-1.5 !top-0 !bottom-auto h-[2px] rounded-full bg-accent"
+                        />
+                      )}
                       <span className="text-[11px] font-semibold truncate w-full sm:w-auto leading-tight">{m.num}. {m.short}</span>
                       <span className="text-[10px] font-mono tabular-nums opacity-85 truncate w-full sm:w-auto shrink-0 leading-tight">{m.status}</span>
                     </button>
@@ -2438,13 +2487,20 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                     aria-selected={rulesMobileSection === sec.id}
                     onClick={() => setRulesMobileSection(sec.id)}
                     className={cn(
-                      "min-h-[32px] sm:min-h-[26px] px-2 sm:px-2.5 py-1 sm:py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer truncate focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                      "relative min-h-[32px] sm:min-h-[26px] px-2 sm:px-2.5 py-1 sm:py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer truncate focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                       rulesMobileSection === sec.id
-                        ? "bg-surface text-text border border-border/60 shadow-xs"
+                        ? "text-text"
                         : "text-dim hover:text-text"
                     )}
                   >
-                    {sec.label}
+                    {rulesMobileSection === sec.id && (
+                      <MotionSegmentedPill
+                        layoutId="strategy-rule-filter"
+                        duration={0.18}
+                        className="rounded-md bg-surface border border-border/60 shadow-xs"
+                      />
+                    )}
+                    <span className="relative z-10">{sec.label}</span>
                   </button>
                 ))}
               </div>
@@ -2461,11 +2517,15 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
               )}
             </div>
 
-            {/* Live Capitalize.ai Entry/Exit & Anti-Whipsaw Target Meters */}
+            {/* Live Capitalize.ai Entry/Exit & Anti-Whipsaw Target Meters (with clean cubic-bezier attention sweep) */}
             <div className={cn(
-              "px-3 py-2.5 sm:px-3.5 border-b border-border/30 bg-background/15",
+              "relative overflow-hidden px-3 py-2.5 sm:px-3.5 border-b border-border/30 bg-background/15",
               rulesMobileSection === 'risk' && "hidden"
             )}>
+              <FocusCueBar
+                triggerKey={`${bestOpp?.symbol || 'none'}:${inspectScope}:${rulesMobileSection}:${focusedTradeForGauge ? 'exit' : 'entry'}:${stageTransition?.stageNumber || ''}`}
+                tone={focusedTradeForGauge ? 'green' : 'accent'}
+              />
               <CandidateConditionsGauge
                 opp={bestOpp}
                 strategyConfig={diagnosticStrategyConfig}
@@ -2486,9 +2546,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
 
             {/* Unified Risk, Stop-Loss & Guard Meters (No duplicate Entry/Exit condition tables) */}
             <div className={cn(
-              "p-3 sm:p-4 flex flex-col gap-2.5 min-w-0",
+              "relative overflow-hidden p-3 sm:p-4 flex flex-col gap-2.5 min-w-0",
               (rulesMobileSection === 'entry' || rulesMobileSection === 'exit') && "hidden"
             )}>
+              <FocusCueBar
+                triggerKey={rulesMobileSection === 'risk' ? `risk:${bestOpp?.symbol || 'portfolio'}` : ''}
+                tone="amber"
+              />
               <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-border/30">
                 <div className="flex items-center gap-2 text-xs font-mono min-w-0 flex-wrap">
                   <span className="font-bold uppercase tracking-wider text-text font-sans">Risk, SL &amp; Guard Limits</span>
@@ -2545,7 +2609,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                       {fillScale !== null && (
                         <div className="h-1.5 w-full bg-background/80 rounded-full overflow-hidden border border-border/30">
                           <div
-                            className={cn('h-full w-full origin-left transition-transform duration-200 will-change-transform rounded-full', barTone)}
+                            className={cn('h-full w-full origin-left transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform rounded-full', barTone)}
                             style={{ transform: `scaleX(${fillScale})` }}
                           />
                         </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { cn } from './primitives';
 import { SmoothHeightContainer } from './SmoothMotion';
 import { ConditionCardsSkeleton } from './Skeletons';
@@ -119,9 +119,7 @@ function polar(cx, cy, r, deg) {
   return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
 }
 
-function describeArc(cx, cy, r, pStart, pEnd) {
-  const a1 = pctToAngle(pStart);
-  const a2 = pctToAngle(pEnd);
+function describeAngleArc(cx, cy, r, a1, a2) {
   if (Math.abs(a2 - a1) < 0.25) return '';
   const [x1, y1] = polar(cx, cy, r, a1);
   const [x2, y2] = polar(cx, cy, r, a2);
@@ -129,14 +127,30 @@ function describeArc(cx, cy, r, pStart, pEnd) {
   return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
 }
 
+function describeArc(cx, cy, r, pStart, pEnd) {
+  return describeAngleArc(cx, cy, r, pctToAngle(pStart), pctToAngle(pEnd));
+}
+
 /**
  * Lightweight 1D vertical label de-collision solver (O(N), N <= 5).
- * Preserves order and nudges labels apart so price callouts never overlap on tight ranges.
+ * Preserves order, nudges labels apart, and avoids floating pill zones so text never overlaps.
  * Always attaches finite numeric `y` and `labelY` even when `items.length === 1`.
  */
-function decollideVerticalLabels(items, minGap, minY, maxY) {
+function decollideVerticalLabels(items, minGap, minY, maxY, avoidY = null, avoidHalfH = 0) {
   if (!Array.isArray(items) || items.length === 0) return [];
-  const sorted = items
+  const hasAvoid = Number.isFinite(Number(avoidY)) && avoidHalfH > 0;
+  const avoidCenter = hasAvoid ? Number(avoidY) : 0;
+
+  const filtered = hasAvoid
+    ? items.filter((item) => {
+        const rawY = Number(item?.y);
+        return !Number.isFinite(rawY) || Math.abs(rawY - avoidCenter) >= avoidHalfH;
+      })
+    : items;
+
+  if (filtered.length === 0) return [];
+
+  const sorted = filtered
     .map((item, idx) => {
       const rawY = Number(item?.y);
       const safeY = Number.isFinite(rawY) ? rawY : minY;
@@ -149,31 +163,39 @@ function decollideVerticalLabels(items, minGap, minY, maxY) {
     })
     .sort((a, b) => a.y - b.y);
 
-  if (sorted.length <= 1) return sorted;
+  if (sorted.length > 1) {
+    // Forward pass: push down overlapping items
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].labelY - sorted[i - 1].labelY < minGap) {
+        sorted[i].labelY = Math.min(maxY, sorted[i - 1].labelY + minGap);
+      }
+    }
+    // Backward pass: pull up if clamped at bottom
+    for (let i = sorted.length - 2; i >= 0; i--) {
+      if (sorted[i + 1].labelY - sorted[i].labelY < minGap) {
+        sorted[i].labelY = Math.max(minY, sorted[i + 1].labelY - minGap);
+      }
+    }
+  }
 
-  // Forward pass: push down overlapping items
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i].labelY - sorted[i - 1].labelY < minGap) {
-      sorted[i].labelY = Math.min(maxY, sorted[i - 1].labelY + minGap);
-    }
-  }
-  // Backward pass: pull up if clamped at bottom
-  for (let i = sorted.length - 2; i >= 0; i--) {
-    if (sorted[i + 1].labelY - sorted[i].labelY < minGap) {
-      sorted[i].labelY = Math.max(minY, sorted[i + 1].labelY - minGap);
-    }
-  }
-  return sorted;
+  if (!hasAvoid) return sorted;
+
+  // Drop any label whose final de-collided position still intrudes on the floating pill
+  return sorted.filter((item) => Math.abs(item.labelY - avoidCenter) >= avoidHalfH - 1);
 }
 
 /**
- * Semicircular 0–150% condition dial with clean pre-target (0–100%) and post-target (100–150%) track
+ * Proportionate semicircular condition dial with collision-proof disjoint zones:
+ * - Top margin keeps target/cross label strictly inside the SVG (never bleeds into card header)
+ * - Endpoint labels sit outside the arc ends so nothing overlaps the arc or readout
+ * - Center readout + subtext sit cleanly below the hub with full SVG width available
  */
 export const ConditionDial = React.memo(function ConditionDial({
   dialPct = 0,
   dialZone = 'watching',
   dialOverText = '',
   subText = '',
+  dialScale = null,
   size = 'md',
   changeInfo = null,
 }) {
@@ -181,25 +203,109 @@ export const ConditionDial = React.memo(function ConditionDial({
   const color = ZONE_COLOR_MAP[dialZone] || ZONE_COLOR_MAP.watching;
 
   const isSm = size === 'sm';
-  const w = isSm ? 156 : 204;
-  const h = isSm ? 76 : 96;
+  const w = isSm ? 180 : 218;
+  const h = isSm ? 98 : 114;
   const cx = w / 2;
-  const cy = isSm ? 60 : 75;
-  const r = isSm ? 50 : 66;
-  const strokeW = isSm ? 8 : 9.5;
-
-  const [tx1, ty1] = polar(cx, cy, r - strokeW * 0.95, pctToAngle(100));
-  const [tx2, ty2] = polar(cx, cy, r + strokeW * 0.95, pctToAngle(100));
-  const [sx, sy] = polar(cx, cy, r, -180);
-  const [ex, ey] = polar(cx, cy, r, 0);
-
-  const fullArcPath = describeArc(cx, cy, r, 0, 150);
+  const cy = isSm ? 62 : 74;
+  const r = isSm ? 41 : 53;
+  const strokeW = isSm ? 7.5 : 8.5;
   const arcLen = Math.PI * r;
-  const dashOffset = arcLen * (1 - clamped / 150);
   const needleLen = r - strokeW * 0.85;
-  const needleDeg = (clamped / 150) * 180;
 
-  const subTextBase = subText || (clamped <= 100 ? `${clamped}% of target` : `target + ${Math.max(0, Math.round(clamped - 100))}%`);
+  const leftOuterX = cx - r - strokeW / 2 - 4;
+  const rightOuterX = cx + r + strokeW / 2 + 4;
+
+  const isBipolar = dialScale?.mode === 'bipolar_pct' && Number(dialScale.boundPct) > 0;
+  const isLinearRatio = dialScale?.mode === 'linear_ratio' && Number(dialScale.maxPct) >= 150;
+
+  let targetAngle = pctToAngle(100);
+  let targetLabel = 'target';
+  let minLabel = '0%';
+  let maxLabel = '+50%';
+  let needleDeg = (clamped / 150) * 180;
+  let preTrackPath = describeArc(cx, cy, r, 0, 99.5);
+  let postTrackPath = describeArc(cx, cy, r, 100.5, 150);
+  let activeArcPath = '';
+  let useDashSweep = true;
+  let dashOffset = arcLen * (1 - clamped / 150);
+  let hasActiveArc = clamped > 0;
+  let minorTickAngles = [];
+  let overflowSide = null;
+  let subTextBase = subText || (clamped <= 100 ? `${clamped}% of target` : `target + ${Math.max(0, Math.round(clamped - 100))}%`);
+
+  if (isBipolar) {
+    const bound = Number(dialScale.boundPct);
+    const valPct = Number.isFinite(Number(dialScale.valuePct)) ? Number(dialScale.valuePct) : 0;
+    const clampedPct = Number.isFinite(Number(dialScale.clampedValuePct))
+      ? Number(dialScale.clampedValuePct)
+      : Math.max(-bound, Math.min(bound, valPct));
+    const frac = (clampedPct + bound) / (2 * bound); // 0 at -bound, 0.5 at 0, 1 at +bound
+    const needleAngle = -180 + frac * 180;
+
+    targetAngle = -90;
+    targetLabel = dialScale.centerLabel || 'cross';
+    minLabel = dialScale.minLabel || `-${bound}%`;
+    maxLabel = dialScale.maxLabel || `+${bound}%`;
+    needleDeg = frac * 180;
+    preTrackPath = describeAngleArc(cx, cy, r, -180, -90.8);
+    postTrackPath = describeAngleArc(cx, cy, r, -89.2, 0);
+    // Center-anchored active wedge showing exact distance from Cross/Target (0%)
+    const aStart = Math.min(-90, needleAngle);
+    const aEnd = Math.max(-90, needleAngle);
+    activeArcPath = describeAngleArc(cx, cy, r, aStart, aEnd);
+    useDashSweep = false;
+    hasActiveArc = Math.abs(needleAngle - (-90)) >= 0.6;
+    minorTickAngles = [-135, -45];
+    if (dialScale.isOffScale) {
+      overflowSide = valPct < 0 ? 'left' : 'right';
+    }
+    subTextBase = subText || dialScale.subText || `scale ±${bound}%`;
+  } else if (isLinearRatio) {
+    const maxPct = Number(dialScale.maxPct);
+    const rawVal = Number.isFinite(Number(dialScale.valuePct)) ? Math.max(0, Number(dialScale.valuePct)) : clamped;
+    const clampedVal = Math.min(maxPct, rawVal);
+    const ratioToAngle = (v) => -180 + (Math.max(0, Math.min(maxPct, v)) / maxPct) * 180;
+
+    targetAngle = ratioToAngle(100);
+    targetLabel = dialScale.targetLabel || 'target';
+    minLabel = dialScale.minLabel || '0%';
+    maxLabel = dialScale.maxLabel || `+${maxPct - 100}%`;
+    needleDeg = (clampedVal / maxPct) * 180;
+    preTrackPath = describeAngleArc(cx, cy, r, -180, Math.max(-179.5, targetAngle - 0.8));
+    postTrackPath = describeAngleArc(cx, cy, r, Math.min(-0.5, targetAngle + 0.8), 0);
+    activeArcPath = describeAngleArc(cx, cy, r, -180, 0);
+    useDashSweep = true;
+    dashOffset = arcLen * (1 - clampedVal / maxPct);
+    hasActiveArc = clampedVal > 0;
+
+    const candidateTicks = maxPct <= 200 ? [50, 150] : maxPct <= 300 ? [50, 200] : maxPct <= 500 ? [200, 300, 400] : [250, 500, 750];
+    minorTickAngles = candidateTicks
+      .filter((v) => v > 0 && v < maxPct)
+      .map((v) => ratioToAngle(v))
+      .filter((ang) => Math.abs(ang - targetAngle) >= 14);
+    if (dialScale.isOffScale) {
+      overflowSide = 'right';
+    }
+    subTextBase = subText || dialScale.subText || subTextBase;
+  } else {
+    activeArcPath = describeAngleArc(cx, cy, r, -180, 0);
+    minorTickAngles = [pctToAngle(50)];
+  }
+
+  const [tx1, ty1] = polar(cx, cy, r - strokeW * 0.9, targetAngle);
+  const [tx2, ty2] = polar(cx, cy, r + strokeW * 0.9, targetAngle);
+  const [rawTlx, rawTly] = polar(cx, cy, r + strokeW * 0.9 + (isSm ? 6.5 : 8), targetAngle);
+  const targetTextAnchor = targetAngle < -108 ? 'end' : targetAngle > -72 ? 'start' : 'middle';
+  const targetLabelX = Math.max(26, Math.min(w - 26, rawTlx));
+  const targetLabelY = targetAngle === -90
+    ? Math.max(9.5, ty2 - 3.5)
+    : Math.max(9.5, Math.min(cy - 12, rawTly + 2));
+
+  const displayOverText = dialOverText || `${clamped}%`;
+  const overFontSize = isSm
+    ? (displayOverText.length > 18 ? '9.5' : displayOverText.length > 13 ? '10.5' : '11.5')
+    : (displayOverText.length > 18 ? '11' : displayOverText.length > 13 ? '12.5' : '13.5');
+
   void changeInfo;
 
   return (
@@ -207,38 +313,65 @@ export const ConditionDial = React.memo(function ConditionDial({
       width={w}
       height={h}
       viewBox={`0 0 ${w} ${h}`}
-      className="overflow-visible select-none shrink-0"
+      className="max-w-full h-auto block select-none shrink-0"
       aria-label={`Condition gauge at ${clamped}% (${dialOverText})`}
     >
-      {/* Clean 2-Segment Track: Pre-Target (0-100%) and Post-Target (100-150%) */}
-      <path d={describeArc(cx, cy, r, 0, 99.5)} stroke="#64748b" strokeOpacity="0.24" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
-      <path d={describeArc(cx, cy, r, 100.5, 150)} stroke="#22c55e" strokeOpacity="0.26" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
+      {/* Clean 2-Segment Track: Pre-Target and Post-Target */}
+      {preTrackPath && (
+        <path d={preTrackPath} stroke="#64748b" strokeOpacity="0.24" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
+      )}
+      {postTrackPath && (
+        <path d={postTrackPath} stroke="#22c55e" strokeOpacity="0.26" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
+      )}
 
-      {/* Active Fill Arc Halo + Core (smooth stroke-dashoffset sweep) */}
-      <path
-        d={fullArcPath}
-        stroke={color}
-        strokeOpacity={clamped > 0 ? 0.22 : 0}
-        strokeWidth={strokeW + 4}
-        fill="none"
-        strokeLinecap="round"
-        strokeDasharray={arcLen}
-        strokeDashoffset={dashOffset}
-        className="svg-smooth-stroke"
-      />
-      <path
-        d={fullArcPath}
-        stroke={color}
-        strokeOpacity={clamped > 0 ? 1 : 0}
-        strokeWidth={strokeW}
-        fill="none"
-        strokeLinecap="round"
-        strokeDasharray={arcLen}
-        strokeDashoffset={dashOffset}
-        className="svg-smooth-stroke"
-      />
+      {/* Subtle Proportionate Reference Minor Ticks */}
+      {minorTickAngles.map((ang, i) => {
+        const [mx1, my1] = polar(cx, cy, r - strokeW * 0.55, ang);
+        const [mx2, my2] = polar(cx, cy, r + strokeW * 0.55, ang);
+        return (
+          <line
+            key={i}
+            x1={mx1}
+            y1={my1}
+            x2={mx2}
+            y2={my2}
+            stroke="currentColor"
+            className="text-dim/45"
+            strokeWidth="1.25"
+            strokeLinecap="round"
+          />
+        );
+      })}
 
-      {/* Target Tick at 100% */}
+      {/* Active Fill Arc Halo + Core */}
+      {activeArcPath && (
+        <>
+          <path
+            d={activeArcPath}
+            stroke={color}
+            strokeOpacity={hasActiveArc ? 0.22 : 0}
+            strokeWidth={strokeW + 4}
+            fill="none"
+            strokeLinecap="round"
+            strokeDasharray={useDashSweep ? arcLen : undefined}
+            strokeDashoffset={useDashSweep ? dashOffset : undefined}
+            className={useDashSweep ? 'svg-smooth-stroke' : 'svg-smooth-color'}
+          />
+          <path
+            d={activeArcPath}
+            stroke={color}
+            strokeOpacity={hasActiveArc ? 1 : 0}
+            strokeWidth={strokeW}
+            fill="none"
+            strokeLinecap="round"
+            strokeDasharray={useDashSweep ? arcLen : undefined}
+            strokeDashoffset={useDashSweep ? dashOffset : undefined}
+            className={useDashSweep ? 'svg-smooth-stroke' : 'svg-smooth-color'}
+          />
+        </>
+      )}
+
+      {/* Target / Cross Major Tick */}
       <line
         x1={tx1}
         y1={ty1}
@@ -246,25 +379,25 @@ export const ConditionDial = React.memo(function ConditionDial({
         y2={ty2}
         stroke="currentColor"
         className="text-text"
-        strokeWidth="2.25"
+        strokeWidth="2.1"
         strokeLinecap="round"
       />
       <text
-        x={tx2 + 2}
-        y={ty2 - 4}
-        textAnchor="middle"
-        fontSize={isSm ? '8' : '8.5'}
+        x={targetLabelX}
+        y={targetLabelY}
+        textAnchor={targetTextAnchor}
+        fontSize={isSm ? '7.8' : '8.2'}
         className="fill-dim font-mono font-bold uppercase tracking-tight"
       >
-        target
+        {targetLabel}
       </text>
 
-      {/* Scale Endpoints */}
-      <text x={sx - 2} y={sy + 12} textAnchor="start" fontSize={isSm ? '8' : '8.5'} className="fill-dim/75 font-mono tabular-nums">
-        0%
+      {/* Real-Unit Scale Endpoints placed cleanly outside arc ends */}
+      <text x={leftOuterX} y={cy + 3} textAnchor="end" fontSize={isSm ? '7.8' : '8.2'} className="fill-dim/80 font-mono tabular-nums">
+        {overflowSide === 'left' ? `‹${minLabel}` : minLabel}
       </text>
-      <text x={ex + 2} y={ey + 12} textAnchor="end" fontSize={isSm ? '8' : '8.5'} className="fill-dim/75 font-mono tabular-nums">
-        +50%
+      <text x={rightOuterX} y={cy + 3} textAnchor="start" fontSize={isSm ? '7.8' : '8.2'} className="fill-dim/80 font-mono tabular-nums">
+        {overflowSide === 'right' ? `${maxLabel}›` : maxLabel}
       </text>
 
       {/* Smoothly Rotated Needle + Dual-Ring Center Hub */}
@@ -287,26 +420,26 @@ export const ConditionDial = React.memo(function ConditionDial({
         />
         <circle cx={cx - needleLen} cy={cy} r={isSm ? 2 : 2.5} fill={color} className="svg-smooth-color" />
       </g>
-      <circle cx={cx} cy={cy} r={isSm ? 4.5 : 5.5} fill={color} fillOpacity="0.22" className="svg-smooth-color" />
-      <circle cx={cx} cy={cy} r={isSm ? 2.75 : 3.25} className="fill-text" />
+      <circle cx={cx} cy={cy} r={isSm ? 4.25 : 5} fill={color} fillOpacity="0.22" className="svg-smooth-color" />
+      <circle cx={cx} cy={cy} r={isSm ? 2.5 : 3} className="fill-text" />
 
-      {/* Center Readout: Relative to Target */}
+      {/* Readout Band cleanly below the hub (full SVG width, zero hub/needle/arc collision) */}
       <text
         x={cx}
-        y={cy - (isSm ? 15 : 19)}
+        y={cy + (isSm ? 19 : 21)}
         textAnchor="middle"
-        fontSize={isSm ? (dialOverText.length > 14 ? '9.5' : '11.5') : (dialOverText.length > 14 ? '11.5' : '14')}
+        fontSize={overFontSize}
         fontWeight="800"
         fill={color}
         className="font-mono tabular-nums svg-smooth-color"
       >
-        {dialOverText || `${clamped}%`}
+        {displayOverText}
       </text>
       <text
         x={cx}
-        y={cy - 2}
+        y={cy + (isSm ? 31 : 34)}
         textAnchor="middle"
-        fontSize={isSm ? '8' : '9'}
+        fontSize={isSm ? '7.8' : '8.6'}
         className="fill-dim font-mono tabular-nums"
       >
         {subTextBase}
@@ -349,6 +482,7 @@ const LADDER_ZONE_TONE = {
  * - Single-line proportional SL <-> Entry <-> Target/Exit ratio footer
  */
 export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder, compact = false, changeInfo = null }) {
+  const zoneClipId = useId();
   const svgWrapRef = useRef(null);
   const [boxSize, setBoxSize] = useState(() => ({
     w: 400,
@@ -408,12 +542,17 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
 
   const zTone = LADDER_ZONE_TONE[zone] || LADDER_ZONE_TONE.below;
 
-  // Zoomed-In True-Proportion Vertical Domain [pMin, pMax]:
-  // Anchored flush to the top & bottom levels ([slPrice, breakoutLevel, expansionCap]) with zero wasted headroom
-  // at the top unless price actually exceeds the top boundary.
+  // True-Proportion Linear Vertical Domain [pMin, pMax]:
+  // Uses exact real price spacing across [slPrice, breakoutLevel, expansionCap];
+  // only applies an explicit scale-break when SL is an extreme outlier (>3.8× or <0.16× capDist).
   const capDist = Math.max(Math.abs(expansionCap - breakoutLevel), breakoutLevel * 0.005, 1e-9);
   const rawSlDist = slPrice > 0 ? Math.abs(breakoutLevel - slPrice) : capDist * 0.85;
-  const visualSlSpan = Math.min(Math.max(rawSlDist, capDist * 0.65), capDist * 1.65);
+  const minTrueSlSpan = capDist * 0.16;
+  const maxTrueSlSpan = capDist * 3.8;
+  const slScaleBreak = slPrice > 0 && (rawSlDist > maxTrueSlSpan || rawSlDist < minTrueSlSpan);
+  const visualSlSpan = slScaleBreak
+    ? Math.min(Math.max(rawSlDist, minTrueSlSpan), maxTrueSlSpan)
+    : rawSlDist;
   const slVisualPrice = isLong ? breakoutLevel - visualSlSpan : breakoutLevel + visualSlSpan;
   const clampedLiveForDomain = isLong
     ? Math.max(slVisualPrice - capDist * 0.30, Math.min(expansionCap + capDist * 0.40, livePrice))
@@ -440,11 +579,11 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
 
   const svgW = Math.max(260, boxSize.w || 400);
   const svgH = Math.max(compact ? 104 : 116, boxSize.h || (compact ? 116 : 134));
-  const padTop = 6;
-  const padBot = 6;
+  const padTop = 7;
+  const padBot = 7;
   const plotH = svgH - padTop - padBot;
-  const xLeft = 76;
-  const xRight = Math.max(xLeft + 100, svgW - 104);
+  const xLeft = 80;
+  const xRight = Math.max(xLeft + 104, svgW - 104);
   const bandW = xRight - xLeft;
 
   const yOf = (priceVal) => {
@@ -488,7 +627,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
     confirmToneClass = 'text-amber';
   }
 
-  // De-collide Left Level Labels (only 3 essential anchors: SL lookback, Breakout Level, Cap)
+  // De-collide Left Level Labels (avoiding the Left Signed Distance Pill at pillY)
   const rawLeftLabels = [
     {
       id: 'slLb',
@@ -512,9 +651,9 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
       bold: true,
     },
   ];
-  const leftLabels = decollideVerticalLabels(rawLeftLabels, 12, 8, svgH - 8);
+  const leftLabels = decollideVerticalLabels(rawLeftLabels, 12.5, 9, svgH - 9, pillY, 13.5);
 
-  // De-collide Right Static Price Labels (nudged away from floating livePrice pill)
+  // De-collide Right Static Price Labels (avoiding the Right Live Price Pill at pillY)
   const rawRightLabels = [
     {
       id: 'slPx',
@@ -537,14 +676,14 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
       color: '#c084fc',
       bold: true,
     },
-  ].filter((item) => Math.abs(item.y - pillY) >= 12);
-  const rightLabels = decollideVerticalLabels(rawRightLabels, 12, 8, svgH - 8);
+  ];
+  const rightLabels = decollideVerticalLabels(rawRightLabels, 12.5, 9, svgH - 9, pillY, 13.5);
 
-  // Proportional SL <-> Entry <-> Target/Exit bar ratios for the single-line footer
+  // True-Proportion SL <-> Entry <-> Target/Exit bar ratios for the single-line footer (unclamped R:R geometry)
   const safeSlRiskPct = Math.max(0.05, Math.abs(slDistPct));
   const safeRewardPct = Math.max(0.05, Math.abs(pnlOrRewardPct));
   const totalRiskRewardSpan = safeSlRiskPct + safeRewardPct;
-  const riskWingWidthPct = Math.max(22, Math.min(62, Math.round((safeSlRiskPct / totalRiskRewardSpan) * 100)));
+  const riskWingWidthPct = Math.max(5, Math.min(95, (safeSlRiskPct / totalRiskRewardSpan) * 100));
   const rewardWingWidthPct = 100 - riskWingWidthPct;
 
   // Slim lookback + trigger candles geometry inside right-side lane of the zoomed SVG rail
@@ -553,6 +692,38 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
   const candleSpacing = 8;
   const slimCandleBodyW = 3.4;
   const candleLaneLeft = candleLaneRight - Math.max(1, candleCount - 1) * candleSpacing;
+
+  // Safe inner text lane strictly left of the candle lane so zone labels never collide with candles
+  const zoneTextRight = candleCount > 0 ? Math.max(xLeft + 8, candleLaneLeft - 9) : xRight - 6;
+  const zoneTextW = Math.max(0, zoneTextRight - (xLeft + 6));
+
+  // Helper to vertically place zone text clear of the horizontal live price cursor line (yPx)
+  const resolveZoneTextY = (box, minHeight = 14) => {
+    if (box.height < minHeight || zoneTextW < 42) return null;
+    const midY = box.y + box.height / 2 + 2.8;
+    if (Math.abs(midY - yPx) >= 8.5) return midY;
+    if (box.height < 24) return null;
+    // Shift away from live cursor inside the band
+    const topSlot = box.y + 9.5;
+    const botSlot = box.y + box.height - 3.5;
+    return Math.abs(topSlot - yPx) >= Math.abs(botSlot - yPx) ? topSlot : botSlot;
+  };
+
+  const slZoneTextY = resolveZoneTextY(slRiskBox, 14);
+  const capZoneTextY = resolveZoneTextY(capBox, 14);
+  const rejectZoneTextY = overCapActive ? resolveZoneTextY(rejectBox, 12) : null;
+
+  const slZoneLabel = zoneTextW >= 152
+    ? `SL lookback (${slLookbackPeriod}b) · -${slDistPct.toFixed(2)}%${slScaleBreak ? ' · break' : ''}`
+    : zoneTextW >= 96
+      ? `SL (${slLookbackPeriod}b) -${slDistPct.toFixed(1)}%${slScaleBreak ? ' · brk' : ''}`
+      : `SL -${slDistPct.toFixed(1)}%`;
+
+  const capZoneLabel = zoneTextW >= 132
+    ? (capUsesSlLookback ? `SL cap window (${effectiveMaxExpPct}%)` : `Cap window (${effectiveMaxExpPct}%)`)
+    : `Cap ${effectiveMaxExpPct}%`;
+
+  const livePriceText = fmtPrice(livePrice);
 
   return (
     <div className="flex-1 flex flex-col gap-1.5 w-full min-h-0">
@@ -569,9 +740,15 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           height="100%"
           viewBox={`0 0 ${svgW} ${svgH}`}
           preserveAspectRatio="none"
-          className="w-full h-full block overflow-visible select-none rounded-lg bg-gradient-to-b from-bg/80 via-bg/55 to-bg/80 border border-border/45"
-          aria-label={`HTF Breakout level ladder: live ${fmtPrice(livePrice)} vs ${refTf} level ${fmtPrice(breakoutLevel)}`}
+          className="w-full h-full block overflow-hidden select-none rounded-lg bg-gradient-to-b from-bg/80 via-bg/55 to-bg/80 border border-border/45"
+          aria-label={`HTF Breakout level ladder: live ${livePriceText} vs ${refTf} level ${fmtPrice(breakoutLevel)}`}
         >
+        <defs>
+          <clipPath id={zoneClipId}>
+            <rect x={xLeft + 5} y={0} width={zoneTextW} height={svgH} />
+          </clipPath>
+        </defs>
+
         {/* Lookback SL Risk Zone (SL <-> Breakout Level) */}
         <rect
           x={xLeft}
@@ -589,25 +766,57 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           fill="#ef4444"
           fillOpacity="0.55"
         />
-        {slRiskBox.height >= 13 && (
+        {slZoneTextY !== null && (
           <text
             x={xLeft + 8}
-            y={slRiskBox.y + slRiskBox.height / 2 + 3}
+            y={slZoneTextY}
             fontSize="8"
             fill="#f87171"
             fillOpacity="0.85"
+            clipPath={`url(#${zoneClipId})`}
             className="font-mono font-semibold"
           >
-            SL lookback ({slLookbackPeriod}b) · -{slDistPct.toFixed(2)}%
+            {slZoneLabel}
           </text>
         )}
+        {slScaleBreak && slRiskBox.height >= 10 && (() => {
+          const midY = slRiskBox.y + slRiskBox.height / 2;
+          return (
+            <path
+              d={`M ${xLeft - 1.5} ${(midY - 4).toFixed(1)} L ${xLeft + 3.5} ${(midY - 1.5).toFixed(1)} L ${xLeft - 1.5} ${(midY + 1.5).toFixed(1)} L ${xLeft + 3.5} ${(midY + 4).toFixed(1)}`}
+              stroke="#f87171"
+              strokeWidth="1.25"
+              fill="none"
+            />
+          );
+        })()}
 
-        {/* Single Clean Zoomed Cap Window (Breakout Level <-> Max Cap) */}
+        {/* Single Clean Zoomed Cap Window (Breakout Level <-> Max Cap) + 50% Midpoint Guide */}
         <rect x={xLeft} y={capBox.y} width={bandW} height={Math.max(1.5, capBox.height)} fill="#22c55e" fillOpacity="0.14" />
         <rect x={xLeft} y={capBox.y} width="3" height={Math.max(1.5, capBox.height)} fill="#22c55e" fillOpacity="0.8" />
-        {capBox.height >= 12 && (
-          <text x={xLeft + 8} y={capBox.y + capBox.height / 2 + 2.8} fontSize="8" fill="#4ade80" fillOpacity="0.9" className="font-mono font-semibold">
-            {capUsesSlLookback ? `SL cap window (${effectiveMaxExpPct}%)` : `Cap window (${effectiveMaxExpPct}%)`}
+        {capBox.height >= 18 && (
+          <line
+            x1={xLeft + 4}
+            y1={(yBreak + yCap) / 2}
+            x2={xRight}
+            y2={(yBreak + yCap) / 2}
+            stroke="#22c55e"
+            strokeOpacity="0.28"
+            strokeWidth="0.8"
+            strokeDasharray="2 3"
+          />
+        )}
+        {capZoneTextY !== null && (
+          <text
+            x={xLeft + 8}
+            y={capZoneTextY}
+            fontSize="8"
+            fill="#4ade80"
+            fillOpacity="0.9"
+            clipPath={`url(#${zoneClipId})`}
+            className="font-mono font-semibold"
+          >
+            {capZoneLabel}
           </text>
         )}
 
@@ -616,8 +825,15 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           <>
             <rect x={xLeft} y={rejectBox.y} width={bandW} height={rejectBox.height} fill="#a855f7" fillOpacity="0.12" />
             <rect x={xLeft} y={rejectBox.y} width="2.5" height={rejectBox.height} fill="#a855f7" fillOpacity="0.75" />
-            {rejectBox.height >= 10 && (
-              <text x={xLeft + 8} y={rejectBox.y + rejectBox.height / 2 + 2.8} fontSize="8" fill="#c084fc" className="font-mono font-semibold">
+            {rejectZoneTextY !== null && (
+              <text
+                x={xLeft + 8}
+                y={rejectZoneTextY}
+                fontSize="8"
+                fill="#c084fc"
+                clipPath={`url(#${zoneClipId})`}
+                className="font-mono font-semibold"
+              >
                 {hasHardCap ? 'Over Cap' : 'Extended'}
               </text>
             )}
@@ -801,29 +1017,29 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           <rect
             x={xRight + 5}
             y={-8}
-            width="94"
+            width="95"
             height="16"
             rx="4"
             fill={zTone.color}
             className="svg-smooth-color"
           />
           <text
-            x={xRight + 52}
-            y={3.2}
+            x={xRight + 52.5}
+            y={3.1}
             textAnchor="middle"
-            fontSize="9"
+            fontSize={livePriceText.length > 9 ? '7.8' : '9'}
             fontWeight="800"
             fill="#ffffff"
             className="font-mono tabular-nums"
           >
-            {fmtPrice(livePrice)}
+            {livePriceText}
           </text>
 
-          {/* Left Signed Distance Pill */}
+          {/* Left Signed Distance Pill (fits comfortably inside left rail without hitting left level labels) */}
           <rect
-            x="5"
+            x="4"
             y={-7.5}
-            width="50"
+            width="66"
             height="15"
             rx="4"
             fill={zTone.color}
@@ -833,10 +1049,10 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
             className="svg-smooth-color"
           />
           <text
-            x="30"
+            x="37"
             y={2.8}
             textAnchor="middle"
-            fontSize="8.2"
+            fontSize={distText.length > 7 ? '7.6' : '8.2'}
             fontWeight="800"
             fill={zTone.color}
             className="font-mono tabular-nums svg-smooth-color"
@@ -847,34 +1063,34 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
         </svg>
       </div>
 
-      {/* Single Ultra-Compact 1-Line Footer: Candle State · Proportional SL/Entry/Target Ratio Bar · Cap Used */}
-      <div className="flex items-center justify-between gap-2 rounded-lg bg-surface/45 border border-border/35 px-2 py-1 font-mono text-[9px] tabular-nums shrink-0">
-        <span className={cn('font-semibold truncate shrink-0', confirmToneClass)}>
+      {/* Responsive Ultra-Compact Footer: Candle State · True-Proportion SL/Entry/Target Ratio Bar · Cap Used */}
+      <div className="flex items-center justify-between flex-wrap gap-x-2 gap-y-1 rounded-lg bg-surface/45 border border-border/35 px-2 py-1 font-mono text-[9px] tabular-nums shrink-0">
+        <span className={cn('font-semibold truncate min-w-0', confirmToneClass)}>
           {confirmLabel}
           {countdownText && !isOverCap ? ` · ${countdownText.replace(/.*close in /, '')}` : ''}
         </span>
 
-        {/* Inline Proportional Two-Wing SL <-> Entry <-> Target Ratio Bar */}
+        {/* Inline True-Proportion Two-Wing SL <-> Entry <-> Target Ratio Bar */}
         <div
-          className="flex-1 max-w-[175px] h-3.5 rounded bg-bg/85 border border-border/45 overflow-hidden flex items-center"
+          className="flex-1 min-w-[120px] max-w-[215px] flex items-center gap-1.5"
           title={`Lookback SL -${slDistPct.toFixed(2)}% (1.0R) | Target +${Math.abs(pnlOrRewardPct).toFixed(2)}% (${rrRatio.toFixed(1)}R)`}
         >
-          <div
-            className="h-full bg-red/30 border-r border-text/80 flex items-center justify-start pl-1 transition-[width] duration-300 ease-out"
-            style={{ width: `${riskWingWidthPct}%` }}
-          >
-            <span className="text-[7.5px] font-bold text-red truncate">
-              -{slDistPct.toFixed(1)}%
-            </span>
+          <span className="text-[8px] font-bold text-red shrink-0">
+            -{slDistPct.toFixed(1)}%
+          </span>
+          <div className="flex-1 h-2.5 rounded bg-bg/85 border border-border/45 overflow-hidden flex items-center min-w-[36px]">
+            <div
+              className="h-full bg-red/40 border-r border-text/85 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+              style={{ width: `${riskWingWidthPct.toFixed(2)}%` }}
+            />
+            <div
+              className="h-full bg-green/40 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+              style={{ width: `${rewardWingWidthPct.toFixed(2)}%` }}
+            />
           </div>
-          <div
-            className="h-full bg-green/30 flex items-center justify-end pr-1 transition-[width] duration-300 ease-out"
-            style={{ width: `${rewardWingWidthPct}%` }}
-          >
-            <span className="text-[7.5px] font-bold text-green truncate">
-              +{Math.abs(pnlOrRewardPct).toFixed(1)}% ({rrRatio.toFixed(1)}R)
-            </span>
-          </div>
+          <span className="text-[8px] font-bold text-green shrink-0">
+            +{Math.abs(pnlOrRewardPct).toFixed(1)}% ({rrRatio.toFixed(1)}R)
+          </span>
         </div>
 
         <span className="text-dim shrink-0">
@@ -1237,54 +1453,136 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                   {model.positionMeta?.trailingActive ? ' · Trailing' : model.positionMeta?.isProtected ? ' · Protected' : ''}
                 </span>
               </div>
-              <div className="relative h-2 w-full rounded-full bg-surface/80 border border-border/40 overflow-hidden">
-                {/* SL -> Entry base fill & live position indicator via GPU transform */}
-                <div
-                  className="absolute inset-y-0 left-0 w-full bg-green/25 origin-left transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform"
-                  style={{ transform: `scaleX(${Math.max(0, Math.min(1, runway.livePct / 100))})` }}
-                />
-                <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-red/80 transition-[left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
-                  style={{ left: `${runway.slPct}%` }}
-                  title="Stop Loss"
-                />
-                <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-dim/80 transition-[left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
-                  style={{ left: `${runway.entryPct}%` }}
-                  title="Entry Price"
-                />
-                {runway.tpPct !== null && (
-                  <div
-                    className="absolute top-0 bottom-0 w-0.5 bg-green transition-[left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
-                    style={{ left: `${runway.tpPct}%` }}
-                    title="Take Profit"
-                  />
-                )}
-                <div
-                  className={cn(
-                    'absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border border-bg shadow-xs transition-[left,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
-                    (model.positionMeta?.currentR || 0) >= 0 ? 'bg-green' : 'bg-amber'
-                  )}
-                  style={{ left: `calc(${runway.livePct}% - 5px)` }}
-                  title={`Live Price (${fmtPrice(model.markPrice)})`}
-                />
-              </div>
+              {(() => {
+                const currR = Number(runway.currentR ?? model.positionMeta?.currentR ?? 0);
+                const isProfit = currR >= 0;
+                const fillLeftPct = isProfit ? runway.entryPct : Math.min(runway.entryPct, runway.livePct);
+                const fillWidthPct = Math.abs(runway.livePct - runway.entryPct);
+                const rTicks = Array.isArray(runway.rTicks) ? runway.rTicks : [];
+                return (
+                  <div className="flex flex-col gap-1">
+                    <div className="relative h-2 w-full rounded-full bg-surface/80 border border-border/40 overflow-hidden">
+                      {/* Loss / Profit Zone Tinting anchored at 0R Entry */}
+                      <div
+                        className="absolute inset-y-0 left-0 bg-red/12"
+                        style={{ width: `${runway.entryPct}%` }}
+                      />
+                      <div
+                        className="absolute inset-y-0 right-0 bg-green/12"
+                        style={{ left: `${runway.entryPct}%` }}
+                      />
+                      {/* Proportionate R-multiple tick hairlines */}
+                      {rTicks.map((t) => (
+                        <div
+                          key={t.r}
+                          className={cn(
+                            'absolute top-0 bottom-0 w-px pointer-events-none',
+                            t.isAnchor ? 'bg-border/70' : 'bg-border/35'
+                          )}
+                          style={{ left: `${t.pct}%` }}
+                        />
+                      ))}
+                      {/* Active PnL Fill anchored strictly at Entry (0R): red left for loss, green right for profit */}
+                      <div
+                        className={cn(
+                          'absolute inset-y-0 transition-[left,width,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
+                          isProfit ? 'bg-green/55' : 'bg-red/55'
+                        )}
+                        style={{
+                          left: `${fillLeftPct}%`,
+                          width: `${fillWidthPct}%`,
+                        }}
+                      />
+                      <div
+                        className="absolute top-0 bottom-0 w-0.5 bg-red/90 transition-[left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                        style={{ left: `${runway.slPct}%` }}
+                        title={`Stop Loss (${Number(runway.slR ?? -1).toFixed(2)}R)`}
+                      />
+                      <div
+                        className="absolute top-0 bottom-0 w-0.5 bg-text/85 transition-[left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                        style={{ left: `${runway.entryPct}%` }}
+                        title="Entry Price (0R)"
+                      />
+                      {runway.tpPct !== null && (
+                        <div
+                          className="absolute top-0 bottom-0 w-0.5 bg-green transition-[left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                          style={{ left: `${runway.tpPct}%` }}
+                          title={`Take Profit (+${Number(runway.targetR ?? 2).toFixed(1)}R)`}
+                        />
+                      )}
+                      <div
+                        className={cn(
+                          'absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border border-bg shadow-xs transition-[left,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
+                          isProfit ? 'bg-green' : 'bg-red'
+                        )}
+                        style={{ left: `calc(${runway.livePct}% - 5px)` }}
+                        title={`Live Price (${fmtPrice(model.markPrice)} · ${currR >= 0 ? '+' : ''}${currR.toFixed(2)}R)`}
+                      />
+                    </div>
+                    {rTicks.length > 0 && (() => {
+                      // Prioritize 0R and -1R anchors, then greedily keep ticks spaced >= 11% apart so labels never overlap
+                      const MIN_TICK_LABEL_GAP_PCT = 11;
+                      const prioritized = [...rTicks].sort((a, b) => {
+                        const prio = (t) => (t.r === 0 ? 0 : t.r === -1 ? 1 : 2);
+                        return prio(a) - prio(b) || a.pct - b.pct;
+                      });
+                      const visibleTickLabels = [];
+                      for (const t of prioritized) {
+                        if (t.pct < 4 || t.pct > 96) continue;
+                        if (visibleTickLabels.every((kept) => Math.abs(kept.pct - t.pct) >= MIN_TICK_LABEL_GAP_PCT)) {
+                          visibleTickLabels.push(t);
+                        }
+                      }
+                      visibleTickLabels.sort((a, b) => a.pct - b.pct);
+                      return (
+                        <div className="relative h-3 w-full font-mono text-[8px] text-dim/75 tabular-nums select-none overflow-hidden">
+                          {visibleTickLabels.map((t) => (
+                            <span
+                              key={t.r}
+                              className={cn(
+                                'absolute top-0 -translate-x-1/2 whitespace-nowrap',
+                                t.r === 0 && 'text-text/80 font-bold',
+                                t.r === -1 && 'text-red/80'
+                              )}
+                              style={{ left: `${t.pct}%` }}
+                            >
+                              {t.label}
+                            </span>
+                          ))}
+                          {runway.liveOffLeft && (
+                            <span className="absolute left-0 top-0 text-red font-bold bg-bg/80 px-0.5">‹</span>
+                          )}
+                          {runway.liveOffRight && (
+                            <span className="absolute right-0 top-0 text-green font-bold bg-bg/80 px-0.5">›</span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
-          {/* Ultra-Compact 1-Line Entry & Exit/Live Snapshot + Proportional SL ↔ Entry ↔ Exit Ratio Bar */}
+          {/* Ultra-Compact 1-Line Entry & Exit/Live Snapshot + True Linear R-Axis SL ↔ Entry ↔ Exit Ratio Bar */}
           {showExitSnapshotBar && (() => {
             const ex = effectiveOpp.exitSnapshot;
             const isLiveOpen = ex.tradeStatus === 'OPEN';
             const slDist = Math.max(0.05, Math.abs(Number(ex.slDistPct || effectiveOpp.sl_dist_pct || 1.0)));
             const pnlPctVal = Number(ex.pnlPct || 0);
-            const absPnlPct = Math.max(0.05, Math.abs(pnlPctVal));
             const exitRrVal = Number(ex.exitRr || 0);
             const targetRrVal = Math.max(0.5, Number(ex.targetRr || 2.0));
-            const totalSpan = slDist + Math.max(absPnlPct, slDist * targetRrVal * 0.5);
-            const riskW = Math.max(22, Math.min(58, Math.round((slDist / totalSpan) * 100)));
-            const rewardW = 100 - riskW;
-            const exitFillPct = Math.max(8, Math.min(100, Math.round((absPnlPct / Math.max(0.05, slDist * targetRrVal)) * 100)));
+
+            const minR = Math.min(-1, exitRrVal) * 1.05;
+            const maxR = Math.max(targetRrVal, exitRrVal, 1) * 1.05;
+            const spanR = Math.max(1.5, maxR - minR);
+            const rToPct = (rVal) => Math.max(0, Math.min(100, ((rVal - minR) / spanR) * 100));
+            const slX = rToPct(-1);
+            const entryX = rToPct(0);
+            const exitX = rToPct(exitRrVal);
+            const targetX = rToPct(targetRrVal);
+            const fillLeft = exitRrVal >= 0 ? entryX : Math.min(entryX, exitX);
+            const fillW = Math.abs(exitX - entryX);
 
             return (
               <div className="px-2.5 py-1.5 rounded-lg bg-bg/55 border border-border/45 flex items-center justify-between gap-2 flex-wrap font-mono text-[9.5px] tabular-nums">
@@ -1308,26 +1606,29 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                 </div>
 
                 <div className="flex items-center gap-2 ml-auto">
-                  {/* Inline Proportional SL <-> Entry <-> Exit Bar */}
-                  <div className="w-36 h-3.5 rounded bg-surface/85 border border-border/45 overflow-hidden flex items-center">
-                    <div
-                      className="h-full bg-red/30 border-r border-text/80 flex items-center justify-start pl-1 transition-[width] duration-300 ease-out"
-                      style={{ width: `${riskW}%` }}
-                    >
-                      <span className="text-[7.5px] font-bold text-red truncate">-{slDist.toFixed(1)}%</span>
-                    </div>
-                    <div
-                      className="relative h-full bg-surface/60 flex items-center justify-end pr-1 overflow-hidden transition-[width] duration-300 ease-out"
-                      style={{ width: `${rewardW}%` }}
-                    >
+                  {/* Inline True Linear R-Axis Bar anchored at Entry (0R) */}
+                  <div
+                    className="flex items-center gap-1.5"
+                    title={`SL -${slDist.toFixed(2)}% (-1.0R) | Entry 0R | ${isLiveOpen ? 'Live' : 'Exit'} ${pnlPctVal >= 0 ? '+' : ''}${pnlPctVal.toFixed(2)}% (${exitRrVal >= 0 ? '+' : ''}${exitRrVal.toFixed(2)}R) | Target +${targetRrVal.toFixed(1)}R`}
+                  >
+                    <span className="text-[8px] font-bold text-red">-{slDist.toFixed(1)}%</span>
+                    <div className="relative w-28 h-2.5 rounded bg-surface/85 border border-border/45 overflow-hidden">
+                      <div className="absolute inset-y-0 left-0 bg-red/12" style={{ width: `${entryX}%` }} />
+                      <div className="absolute inset-y-0 right-0 bg-green/12" style={{ left: `${entryX}%` }} />
                       <div
-                        className={cn('absolute inset-y-0 left-0 transition-[width,background-color] duration-300 ease-out', pnlPctVal >= 0 ? 'bg-green/35' : 'bg-red/35')}
-                        style={{ width: `${exitFillPct}%` }}
+                        className={cn(
+                          'absolute inset-y-0 transition-[left,width,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
+                          exitRrVal >= 0 ? 'bg-green/60' : 'bg-red/60'
+                        )}
+                        style={{ left: `${fillLeft}%`, width: `${fillW}%` }}
                       />
-                      <span className={cn('relative z-10 text-[7.5px] font-bold truncate', pnlPctVal >= 0 ? 'text-green' : 'text-red')}>
-                        {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(1)}% ({exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(1)}R)
-                      </span>
+                      <div className="absolute top-0 bottom-0 w-px bg-red/80" style={{ left: `${slX}%` }} />
+                      <div className="absolute top-0 bottom-0 w-0.5 bg-text/90" style={{ left: `${entryX}%` }} />
+                      <div className="absolute top-0 bottom-0 w-px bg-green/80" style={{ left: `${targetX}%` }} />
                     </div>
+                    <span className={cn('text-[8px] font-bold', pnlPctVal >= 0 ? 'text-green' : 'text-red')}>
+                      {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(1)}%
+                    </span>
                   </div>
 
                   <span className={cn('px-1.5 py-0.2 rounded border font-bold text-[9px]', exitRrVal >= 0 ? 'bg-green/10 border-green/30 text-green' : 'bg-red/10 border-red/30 text-red')}>
@@ -1578,6 +1879,8 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                             dialPct={c.dialPct}
                             dialZone={cZone}
                             dialOverText={c.dialOverText}
+                            subText={c.dialScale?.subText || ''}
+                            dialScale={c.dialScale || null}
                             size={compact ? 'sm' : 'md'}
                             changeInfo={changeInfo}
                           />
@@ -1585,30 +1888,30 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
 
                         {/* Card Bottom: App-Like Bento Telemetry Strip for Live vs Target + Signed Distance */}
                         <div className="flex flex-col gap-1.5 rounded-lg bg-surface/45 border border-border/35 px-2.5 py-1.5 font-mono text-[10.5px] tabular-nums">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <span className="text-dim text-[9.5px] uppercase tracking-wider font-semibold">Live / Target</span>
-                            <div className="truncate flex items-center gap-1">
+                          <div className="flex items-baseline justify-between gap-2 min-w-0">
+                            <span className="text-dim text-[9.5px] uppercase tracking-wider font-semibold shrink-0">Live / Target</span>
+                            <div className="min-w-0 truncate flex items-center gap-1">
                               <strong
                                 className={cn(
-                                  'font-bold transition-colors duration-300',
+                                  'font-bold truncate transition-colors duration-300',
                                   changeInfo?.changed ? changeInfo.toneClass : liveToneClass
                                 )}
                               >
                                 {c.liveText}
                               </strong>
-                              <span className="text-dim/60">/</span>
-                              <span className="text-accent font-semibold">{c.targetText}</span>
+                              <span className="text-dim/60 shrink-0">/</span>
+                              <span className="text-accent font-semibold truncate">{c.targetText}</span>
                             </div>
                           </div>
 
                           {hasDeltaReadout && (
-                            <div className="flex items-center justify-between gap-2 text-[9.5px] border-t border-border/25 pt-1">
-                              <span className="text-dim uppercase tracking-wider font-semibold text-[8.5px]">
+                            <div className="flex items-center justify-between gap-2 text-[9.5px] border-t border-border/25 pt-1 min-w-0">
+                              <span className="text-dim uppercase tracking-wider font-semibold text-[8.5px] shrink-0">
                                 {(Number(c.dialPct) || 0) >= 100 ? 'Past target' : 'To go'}
                               </span>
                               <span
                                 className={cn(
-                                  'font-bold truncate transition-colors duration-300',
+                                  'font-bold min-w-0 truncate transition-colors duration-300',
                                   changeInfo?.changed ? changeInfo.toneClass : (ZONE_TEXT_CLASS[cZone] || 'text-dim')
                                 )}
                               >

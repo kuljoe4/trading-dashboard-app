@@ -199,6 +199,82 @@ function formatSignedPct(pct) {
   return `${sign}${abs.toFixed(decimals)}%`;
 }
 
+function formatScaleBound(val) {
+  const n = Number(val);
+  if (!Number.isFinite(n)) return '1';
+  if (Number.isInteger(n)) return String(n);
+  return String(Number(n.toFixed(1)));
+}
+
+function formatAbsPct(pct) {
+  const abs = Math.abs(Number(pct) || 0);
+  if (abs >= 100) return abs.toFixed(0);
+  if (abs >= 10) return abs.toFixed(1);
+  return abs.toFixed(2);
+}
+
+/**
+ * Selects a clean, human-readable symmetric percentage bound S for linear bipolar price/EMA gauges [-S%, +S%].
+ */
+export function pickNicePercentBound(absPct, referenceSpanPct = 1.0) {
+  const NICE_BOUNDS = [0.5, 1, 2, 3, 5, 10, 15, 25, 50];
+  const refSpan = Number.isFinite(Number(referenceSpanPct)) && Number(referenceSpanPct) > 0
+    ? Math.min(Math.max(Number(referenceSpanPct), 0.5), 10)
+    : 1.0;
+  const needed = Math.max(Math.abs(Number(absPct) || 0) * 1.15, refSpan);
+  for (let i = 0; i < NICE_BOUNDS.length; i++) {
+    if (NICE_BOUNDS[i] >= needed) return NICE_BOUNDS[i];
+  }
+  return NICE_BOUNDS[NICE_BOUNDS.length - 1];
+}
+
+/**
+ * Selects a clean linear upper bound for ratio/past-target gauges [0%, maxPct] so overshoots > +50%
+ * remain proportional on the arc instead of pegging at the right stop.
+ */
+export function pickNiceRatioMax(rawDialPct) {
+  const NICE_MAXES = [150, 200, 300, 500, 1000];
+  const val = Math.max(0, Number(rawDialPct) || 0);
+  if (val <= 145) return 150;
+  const needed = val * 1.12;
+  for (let i = 0; i < NICE_MAXES.length; i++) {
+    if (NICE_MAXES[i] >= needed) return NICE_MAXES[i];
+  }
+  return NICE_MAXES[NICE_MAXES.length - 1];
+}
+
+/**
+ * Generates proportionate R-multiple tick marks across a runway [minR, maxR].
+ */
+export function buildRunwayRTicks(minR, maxR, toPctFn) {
+  const span = Math.max(0.5, maxR - minR);
+  const step = span <= 3 ? 0.5 : span <= 7 ? 1 : span <= 15 ? 2 : 5;
+  const start = Math.ceil(minR / step) * step;
+  const ticks = [];
+  const seen = new Set();
+
+  const pushTick = (rVal, isAnchor = false) => {
+    const rounded = Math.round(rVal * 100) / 100;
+    if (rounded < minR - 1e-6 || rounded > maxR + 1e-6) return;
+    if (seen.has(rounded)) return;
+    seen.add(rounded);
+    const label = rounded === 0 ? '0R' : `${rounded > 0 ? '+' : ''}${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}R`;
+    ticks.push({
+      r: rounded,
+      pct: toPctFn(rounded),
+      label,
+      isAnchor,
+    });
+  };
+
+  pushTick(-1, true);
+  pushTick(0, true);
+  for (let r = start; r <= maxR + 1e-6; r += step) {
+    pushTick(r, r === 0 || r === -1);
+  }
+  return ticks.sort((a, b) => a.r - b.r);
+}
+
 function asText(val, fallback = '') {
   if (val === undefined || val === null) return fallback;
   if (typeof val === 'string') return val;
@@ -689,6 +765,7 @@ export function computeConditionMeter({
   signalKey = '',
   proximity = 0,
   isIndicatorPair = false,
+  referenceSpanPct = null,
 }) {
   const safeProx = Math.max(0, Math.min(100, Math.round(Number(proximity) || 0)));
 
@@ -702,6 +779,7 @@ export function computeConditionMeter({
       meterReadout: 'Warming',
       dialPct: 0,
       rawDialPct: 0,
+      dialScale: null,
       dialZone: 'warming',
       dialStatus: 'Warming',
       dialOverText: 'Warming',
@@ -726,6 +804,7 @@ export function computeConditionMeter({
       meterReadout: isMet ? 'Target met' : `${safeProx}% ready`,
       dialPct,
       rawDialPct: dialPct,
+      dialScale: null,
       ...zoneInfo,
     };
   }
@@ -743,14 +822,14 @@ export function computeConditionMeter({
     const wantUpper = isExit ? !isLong : isLong;
     signedDelta = wantUpper ? (val - thr) : (thr - val);
     pctDelta = thr !== 0 ? (signedDelta / Math.abs(thr)) * 100 : NaN;
-    if (signedDelta >= 0) {
-      rawRatio = 1 + Math.max(0, (pctDelta || 0) / 2.0);
-    } else if (Number.isFinite(pctDelta)) {
-      rawRatio = 1 / (1 + Math.abs(pctDelta) * 0.45);
+    const boundPct = pickNicePercentBound(Math.abs(pctDelta), referenceSpanPct || 1.0);
+    if (Number.isFinite(pctDelta)) {
+      rawRatio = pctDelta >= 0
+        ? 1 + (pctDelta / boundPct) * 0.5
+        : Math.max(0, 1 + pctDelta / boundPct);
     } else {
       rawRatio = safeProx / 100;
     }
-    void isIndicatorPair;
   } else if (thr === 0) {
     const wantPositive = isExit ? !isLong : isLong;
     signedDelta = wantPositive ? val : -val;
@@ -778,35 +857,122 @@ export function computeConditionMeter({
   let meterFillPct;
   let dialPct;
   let rawDialPct;
+  let dialScale = null;
+  let zoneInfo;
 
-  if (signedDelta >= 0 && (fired || safeProx >= 95 || signalKey === '__velocity__')) {
-    const overshoot = Number.isFinite(pctDelta)
-      ? (thresholdIsPrice ? Math.min(1, Math.max(0, pctDelta / 2.5)) : Math.min(1, Math.max(0, pctDelta / 100)))
-      : 0.25;
-    meterFillPct = Math.min(100, Math.max(fired ? 78 : 75, Math.round(75 + overshoot * 25)));
+  if (thresholdIsPrice && Number.isFinite(pctDelta)) {
+    // True-proportion symmetric bipolar linear scale [-boundPct%, +boundPct%] centered on Cross / Target (0%)
+    const boundPct = pickNicePercentBound(Math.abs(pctDelta), referenceSpanPct || 1.0);
+    const boundLabel = formatScaleBound(boundPct);
+    const clampedPct = Math.max(-boundPct, Math.min(boundPct, pctDelta));
+    const isOffScale = Math.abs(pctDelta) > boundPct;
 
-    let rawOvershoot = 3;
-    if (Number.isFinite(pctDelta)) {
-      // Price levels scale 10x (0.5% price move past = +5% Fresh, 1.5% = +15% Stale/Late); direct % metrics map 1:1
-      const scaled = thresholdIsPrice ? pctDelta * 10 : pctDelta;
-      rawOvershoot = Math.max(fired && scaled > 0 ? 1 : 0, Math.floor(scaled + 1e-9));
+    dialScale = {
+      mode: 'bipolar_pct',
+      boundPct,
+      valuePct: pctDelta,
+      clampedValuePct: clampedPct,
+      minLabel: `-${boundLabel}%`,
+      centerLabel: isIndicatorPair ? 'cross' : 'target',
+      maxLabel: `+${boundLabel}%`,
+      subText: `scale ±${boundLabel}%`,
+      isOffScale,
+    };
+
+    // Linear meter fill centered at 50% (0..50 approaching, 50..100 past)
+    meterFillPct = Math.max(0, Math.min(100, Math.round(50 + (clampedPct / boundPct) * 50)));
+
+    if (pctDelta >= 0 && (fired || safeProx >= 95 || pctDelta > 0)) {
+      rawDialPct = 100 + Math.max(fired && pctDelta > 0 ? 1 : 0, Math.round((pctDelta / boundPct) * 50));
+      dialPct = Math.min(150, rawDialPct);
+      const pctFormatted = formatAbsPct(pctDelta);
+      if (rejected) {
+        zoneInfo = {
+          dialZone: 'blocked',
+          dialStatus: 'Rejected',
+          dialOverText: `+${pctFormatted}% · rejected`,
+          isOffScale,
+        };
+      } else {
+        const ratioOfBound = pctDelta / boundPct;
+        const dialZone = ratioOfBound <= 0.25 ? 'fresh' : ratioOfBound <= 0.6 ? 'stale' : 'late';
+        const dialStatus = dialZone === 'fresh' ? 'Fresh' : dialZone === 'stale' ? 'Stale' : 'Late';
+        zoneInfo = {
+          dialZone,
+          dialStatus,
+          dialOverText: isOffScale ? `+${pctFormatted}% · off-scale` : `+${pctFormatted}% past`,
+          isOffScale,
+        };
+      }
+    } else {
+      const linearPre = Math.max(0, Math.min(99, Math.round((1 + pctDelta / boundPct) * 100)));
+      dialPct = linearPre;
+      rawDialPct = linearPre;
+      const pctFormatted = formatAbsPct(pctDelta);
+      if (rejected) {
+        zoneInfo = {
+          dialZone: 'blocked',
+          dialStatus: 'Rejected',
+          dialOverText: 'Blocked',
+          isOffScale: false,
+        };
+      } else {
+        const dialZone = Math.abs(pctDelta) <= boundPct * 0.2 ? 'near' : 'watching';
+        const dialStatus = dialZone === 'near' ? 'Near' : 'Watching';
+        zoneInfo = {
+          dialZone,
+          dialStatus,
+          dialOverText: `${pctFormatted}% to ${isIndicatorPair ? 'cross' : 'target'}`,
+          isOffScale,
+        };
+      }
     }
-    rawDialPct = 100 + rawOvershoot;
-    dialPct = Math.min(150, rawDialPct);
-  } else if (signedDelta < 0) {
-    const clampedRatio = Math.max(0, Math.min(0.99, rawRatio));
-    meterFillPct = Math.min(74, Math.max(0, Math.round(clampedRatio * 75)));
-    dialPct = Math.min(99, Math.max(0, Math.round(clampedRatio * 100)));
-    rawDialPct = dialPct;
   } else {
-    meterFillPct = Math.min(74, Math.max(0, Math.round((safeProx / 100) * 75)));
-    dialPct = Math.min(99, Math.max(0, safeProx));
-    rawDialPct = dialPct;
+    if (signedDelta >= 0 && (fired || safeProx >= 95 || signalKey === '__velocity__')) {
+      const overshoot = Number.isFinite(pctDelta)
+        ? Math.min(1, Math.max(0, pctDelta / 100))
+        : 0.25;
+      meterFillPct = Math.min(100, Math.max(fired ? 78 : 75, Math.round(75 + overshoot * 25)));
+
+      let rawOvershoot = 3;
+      if (Number.isFinite(pctDelta)) {
+        rawOvershoot = Math.max(fired && pctDelta > 0 ? 1 : 0, Math.floor(pctDelta + 1e-9));
+      }
+      rawDialPct = 100 + rawOvershoot;
+      dialPct = Math.min(150, rawDialPct);
+    } else if (signedDelta < 0) {
+      const clampedRatio = Math.max(0, Math.min(0.99, rawRatio));
+      meterFillPct = Math.min(74, Math.max(0, Math.round(clampedRatio * 75)));
+      dialPct = Math.min(99, Math.max(0, Math.round(clampedRatio * 100)));
+      rawDialPct = dialPct;
+    } else {
+      meterFillPct = Math.min(74, Math.max(0, Math.round((safeProx / 100) * 75)));
+      dialPct = Math.min(99, Math.max(0, safeProx));
+      rawDialPct = dialPct;
+    }
+
+    zoneInfo = resolveDialZone(dialPct, { rejected, rawDialPct });
+
+    const scaleMax = pickNiceRatioMax(rawDialPct);
+    dialScale = {
+      mode: 'linear_ratio',
+      minPct: 0,
+      targetPct: 100,
+      maxPct: scaleMax,
+      valuePct: rawDialPct,
+      minLabel: '0%',
+      targetLabel: 'target',
+      maxLabel: `+${scaleMax - 100}%`,
+      subText: rawDialPct >= 100
+        ? `${(rawDialPct / 100).toFixed(2)}× target`
+        : `${Math.round(rawDialPct)}% of target`,
+      isOffScale: rawDialPct > scaleMax,
+    };
   }
 
   const meterState = rejected
     ? 'blocked'
-    : (signedDelta >= 0 && meterFillPct >= 75)
+    : (signedDelta >= 0 && meterFillPct >= (thresholdIsPrice ? 50 : 75))
       ? 'exceeded'
       : safeProx <= 0 && signedDelta < 0
         ? 'diverging'
@@ -826,12 +992,10 @@ export function computeConditionMeter({
     meterReadout = `${safeProx}%`;
   }
 
-  const zoneInfo = resolveDialZone(dialPct, { rejected, rawDialPct });
-
   void isExceeded;
   return {
     meterFillPct,
-    targetTickPct: 75,
+    targetTickPct: thresholdIsPrice ? 50 : 75,
     meterState,
     signedDelta,
     pctDelta: Number.isFinite(pctDelta) ? pctDelta : null,
@@ -840,6 +1004,7 @@ export function computeConditionMeter({
     meterReadout,
     dialPct,
     rawDialPct,
+    dialScale,
     ...zoneInfo,
   };
 }
@@ -1128,22 +1293,38 @@ export function buildCandidateConditionsModel({
       roomToTpR = (isLong ? (tpPrice - markPrice) : (markPrice - tpPrice)) / slDist;
     }
 
-    // Visual price runway positions (SL -> Entry -> Live -> TP) scaled in favorable R space
+    // Visual price runway positions (SL -> Entry -> Live -> TP) scaled strictly linearly in favorable R space
     let positionRunway = null;
     if (entryPrice > 0 && slPrice > 0 && markPrice > 0) {
-      const targetR = tpPrice > 0 && slDist > 0
-        ? Math.max(1, Math.abs(tpPrice - entryPrice) / slDist)
+      const initialSlPrice = Number(activeTrade.initial_sl || 0);
+      const initialSlDist = initialSlPrice > 0 ? Math.abs(entryPrice - initialSlPrice) : 0;
+      const riskUnitPrice = (riskUsdt > 0 && qty > 0)
+        ? (riskUsdt / qty)
+        : (initialSlDist > 1e-12 ? initialSlDist : slDist);
+      const safeRiskUnit = riskUnitPrice > 1e-12 ? riskUnitPrice : (entryPrice * 0.01);
+      const targetR = tpPrice > 0
+        ? Math.max(0.5, Math.abs(tpPrice - entryPrice) / safeRiskUnit)
         : Number(tradeCfg.tp_ratio || 2.0);
-      const minR = -1.1;
+      const slR = (isLong ? (slPrice - entryPrice) : (entryPrice - slPrice)) / safeRiskUnit;
+      const minR = Math.min(-1.1, slR - 0.15, currentR < -1 ? currentR - 0.15 : -1.1);
       const maxR = Math.max(targetR * 1.08, currentR + 0.25, 2.0);
       const span = Math.max(1, maxR - minR);
-      const toPct = (rVal) => Math.max(2, Math.min(98, Math.round(((rVal - minR) / span) * 100)));
-      const slR = slDist > 0 ? (isLong ? (slPrice - entryPrice) / slDist : (entryPrice - slPrice) / slDist) : -1;
+      const rawToPct = (rVal) => ((rVal - minR) / span) * 100;
+      const toPct = (rVal) => Math.max(1, Math.min(99, Math.round(rawToPct(rVal) * 10) / 10));
+      const rawLivePct = rawToPct(currentR);
       positionRunway = {
         slPct: toPct(slR),
         entryPct: toPct(0),
         livePct: toPct(currentR),
         tpPct: tpPrice > 0 ? toPct(targetR) : null,
+        minR,
+        maxR,
+        slR,
+        currentR,
+        targetR,
+        liveOffLeft: rawLivePct < 0,
+        liveOffRight: rawLivePct > 100,
+        rTicks: buildRunwayRTicks(minR, maxR, toPct),
       };
     }
 
@@ -1191,6 +1372,9 @@ export function buildCandidateConditionsModel({
         tone = 'accent';
       }
 
+      const exitRefSpanPct = entryPrice > 0 && slDist > 0
+        ? (slDist / entryPrice) * 100
+        : (Number(tradeCfg.sl_distance_pct) || 1.5);
       const meter = computeConditionMeter({
         value: effectiveExitValue,
         threshold: s.threshold,
@@ -1205,6 +1389,7 @@ export function buildCandidateConditionsModel({
         signalKey: sigKey,
         proximity,
         isIndicatorPair: sigKey.includes('dual') || sigKey.includes('_cross'),
+        referenceSpanPct: exitRefSpanPct,
       });
 
       const connector = idx === 0
@@ -1490,6 +1675,9 @@ export function buildCandidateConditionsModel({
       signalKey: sigKey,
       proximity: prox,
       isIndicatorPair,
+      referenceSpanPct: Number(opp?.sl_dist_pct) > 0
+        ? Number(opp.sl_dist_pct)
+        : (Number(strategyConfig.sl_distance_pct) || 1.5),
     });
 
     if (ladder && !isWarming) {

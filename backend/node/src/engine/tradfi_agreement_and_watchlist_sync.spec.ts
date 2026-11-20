@@ -2,6 +2,7 @@ import { OrderManagerService } from './orderManager';
 import { ExecutionStatus } from '../models/ExecutionResult';
 import { MarketFeedService } from './market_feed.service';
 import { SessionConfig } from '../models/SessionConfig';
+import { ExecutionService } from './execution.service';
 import {
   checkTradFiAgreementWithBinance,
   pickTradFiProbeSymbolFromCatalog,
@@ -353,6 +354,133 @@ describe('TradFi Agreement Isolation & Watchlist Live Config Sync', () => {
       if ((feed as any).watchlistInterval) {
         clearInterval((feed as any).watchlistInterval);
       }
+    });
+  });
+
+  describe('ExecutionService preflight cooldown cap, log throttling & error summary', () => {
+    const createExecutionService = () => {
+      const eventEmitter = { emit: jest.fn() };
+      const broadcastService = { broadcast: jest.fn() };
+      const orderManager = {
+        enter: jest.fn(),
+        applyFilters: jest.fn((_s: string, p: number, q: number) => ({ price: p, qty: q, valid: true })),
+      };
+      const sessionState: any = {
+        entryInProgress: false,
+        realTimePositions: new Map(),
+        paused: false,
+        isPaused: false,
+        pausedStrategies: new Set(),
+        isStrategyPaused: jest.fn().mockReturnValue(false),
+        isBanned: jest.fn().mockReturnValue(false),
+        isGeoBlocked: jest.fn().mockReturnValue(false),
+        agreementRequired: false,
+        tradfiAgreementRequired: false,
+        getBalance: jest.fn().mockReturnValue(1000),
+        currentSessionId: 'sess-test',
+        closedTrades: [],
+        stats: {},
+      };
+      const marketFeedService: any = {
+        getSymbolFilters: jest.fn().mockReturnValue({ tickSize: 0.00001, stepSize: 1, minNotional: 5, assetClass: 'crypto' }),
+        resolveInterval: jest.fn((tf: string) => tf || '1h'),
+      };
+      const svc = new ExecutionService(
+        {
+          getPrice: jest.fn().mockReturnValue(0.0582),
+          getTicker: jest.fn().mockReturnValue({ price: 0.0582, mark_price: 0.0582, markPrice: 0.0582, pct: 45 }),
+        } as any,
+        {
+          getRawCandles: jest.fn().mockReturnValue([]),
+          getRecentCandles: jest.fn().mockReturnValue([]),
+          getCandles: jest.fn().mockReturnValue([]),
+          getLookbackExtremes: jest.fn().mockReturnValue({ minLow: 0.04686, maxHigh: 0.06 }),
+        } as any,
+        {
+          checkEntry: jest.fn().mockReturnValue({ allFired: true, firedSignals: ['ema_dual'], reason: 'ok', details: {} }),
+        } as any,
+        {
+          computeSl: jest.fn().mockReturnValue({ slPrice: 0.04686, rejected: false }),
+          computePositionSize: jest.fn().mockReturnValue({ qty: 500, riskUsdt: 5, riskPct: 0.5, rejected: false }),
+          computeTp: jest.fn().mockReturnValue(0.08),
+          canEnter: jest.fn().mockReturnValue({ canEnter: true, reason: 'OK' }),
+        } as any,
+        {
+          hasSymbol: jest.fn().mockReturnValue(false),
+          activeList: jest.fn().mockReturnValue([]),
+          countByStrategy: jest.fn().mockReturnValue(0),
+          enteringCount: jest.fn().mockReturnValue(0),
+          totalRisk: jest.fn().mockReturnValue(0),
+          isEntering: jest.fn().mockReturnValue(false),
+          setEntering: jest.fn(),
+          add: jest.fn(),
+          peakRrSwitchHits: new Map(),
+        } as any,
+        orderManager as any,
+        sessionState,
+        {
+          isExecutionAllowed: jest.fn().mockReturnValue(true),
+          getStrategyGateState: jest.fn().mockReturnValue({ gateState: 'ACTIVE' }),
+        } as any,
+        broadcastService as any,
+        { setLoopStage: jest.fn() } as any,
+        { serializeTrade: jest.fn((t: any) => t) } as any,
+        eventEmitter as any,
+        {} as any,
+        marketFeedService,
+      );
+      return { svc, eventEmitter, broadcastService, orderManager };
+    };
+
+    it('summarizes PERCENT_PRICE preflight errors cleanly without trailing commas', () => {
+      const { svc } = createExecutionService();
+      const raw =
+        'SL price 0.04686 was clamped to 0.04973 by the local Binance PERCENT_PRICE preflight (6.12% move). Mark: 0.05821891, multipliers: 0.85/1.15, raw band: [0.04948607, 0.06695175], ticker age: 42ms. Rejecting entry to preserve risk/reward integrity.';
+      const summary = (svc as any).summarizeFailureReason(raw);
+      expect(summary).toBe('SL 0.04686 clamped to 0.04973 by PERCENT_PRICE preflight (6.12% move; band 0.85/1.15)');
+      expect(summary.endsWith(',')).toBe(false);
+    });
+
+    it('caps local preflight rejection cooldowns at 2m -> 5m -> 10m and suppresses minute-by-minute cooldown log spam', async () => {
+      const { svc, eventEmitter, orderManager } = createExecutionService();
+      const ppErr =
+        'SL price 0.04686 was clamped to 0.04973 by the local Binance PERCENT_PRICE preflight (6.12% move). Mark: 0.05821891, multipliers: 0.85/1.15, raw band: [0.04948607, 0.06695175]';
+      orderManager.enter.mockResolvedValue({ status: ExecutionStatus.ORDER_REJECTED, error: ppErr });
+
+      const config = {
+        strategy_label: '24h Gainer 1',
+        trading_mode: 'live',
+        paper_mode: false,
+        scan_interval: '1h',
+        entry_side: 'both',
+        anti_whipsaw_enabled: false,
+        anti_whipsaw_timeframes: [],
+      } as unknown as SessionConfig;
+      const opps = [{ symbol: 'KERNELUSDT', direction: 'LONG', price: 0.0582, momentum: 45, score: 90, strategy_label: '24h Gainer 1' }];
+
+      const failureKey = 'live:24h Gainer 1:KERNELUSDT';
+
+      // Failure 1 -> 2m cooldown
+      await svc.processEntries(opps, config, '24h Gainer 1');
+      let remMin = Math.round(((svc as any).entryCooldowns.get(failureKey) - Date.now()) / 60000);
+      expect(remMin).toBe(2);
+
+      // Subsequent tick during cooldown must NOT spam another cooldown log
+      const logsAfterFail1 = eventEmitter.emit.mock.calls.length;
+      await svc.processEntries(opps, config, '24h Gainer 1');
+      expect(eventEmitter.emit.mock.calls.length).toBe(logsAfterFail1);
+
+      // Simulate cooldown expiry -> Failure 2 -> 5m cooldown
+      (svc as any).entryCooldowns.set(failureKey, Date.now() - 1000);
+      await svc.processEntries(opps, config, '24h Gainer 1');
+      remMin = Math.round(((svc as any).entryCooldowns.get(failureKey) - Date.now()) / 60000);
+      expect(remMin).toBe(5);
+
+      // Simulate cooldown expiry -> Failure 3 -> capped at 10m (not 60m!)
+      (svc as any).entryCooldowns.set(failureKey, Date.now() - 1000);
+      await svc.processEntries(opps, config, '24h Gainer 1');
+      remMin = Math.round(((svc as any).entryCooldowns.get(failureKey) - Date.now()) / 60000);
+      expect(remMin).toBe(10);
     });
   });
 });

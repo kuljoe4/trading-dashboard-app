@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { formatDuration, calculateProximity } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
 import { analyzeTradeDiagnostics } from '../utils/tradeDiagnostics'
-import { computeConditionMeter } from '../utils/candidateConditions'
+import { computeConditionMeter, buildRunwayRTicks } from '../utils/candidateConditions'
 
 import { useTradingStore } from '../store/trading'
 
@@ -108,12 +108,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const leftEdgeR = Math.min(-1, slR, markR < -1 ? markR : -1)
   const totalRangeR = rightEdgeR - leftEdgeR
 
-  const pos = (price) => {
+  const rawPos = (price) => {
     if (!totalRangeR || totalRangeR <= 0) return 50
     const r = getR(price)
-    const frac = (r - leftEdgeR) / totalRangeR
-    return Math.max(0, Math.min(100, frac * 100))
+    return ((r - leftEdgeR) / totalRangeR) * 100
   }
+
+  const pos = (price) => Math.max(0, Math.min(100, rawPos(price)))
 
   const progress = pos(mark)
   const entryMarkPos = pos(entry)
@@ -121,11 +122,30 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const tpPos = tp > 0 ? pos(tp) : null
   const peakPrice = isLong ? (entry + peakR * riskUnit) : (entry - peakR * riskUnit)
   const peakPos = pos(peakPrice)
+  const runwayRTicks = React.useMemo(
+    () => buildRunwayRTicks(leftEdgeR, rightEdgeR, (rVal) => {
+      if (!totalRangeR || totalRangeR <= 0) return 50
+      return Math.max(0, Math.min(100, ((rVal - leftEdgeR) / totalRangeR) * 100))
+    }),
+    [leftEdgeR, rightEdgeR, totalRangeR]
+  )
 
   // Dual Indicator Markers calculation (Fast EMA & Slow EMA distinct runway landmarks)
   const { dualIndicatorMarkers } = React.useMemo(() => {
     if (!trade.exit_signals_status) return { dualIndicatorMarkers: [] }
     const list = []
+
+    const makeMarkerMeta = (priceVal) => {
+      const rVal = getR(priceVal)
+      const rp = totalRangeR > 0 ? ((rVal - leftEdgeR) / totalRangeR) * 100 : 50
+      const offEdge = rp < 0 ? 'left' : rp > 100 ? 'right' : null
+      return {
+        pos: Math.max(0, Math.min(100, rp)),
+        rawPos: rp,
+        rValue: rVal,
+        offEdge,
+      }
+    }
 
     for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
       if (!sig) continue
@@ -151,7 +171,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             label: `${sig.label || 'Dual EMA'} (Fast)`,
             shortLabel: 'FAST EMA',
             price: fastPrice,
-            pos: pos(fastPrice),
+            ...makeMarkerMeta(fastPrice),
             fired: sig.fired && sig.active,
             isFast: true,
             colorType: 'fast',
@@ -165,7 +185,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             label: `${sig.label || 'Dual EMA'} (Slow)`,
             shortLabel: 'SLOW EMA',
             price: slowPrice,
-            pos: pos(slowPrice),
+            ...makeMarkerMeta(slowPrice),
             fired: sig.fired && sig.active,
             isSlow: true,
             colorType: 'slow',
@@ -179,7 +199,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             label: sig.label || key,
             shortLabel: 'EXIT',
             price: sig.threshold,
-            pos: pos(sig.threshold),
+            ...makeMarkerMeta(sig.threshold),
             fired: sig.fired && sig.active,
             colorType: 'standard',
             signal: sig
@@ -524,20 +544,20 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       </div>
 
       {/* TIER 2: Clean R-First Runway Track & Landmarks */}
-      <div className="flex flex-col justify-center h-[58px] min-w-0 my-0.5 relative shrink-0">
+      <div className="flex flex-col justify-center min-h-[58px] min-w-0 my-0.5 relative shrink-0">
         {/* Top Tick Landmark Labels (R-First Language) */}
-        <div className="flex justify-between items-end text-[7.5px] font-black font-mono uppercase tracking-tight text-dim mb-1 leading-none">
+        <div className="flex justify-between items-end gap-1.5 text-[7.5px] font-black font-mono uppercase tracking-tight text-dim mb-1 leading-none min-w-0">
           {/* SL Landmark */}
           {(() => {
             const slDistPct = entry > 0 ? (Math.abs(sl - entry) / entry) * 100 : 0;
             const initialSlDistPct = entry > 0 ? (Math.abs(initialSl - entry) / entry) * 100 : 0;
             return (
               <Tooltip content={`Stop Loss: ${fmtUSD(sl)} (${slR >= 0 ? '+' : ''}${slR.toFixed(2)}R) • Current Dist: ${slDistPct.toFixed(2)}% • Initial SL: ${fmtUSD(initialSl)} (${initialSlDistPct.toFixed(2)}%)`}>
-                <div className="flex flex-col items-start cursor-help">
-                  <span className={cn("text-red font-black", slHighlight && "text-[#00f0ff]")}>
+                <div className="flex flex-col items-start cursor-help min-w-0">
+                  <span className={cn("text-red font-black whitespace-nowrap", slHighlight && "text-[#00f0ff]")}>
                     SL {slR.toFixed(1)}R
                   </span>
-                  <span className="text-[6.5px] text-dim/70 font-normal">{fmtUSD(sl)} ({slDistPct.toFixed(1)}%)</span>
+                  <span className="text-[6.5px] text-dim/70 font-normal truncate max-w-full">{fmtUSD(sl)} ({slDistPct.toFixed(1)}%)</span>
                 </div>
               </Tooltip>
             );
@@ -545,31 +565,31 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
           {/* ENTRY Landmark */}
           <Tooltip content={`Entry Price: ${fmtUSD(entry)} (0.00R)`}>
-            <div className="flex flex-col items-center cursor-help">
-              <span className="text-dim font-black">0R ENTRY</span>
-              <span className="text-[6.5px] text-dim/70 font-normal">{fmtUSD(entry)}</span>
+            <div className="flex flex-col items-center cursor-help min-w-0">
+              <span className="text-dim font-black whitespace-nowrap">0R ENTRY</span>
+              <span className="text-[6.5px] text-dim/70 font-normal truncate max-w-full">{fmtUSD(entry)}</span>
             </div>
           </Tooltip>
 
           {/* PEAK Landmark (If active) */}
           {peakR >= 0.1 && (
             <Tooltip content={`Peak Profit Reached: +${peakR.toFixed(2)}R (${fmtUSD(peakPrice)})`}>
-              <div className="flex flex-col items-center cursor-help">
-                <span className={cn("text-purple font-black", peakHighlight && "text-[#00f0ff]")}>
+              <div className="flex flex-col items-center cursor-help min-w-0">
+                <span className={cn("text-purple font-black whitespace-nowrap", peakHighlight && "text-[#00f0ff]")}>
                   PEAK +{peakR.toFixed(1)}R
                 </span>
-                <span className="text-[6.5px] text-dim/70 font-normal">{fmtUSD(peakPrice)}</span>
+                <span className="text-[6.5px] text-dim/70 font-normal truncate max-w-full">{fmtUSD(peakPrice)}</span>
               </div>
             </Tooltip>
           )}
 
           {/* TP Landmark (Or Right Scale Target) */}
           <Tooltip content={tp > 0 ? `Take Profit Target: ${fmtUSD(tp)} (+${tpR.toFixed(2)}R)` : `Target Scale: +${targetR.toFixed(1)}R`}>
-            <div className="flex flex-col items-end cursor-help">
-              <span className="text-green font-black">
+            <div className="flex flex-col items-end cursor-help min-w-0">
+              <span className="text-green font-black whitespace-nowrap">
                 {tp > 0 ? `TP +${tpR.toFixed(1)}R` : `+${targetR.toFixed(1)}R`}
               </span>
-              <span className="text-[6.5px] text-dim/70 font-normal">
+              <span className="text-[6.5px] text-dim/70 font-normal truncate max-w-full">
                 {fmtUSD(tp > 0 ? tp : (isLong ? entry + targetR * riskUnit : entry - targetR * riskUnit))}
               </span>
             </div>
@@ -597,13 +617,29 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             style={{ left: `${entryMarkPos}%` }}
           />
 
-          {/* Progress Fill */}
+          {/* Proportionate R-Scale Tick Hairlines */}
+          {runwayRTicks.map((t) => (
+            <div
+              key={`rtick-${t.r}`}
+              className={cn(
+                "absolute top-0 bottom-0 w-px pointer-events-none z-10",
+                t.isAnchor ? "bg-white/25" : "bg-white/12"
+              )}
+              style={{ left: `${t.pct}%` }}
+              aria-hidden="true"
+            />
+          ))}
+
+          {/* Active PnL Progress Fill anchored strictly at Entry (0R): green right for profit, red left for loss */}
           <div
             className={cn(
-              "h-full rounded-full transition-all duration-300 opacity-90 shadow-[0_0_6px_rgba(0,0,0,0.4)]",
-              trade.pnl >= 0 ? "bg-green" : "bg-red"
+              "absolute top-0 bottom-0 rounded-full transition-[left,width,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] opacity-90 shadow-[0_0_6px_rgba(0,0,0,0.4)]",
+              markR >= 0 ? "bg-green" : "bg-red"
             )}
-            style={{ width: `${progress}%` }}
+            style={{
+              left: `${markR >= 0 ? entryMarkPos : Math.min(entryMarkPos, progress)}%`,
+              width: `${Math.abs(progress - entryMarkPos)}%`,
+            }}
           />
 
           {/* Entry Seam Marker Dot */}
@@ -642,64 +678,99 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             />
           )}
           {/* Exit Signal Landmark Markers on Active Card Runway */}
-          {dualIndicatorMarkers.map((m) => {
-            if (m.pos < 0 || m.pos > 100) return null;
+          {(() => {
+            let leftOffIdx = 0;
+            let rightOffIdx = 0;
+            return dualIndicatorMarkers.map((m) => {
+              if (m.pos < 0 || m.pos > 100) return null;
 
-            const isFast = m.colorType === 'fast';
-            const isSlow = m.colorType === 'slow';
+              const isFast = m.colorType === 'fast';
+              const isSlow = m.colorType === 'slow';
+              const rValNum = Number.isFinite(Number(m.rValue)) ? Number(m.rValue) : null;
+              const rFormatted = rValNum !== null ? `${rValNum >= 0 ? '+' : ''}${rValNum.toFixed(2)}R` : '';
+              const offSlot = m.offEdge === 'left' ? leftOffIdx++ : m.offEdge === 'right' ? rightOffIdx++ : 0;
 
-            const dotStyle = m.fired
-              ? "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-ping"
-              : isFast
-              ? "bg-cyan-400 border border-cyan-200 shadow-[0_0_6px_rgba(34,211,238,0.9)]"
-              : isSlow
-              ? "bg-purple-400 border border-purple-200 shadow-[0_0_6px_rgba(168,85,247,0.9)]"
-              : "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]";
+              const dotStyle = m.fired
+                ? "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-ping"
+                : isFast
+                ? "bg-cyan-400 border border-cyan-200 shadow-[0_0_6px_rgba(34,211,238,0.9)]"
+                : isSlow
+                ? "bg-purple-400 border border-purple-200 shadow-[0_0_6px_rgba(168,85,247,0.9)]"
+                : "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]";
 
-            const lineStyle = m.fired
-              ? "bg-rose-500/80 shadow-[0_0_4px_rgba(244,63,94,0.8)]"
-              : isFast
-              ? "bg-cyan-400/80"
-              : isSlow
-              ? "bg-purple-400/80"
-              : "bg-amber-400/60";
+              const lineStyle = m.fired
+                ? "bg-rose-500/80 shadow-[0_0_4px_rgba(244,63,94,0.8)]"
+                : isFast
+                ? "bg-cyan-400/80"
+                : isSlow
+                ? "bg-purple-400/80"
+                : "bg-amber-400/60";
 
-            return (
-              <Tooltip
-                key={`runway-sig-${m.key}`}
-                content={
-                  <div className="flex flex-col gap-0.5 text-[10px] font-sans text-left">
-                    <div className="font-bold flex items-center gap-1.5">
-                      <span className={m.fired ? "text-rose-400 font-black" : isFast ? "text-cyan-300 font-bold" : isSlow ? "text-purple-300 font-bold" : "text-amber-400 font-bold"}>
-                        ⚡ {m.label || 'Exit Signal'}
-                      </span>
-                      {m.fired && <span className="bg-rose-500/20 text-rose-400 border border-rose-500/30 px-1 py-0.2 rounded text-[8px] font-black uppercase">CRITICAL</span>}
+              const offEdgeTextTone = m.fired
+                ? "text-rose-400"
+                : isFast
+                ? "text-cyan-300"
+                : isSlow
+                ? "text-purple-300"
+                : "text-amber-400";
+
+              return (
+                <Tooltip
+                  key={`runway-sig-${m.key}`}
+                  content={
+                    <div className="flex flex-col gap-0.5 text-[10px] font-sans text-left">
+                      <div className="font-bold flex items-center gap-1.5">
+                        <span className={m.fired ? "text-rose-400 font-black" : isFast ? "text-cyan-300 font-bold" : isSlow ? "text-purple-300 font-bold" : "text-amber-400 font-bold"}>
+                          ⚡ {m.label || 'Exit Signal'}
+                        </span>
+                        {m.fired && <span className="bg-rose-500/20 text-rose-400 border border-rose-500/30 px-1 py-0.2 rounded text-[8px] font-black uppercase">CRITICAL</span>}
+                      </div>
+                      <div className="text-dim">
+                        Level: <span className="text-text font-mono font-bold">{fmtUSD(m.price)}</span>
+                        {rFormatted && <span className="text-dim/80 font-mono"> ({rFormatted})</span>}
+                      </div>
+                      {m.offEdge && (
+                        <div className="text-amber-300 font-mono text-[9px]">
+                          Off-scale {m.offEdge} of runway ({rFormatted})
+                        </div>
+                      )}
+                      <div className="text-dim">Status: <span className={m.fired ? "text-rose-400 font-semibold" : "text-accent font-semibold"}>{m.fired ? 'FIRED / ACTIVE' : 'MONITORING'}</span></div>
                     </div>
-                    <div className="text-dim">Level: <span className="text-text font-mono font-bold">{fmtUSD(m.price)}</span></div>
-                    <div className="text-dim">Status: <span className={m.fired ? "text-rose-400 font-semibold" : "text-accent font-semibold"}>{m.fired ? 'FIRED / ACTIVE' : 'MONITORING'}</span></div>
-                  </div>
-                }
-              >
-                <div
-                  className="absolute top-0 bottom-0 z-25 -ml-[3px] flex flex-col items-center cursor-help group/sig pointer-events-auto"
-                  style={{ left: `${m.pos}%` }}
+                  }
                 >
-                  <div
-                    className={cn(
-                      "w-1.5 h-1.5 rounded-full transition-transform group-hover/sig:scale-150 shadow-sm",
-                      dotStyle
-                    )}
-                  />
-                  <div
-                    className={cn(
-                      "w-0.5 flex-1",
-                      lineStyle
-                    )}
-                  />
-                </div>
-              </Tooltip>
-            );
-          })}
+                  {m.offEdge ? (
+                    <div
+                      className={cn(
+                        "absolute top-1/2 -translate-y-1/2 z-25 cursor-help pointer-events-auto font-mono text-[9px] font-black leading-none px-0.5 rounded bg-surface/90 border border-white/15",
+                        offEdgeTextTone
+                      )}
+                      style={m.offEdge === 'left' ? { left: `${offSlot * 12}px` } : { right: `${offSlot * 12}px` }}
+                    >
+                      {m.offEdge === 'left' ? '‹' : '›'}
+                    </div>
+                  ) : (
+                    <div
+                      className="absolute top-0 bottom-0 z-25 -ml-[3px] flex flex-col items-center cursor-help group/sig pointer-events-auto"
+                      style={{ left: `${m.pos}%` }}
+                    >
+                      <div
+                        className={cn(
+                          "w-1.5 h-1.5 rounded-full transition-transform group-hover/sig:scale-150 shadow-sm",
+                          dotStyle
+                        )}
+                      />
+                      <div
+                        className={cn(
+                          "w-0.5 flex-1",
+                          lineStyle
+                        )}
+                      />
+                    </div>
+                  )}
+                </Tooltip>
+              );
+            });
+          })()}
 
           {/* Trail Motion Blur */}
           <AnimatePresence>
@@ -737,15 +808,15 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         </div>
 
         {/* Current Price Callout Bar below Runway */}
-        <div className="flex justify-between items-center text-[7.5px] font-mono leading-none pt-0.5">
-          <div className="flex items-center gap-1.5 text-dim">
-            <span className="font-bold text-text">NOW: {fmtUSD(mark)}</span>
+        <div className="flex justify-between items-center gap-2 text-[7.5px] font-mono leading-none pt-0.5 min-w-0">
+          <div className="flex items-center gap-1.5 text-dim min-w-0 truncate">
+            <span className="font-bold text-text truncate">NOW: {fmtUSD(mark)}</span>
           </div>
 
           {/* Retracement Giveback Warning if active */}
           {isRetracing && (
             <Tooltip content={`Peak +${peakR.toFixed(2)}R retraced to +${markR.toFixed(2)}R. Profit giveback: -${givebackR.toFixed(2)}R (${givebackPctOfPeak.toFixed(0)}% of peak).`}>
-              <span className="text-amber font-black cursor-help flex items-center gap-0.5 bg-amber/10 border border-amber/20 px-1 py-0.2 rounded">
+              <span className="text-amber font-black cursor-help flex items-center gap-0.5 bg-amber/10 border border-amber/20 px-1 py-0.2 rounded shrink-0 whitespace-nowrap">
                 <AlertTriangle size={7} /> Giveback -{givebackR.toFixed(2)}R ({givebackPctOfPeak.toFixed(0)}%)
               </span>
             </Tooltip>

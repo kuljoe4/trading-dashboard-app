@@ -58,6 +58,26 @@ export class ExecutionService {
     this.eventEmitter?.emit?.(ENGINE_EVENTS.LOG_MESSAGE, { msg, level, symbol });
   }
 
+  private summarizeFailureReason(rawError: unknown, maxLen = 140): string {
+    const raw = String(rawError || 'Order rejected by exchange').trim();
+    const ppMatch = raw.match(
+      /SL price\s+([\d.eE+-]+)\s+was clamped to\s+([\d.eE+-]+)\s+by the local Binance PERCENT_PRICE preflight\s+\(([^)]+)\)(?:.*?multipliers:\s*([^\s,]+))?/i,
+    );
+    if (ppMatch) {
+      const [, origSl, clampedSl, moveDesc, band] = ppMatch;
+      const bandSuffix = band && band !== 'unavailable/unavailable' ? `; band ${band}` : '';
+      return `SL ${origSl} clamped to ${clampedSl} by PERCENT_PRICE preflight (${moveDesc}${bandSuffix})`;
+    }
+    if (raw.length <= maxLen) {
+      return raw.replace(/[,;:\s]+$/, '');
+    }
+    const sliced = raw.slice(0, maxLen - 1);
+    const lastSpace = sliced.lastIndexOf(' ');
+    const cleanCut = (lastSpace > Math.floor(maxLen * 0.65) ? sliced.slice(0, lastSpace) : sliced)
+      .replace(/[,;:\s(]+$/, '');
+    return `${cleanCut}…`;
+  }
+
   constructor(
     private readonly tickerCache: TickerCacheService,
     private readonly klineStore: KlineStoreService,
@@ -364,6 +384,8 @@ export class ExecutionService {
             strategyLabel || opp.strategy_label || config.strategy_label || 'Momentum Strategy',
             'cooldown',
             `cooldown active (${remSec}s remaining${msgSuffix})`,
+            'info',
+            15 * 60 * 1000,
           );
           continue;
         } else if (cooldownExpiry) {
@@ -396,7 +418,14 @@ export class ExecutionService {
             ? `cooldown active (${remSec}s remaining — ${triggerReason})`
             : `strategy interval cooldown (${remSec}s remaining)`;
           this.logger.debug(`${opp.symbol} (${currentStrategyLabel}): Entry skipped (${mode}) - ${reasonLabel}`);
-          this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, triggerReason ? 'cooldown' : 'scoped_cooldown', reasonLabel);
+          this.emitEntrySkipLog(
+            opp.symbol,
+            currentStrategyLabel,
+            triggerReason ? 'cooldown' : 'scoped_cooldown',
+            reasonLabel,
+            'info',
+            15 * 60 * 1000,
+          );
           continue;
         } else if (scopedCooldownExpiry) {
           this.entryCooldowns.delete(scopedCooldownKey);
@@ -1078,12 +1107,24 @@ export class ExecutionService {
               const failures = (this.consecutiveFailures.get(failureKey) || 0) + 1;
               this.consecutiveFailures.set(failureKey, failures);
 
-              let cooldownMinutes = 5;
-              if (failures === 2) cooldownMinutes = 15;
-              else if (failures >= 3) cooldownMinutes = 60;
+              const isLocalPreflightRejection =
+                errStr.includes('PERCENT_PRICE preflight') ||
+                errStr.includes('MIN_NOTIONAL') ||
+                errStr.includes('LOT_SIZE filtering') ||
+                errStr.includes('Stop loss price must be positive') ||
+                errStr.includes('Take profit price must be positive');
 
-              const failReason = String(result.error || result.status || 'Order rejected by exchange').slice(0, 140);
-              this.entryCooldowns.set(failureKey, Date.now() + cooldownMinutes * 60 * 1000);
+              let cooldownMinutes: number;
+              if (isLocalPreflightRejection) {
+                // Local geometry/filter preflights never hit Binance; cap escalation at 10m so a pullback can re-enter promptly
+                cooldownMinutes = failures === 1 ? 2 : failures === 2 ? 5 : 10;
+              } else {
+                cooldownMinutes = failures === 1 ? 5 : failures === 2 ? 15 : 60;
+              }
+
+              const failReason = this.summarizeFailureReason(result.error || result.status || 'Order rejected by exchange');
+              const cooldownMs = cooldownMinutes * 60 * 1000;
+              this.entryCooldowns.set(failureKey, Date.now() + cooldownMs);
               this.entryCooldownReasons.set(failureKey, `prior entry failed: ${failReason}`);
               this.logger.warn(`${opp.symbol} (${currentStrategyLabel}): Entry failed (${mode}) with status ${result.status}. Consecutive failures: ${failures}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
               this.emitEntrySkipLog(
@@ -1094,13 +1135,20 @@ export class ExecutionService {
                 'warn',
                 5000,
               );
+              // Suppress redundant "cooldown active" reminder logs immediately after logging entry_failed
+              this.loggedEntrySkipMap.set(
+                `${currentStrategyLabel}:${opp.symbol}:cooldown`,
+                Date.now() + Math.min(cooldownMs, 15 * 60 * 1000),
+              );
 
-              this.broadcastService.broadcast('alert', {
-                level: 'warn',
-                title: 'Entry Failed',
-                message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
-                symbol: opp.symbol
-              });
+              if (!isLocalPreflightRejection || failures === 1) {
+                this.broadcastService.broadcast('alert', {
+                  level: 'warn',
+                  title: isLocalPreflightRejection ? 'Entry Preflight Rejected' : 'Entry Failed',
+                  message: `${opp.symbol}: ${failReason}. Skipping for ${cooldownMinutes}m.`,
+                  symbol: opp.symbol
+                });
+              }
             }
           }
 
@@ -1121,9 +1169,14 @@ export class ExecutionService {
           const cooldownMinutes = 2;
           const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
           const errKey = `${mode}:${currentStrategyLabel}:${opp.symbol}`;
-          const shortErr = errMsg.slice(0, 140);
-          this.entryCooldowns.set(errKey, Date.now() + cooldownMinutes * 60 * 1000);
+          const shortErr = this.summarizeFailureReason(errMsg);
+          const cooldownMs = cooldownMinutes * 60 * 1000;
+          this.entryCooldowns.set(errKey, Date.now() + cooldownMs);
           this.entryCooldownReasons.set(errKey, `prior exception: ${shortErr}`);
+          this.loggedEntrySkipMap.set(
+            `${currentStrategyLabel}:${opp.symbol}:cooldown`,
+            Date.now() + cooldownMs,
+          );
           this.emitEntrySkipLog(
             opp.symbol,
             currentStrategyLabel,

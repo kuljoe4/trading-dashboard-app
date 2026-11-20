@@ -1227,8 +1227,11 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
         outcome = 'rejected';
         stageNum = '3';
         stage = '3. Risk & SL';
-        const skipMatch = msg.match(/Entry skipped\s*-\s*([^.]+)/i);
-        const skipCause = skipMatch ? skipMatch[1].trim() : '';
+        const skipMatch = msg.match(/Entry skipped\s*-\s*(.+?)(?:\.(?:\s|$)|$)/i);
+        const rawSkipCause = skipMatch ? skipMatch[1].trim() : '';
+        const skipCause = rawSkipCause.length > 108
+          ? `${rawSkipCause.slice(0, 107).replace(/[,;:\s(]+$/, '')}…`
+          : rawSkipCause;
         title = skipCause ? `Entry Skipped: ${itemSymbol} — ${skipCause}` : `Entry Skipped: ${itemSymbol}`;
       } else if (msg.includes('disallowed by entry_side') || msg.includes('entry_side')) {
         outcome = 'rejected';

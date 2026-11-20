@@ -240,18 +240,20 @@ export const SignalGauge = React.memo(({
                 dialPct={meter.dialPct}
                 dialZone={zone}
                 dialOverText={meter.dialOverText}
+                dialScale={meter.dialScale}
+                subText={meter.dialScale?.subText || ''}
                 size="sm"
                 changeInfo={changeInfo}
               />
             </div>
 
             <div className="flex flex-col gap-1.5 rounded-lg bg-surface/45 border border-border/35 px-2.5 py-1.5 font-mono text-[10.5px] tabular-nums">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-dim text-[9px] uppercase tracking-wider font-semibold">Live / Target</span>
-                <div className="truncate flex items-center gap-1">
+              <div className="flex items-baseline justify-between gap-2 min-w-0">
+                <span className="text-dim text-[9px] uppercase tracking-wider font-semibold shrink-0">Live / Target</span>
+                <div className="min-w-0 truncate flex items-center gap-1">
                   <strong
                     className={cn(
-                      'font-bold transition-colors duration-300',
+                      'font-bold truncate transition-colors duration-300',
                       changeInfo?.changed ? changeInfo.toneClass : liveToneClass
                     )}
                   >
@@ -259,21 +261,21 @@ export const SignalGauge = React.memo(({
                   </strong>
                   {finalThreshold !== undefined && finalThreshold !== null && (
                     <>
-                      <span className="text-dim/60">/</span>
-                      <span className="text-accent font-semibold">{formatVal(finalThreshold)}</span>
+                      <span className="text-dim/60 shrink-0">/</span>
+                      <span className="text-accent font-semibold truncate">{formatVal(finalThreshold)}</span>
                     </>
                   )}
                 </div>
               </div>
 
               {hasDeltaReadout && (
-                <div className="flex items-center justify-between gap-2 text-[9px] border-t border-border/25 pt-1">
-                  <span className="text-dim uppercase tracking-wider font-semibold text-[8.5px]">
+                <div className="flex items-center justify-between gap-2 text-[9px] border-t border-border/25 pt-1 min-w-0">
+                  <span className="text-dim uppercase tracking-wider font-semibold text-[8.5px] shrink-0">
                     {(Number(meter.dialPct) || 0) >= 100 ? 'Past target' : 'To go'}
                   </span>
                   <span
                     className={cn(
-                      'font-bold truncate transition-colors duration-300',
+                      'font-bold min-w-0 truncate transition-colors duration-300',
                       changeInfo?.changed ? changeInfo.toneClass : (ZONE_TEXT_CLASS[zone] || 'text-dim')
                     )}
                   >

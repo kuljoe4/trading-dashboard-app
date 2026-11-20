@@ -10,6 +10,9 @@ import {
   buildMacdFilterModel,
   buildHtfLadderModel,
   buildCandidateConditionsModel,
+  pickNicePercentBound,
+  pickNiceRatioMax,
+  buildRunwayRTicks,
 } from '../utils/candidateConditions.js';
 
 test('CandidateConditionsGauge helper suite', async (t) => {
@@ -580,6 +583,120 @@ test('CandidateConditionsGauge helper suite', async (t) => {
     assert.strictEqual(fallbackEmaMacd.rejected, true);
     assert.strictEqual(fallbackEmaMacd.histogram, -0.015);
   });
+
+  await t.test('pickNicePercentBound, pickNiceRatioMax, and buildRunwayRTicks produce clean proportionate scales', () => {
+    assert.strictEqual(pickNicePercentBound(0.2, 0.5), 0.5);
+    assert.strictEqual(pickNicePercentBound(0.8, 1.0), 1);
+    assert.strictEqual(pickNicePercentBound(1.5, 1.0), 2);
+    assert.strictEqual(pickNicePercentBound(4.2, 1.0), 5);
+    assert.strictEqual(pickNicePercentBound(80, 1.0), 50);
+
+    assert.strictEqual(pickNiceRatioMax(120), 150);
+    assert.strictEqual(pickNiceRatioMax(160), 200);
+    assert.strictEqual(pickNiceRatioMax(219), 300);
+    assert.strictEqual(pickNiceRatioMax(420), 500);
+    assert.strictEqual(pickNiceRatioMax(800), 1000);
+
+    const ticks = buildRunwayRTicks(-1.1, 3.24, (r) => ((r - (-1.1)) / (3.24 - (-1.1))) * 100);
+    const labels = ticks.map((tk) => tk.label);
+    assert.ok(labels.includes('-1R'));
+    assert.ok(labels.includes('0R'));
+    assert.ok(labels.includes('+1R'));
+    assert.ok(labels.includes('+2R'));
+    assert.ok(labels.includes('+3R'));
+    // Strictly monotonic percentages
+    for (let i = 1; i < ticks.length; i++) {
+      assert.ok(ticks[i].pct > ticks[i - 1].pct);
+    }
+  });
+
+  await t.test('computeConditionMeter scales EMA / price-level signals linearly in bipolar_pct without 10x amplification', () => {
+    // Fast EMA 1.50% past Slow EMA on a 1.0% reference span -> nice bound = ±2%
+    const emaPast = computeConditionMeter({
+      value: 101.5,
+      threshold: 100.0,
+      thresholdIsPrice: true,
+      isLong: true,
+      fired: true,
+      signalKey: 'ema_dual',
+      isIndicatorPair: true,
+      referenceSpanPct: 1.0,
+    });
+    assert.strictEqual(emaPast.dialScale.mode, 'bipolar_pct');
+    assert.strictEqual(emaPast.dialScale.boundPct, 2);
+    assert.strictEqual(emaPast.dialScale.centerLabel, 'cross');
+    assert.strictEqual(emaPast.dialScale.minLabel, '-2%');
+    assert.strictEqual(emaPast.dialScale.maxLabel, '+2%');
+    assert.strictEqual(emaPast.dialScale.subText, 'scale ±2%');
+    // True signed % readout (NOT +15% past from 10x distortion)
+    assert.strictEqual(emaPast.dialOverText, '+1.50% past');
+    // Linear proportion: +1.5% out of ±2% => 50 + (1.5/2)*50 = 88%
+    assert.strictEqual(emaPast.meterFillPct, 88);
+
+    // Fast EMA 0.50% below Slow EMA on a 1.0% reference span -> nice bound = ±1%
+    const emaApproach = computeConditionMeter({
+      value: 99.5,
+      threshold: 100.0,
+      thresholdIsPrice: true,
+      isLong: true,
+      fired: false,
+      signalKey: 'ema_dual',
+      isIndicatorPair: true,
+      referenceSpanPct: 1.0,
+    });
+    assert.strictEqual(emaApproach.dialScale.mode, 'bipolar_pct');
+    assert.strictEqual(emaApproach.dialScale.boundPct, 1);
+    assert.strictEqual(emaApproach.dialOverText, '0.50% to cross');
+    // Linear proportion: -0.5% out of ±1% => 50 - 25 = 25%
+    assert.strictEqual(emaApproach.meterFillPct, 25);
+  });
+
+  await t.test('computeConditionMeter attaches adaptive linear_ratio dialScale for past-target velocity overshoots', () => {
+    const overshoot = computeConditionMeter({
+      value: 4.39,
+      threshold: 2.0,
+      unit: '%',
+      fired: true,
+      signalKey: '__velocity__',
+      proximity: 100,
+    });
+    assert.strictEqual(overshoot.dialScale.mode, 'linear_ratio');
+    assert.strictEqual(overshoot.dialScale.maxPct, 300);
+    assert.strictEqual(overshoot.dialScale.valuePct, 219);
+    assert.strictEqual(overshoot.dialScale.maxLabel, '+200%');
+    assert.strictEqual(overshoot.dialScale.subText, '2.19× target');
+    assert.strictEqual(overshoot.dialScale.isOffScale, false);
+  });
+
+  await t.test('positionRunway preserves exact 1R proportionality when SL trails into profit', () => {
+    const model = buildCandidateConditionsModel({
+      opp: { symbol: 'TAOUSDT', dir: 'long', pct: 4.5, close: 215 },
+      activeTrade: {
+        symbol: 'TAOUSDT',
+        direction: 'LONG',
+        entry_price: 200,
+        current_price: 215, // +1.5R (exact midpoint between Entry 200 and TP 230)
+        current_sl: 202,    // trailed +0.2R into profit
+        tp_price: 230,      // +3.0R
+        qty: 1,
+        initial_risk_usdt: 10,
+        pnl: 15,
+        exit_signals_status: {},
+      },
+      strategyConfig: { exit_signals: [] },
+    });
+    const rw = model.positionMeta.positionRunway;
+    assert.ok(rw);
+    assert.strictEqual(Number(rw.slR.toFixed(2)), 0.2);
+    assert.strictEqual(Number(rw.currentR.toFixed(2)), 1.5);
+    assert.strictEqual(Number(rw.targetR.toFixed(2)), 3.0);
+    // Live (+1.5R) must lie at the exact midpoint between Entry (0R) and TP (+3.0R)
+    const distEntryToLive = rw.livePct - rw.entryPct;
+    const distLiveToTp = rw.tpPct - rw.livePct;
+    assert.ok(Math.abs(distEntryToLive - distLiveToTp) <= 0.3, `Expected equal spacing, got ${distEntryToLive} vs ${distLiveToTp}`);
+    assert.ok(Array.isArray(rw.rTicks) && rw.rTicks.some((t) => t.label === '0R') && rw.rTicks.some((t) => t.label === '+2R'));
+  });
 });
+
 
 

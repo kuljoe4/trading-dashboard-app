@@ -5,11 +5,11 @@ import { useTradingStore } from '../store/trading'
 import { sessionAPI, presetsAPI } from '../api/client'
 import { EquityCurve } from './Analytics'
 import {
-  SectionLabel, StatCard, cn, Tooltip, Btn
+  SectionLabel, StatCard, cn, Tooltip, Btn, CandlestickChart
 } from './ui/primitives'
 import {
   BarChart3, Play, RefreshCw, CheckCircle2, AlertCircle, Clock, Search,
-  Sliders, ShieldCheck, Zap, Layers, Award, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight, Check
+  Sliders, ShieldCheck, Zap, Layers, Award, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight, Check, X
 } from 'lucide-react'
 
 export const BacktestPanel = ({ onApplyConfig }) => {

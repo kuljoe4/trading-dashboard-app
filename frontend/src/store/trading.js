@@ -759,7 +759,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
   uiEcoMode: localStorage.getItem('ui_eco_mode') === 'true',
-  isThrottled: false, entryCount: 0, hitCount: 0,
+  isThrottled: false,
   theme: (typeof localStorage !== 'undefined' && localStorage.getItem('momentum_theme')) || 'default',
   appearance: loadAppearanceSettings(),
   setTheme: (theme) => {
@@ -1462,6 +1462,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       const res = await sessionAPI.updateTradeConfig(tradeId, payload);
       if (res.data && res.data.trade) {
         const updatedTrade = normalizeTrade(res.data.trade);
+        if (!updatedTrade) return false;
         set(st => ({
           activeTrades: (st.activeTrades || []).map(t =>
             (t.id === updatedTrade.id || t.symbol === updatedTrade.symbol) ? { ...t, ...updatedTrade } : t

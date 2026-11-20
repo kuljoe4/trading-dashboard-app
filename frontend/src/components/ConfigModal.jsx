@@ -5810,10 +5810,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   onChange={(val) => setField('symbols', val)}
                   currentStrategyLabel={cfg.strategy_label}
                   strategiesOverride={{
-                    baseConfig: baseConfig || cfg,
-                    variants: Array.isArray(rootDraft?.strategy_variants)
-                      ? rootDraft.strategy_variants
-                      : (Array.isArray(cfg.strategy_variants) ? cfg.strategy_variants : (baseConfig?.strategy_variants || [])),
+                    baseConfig: baseConfigBackup || baseConfig || cfg,
+                    variants: Array.isArray(activeVariants) && activeVariants.length > 0
+                      ? activeVariants
+                      : (Array.isArray(baseConfig?.strategy_variants) ? baseConfig.strategy_variants : []),
                   }}
                   maxLimit={Number(cfg.watchlist_max_symbols || 0)}
                 />

@@ -494,6 +494,19 @@ export class SessionController {
     return this.sessionService.getLifetimeAnalytics(mode);
   }
 
+  @Get("agreement/status")
+  async getTradFiAgreementStatus() {
+    return this.sessionService.checkTradFiAgreementStatus();
+  }
+
+  @Post("agreement/sign-tradfi")
+  async signTradFiAgreement(@Req() req: Request) {
+    const clientIp =
+      req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
+    const userAgent = req.headers["user-agent"];
+    return this.sessionService.signTradFiAgreement(clientIp, userAgent);
+  }
+
   @Post("agreement/reset")
   async resetAgreementRequirement() {
     return this.sessionService.resetAgreementRequirement();

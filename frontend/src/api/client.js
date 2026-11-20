@@ -391,6 +391,8 @@ export const createSessionAPI = (apiInstance = api) => ({
     ...payload,
     config: sanitizeSessionConfig(payload.config || {}),
   }),
+  checkAgreementStatus: () => apiInstance.get('/session/agreement/status'),
+  signTradFiAgreement: () => apiInstance.post('/session/agreement/sign-tradfi'),
   resetAgreementRequirement: () => apiInstance.post('/session/agreement/reset'),
 })
 

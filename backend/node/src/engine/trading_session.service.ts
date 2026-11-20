@@ -1896,6 +1896,15 @@ export class TradingSessionService implements OnApplicationShutdown {
     };
   }
 
+  setTradFiAgreementRequired(required: boolean) {
+    this.sessionState.tradfiAgreementRequired = required;
+    this.sessionState.tradfiAgreementRequiredSince = required ? Date.now() : null;
+    this.broadcast("tick", {
+      agreementRequired: this.sessionState.agreementRequired,
+      tradfiAgreementRequired: required,
+    });
+  }
+
   resetAgreementRequirement() {
     this.sessionState.agreementRequired = false;
     this.sessionState.tradfiAgreementRequired = false;

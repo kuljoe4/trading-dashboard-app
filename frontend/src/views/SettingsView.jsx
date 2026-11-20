@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { settingsAPI, healthAPI, setAdminApiKey } from '../api/client'
+import { settingsAPI, healthAPI, sessionAPI, setAdminApiKey, formatApiErrorMessage } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn, ViewHeader, Tooltip } from '../components/ui/primitives'
 import { SmoothCollapse, SmoothSwap } from '../components/ui/SmoothMotion'
 import {
@@ -178,8 +178,51 @@ export function SettingsView() {
   const [status, setStatus] = useState(null)
   const [validating, setValidating] = useState(false)
   const [validationResults, setValidationResults] = useState(null)
+  const [tradfiAgreementStatus, setTradfiAgreementStatus] = useState(null)
+  const [checkingTradfiAgreement, setCheckingTradfiAgreement] = useState(false)
+  const [signingTradfiAgreement, setSigningTradfiAgreement] = useState(false)
   const [startupChecklist, setStartupChecklist] = useState(null)
   const [checkingStartup, setCheckingStartup] = useState(false)
+
+  const handleCheckTradfiAgreement = async () => {
+    setCheckingTradfiAgreement(true)
+    try {
+      const res = await sessionAPI.checkAgreementStatus()
+      setTradfiAgreementStatus(res.data)
+      if (res.data?.signed === true) {
+        useTradingStore.setState({ tradfiAgreementRequired: false })
+      } else if (res.data?.signed === false) {
+        useTradingStore.setState({ tradfiAgreementRequired: true })
+      }
+    } catch (e) {
+      setTradfiAgreementStatus({
+        signed: null,
+        status: 'error',
+        message: formatApiErrorMessage(e, 'Failed to verify TradFi-Perps agreement status'),
+      })
+    } finally {
+      setCheckingTradfiAgreement(false)
+    }
+  }
+
+  const handleSignTradfiAgreement = async () => {
+    setSigningTradfiAgreement(true)
+    try {
+      const res = await sessionAPI.signTradFiAgreement()
+      setTradfiAgreementStatus(res.data)
+      if (res.data?.signed === true) {
+        useTradingStore.setState({ tradfiAgreementRequired: false })
+      }
+    } catch (e) {
+      setTradfiAgreementStatus({
+        signed: false,
+        status: 'error',
+        message: formatApiErrorMessage(e, 'Failed to sign TradFi-Perps agreement via API'),
+      })
+    } finally {
+      setSigningTradfiAgreement(false)
+    }
+  }
 
   const fetchStartupChecklist = async (fresh = false) => {
     setCheckingStartup(true)
@@ -1010,6 +1053,64 @@ export function SettingsView() {
                       )}
                     </div>
                   )}
+
+                  <div className="rounded-xl border border-border/60 bg-bg/40 p-3.5 flex flex-col gap-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <ShieldCheck size={15} className="text-accent shrink-0" />
+                        <div className="min-w-0">
+                          <h4 className="text-xs font-bold uppercase tracking-tight">TradFi-Perps Agreement Check</h4>
+                          <p className="text-[11px] text-dim">Dry-runs Binance <span className="font-mono">/fapi/v1/order/test</span> (no real order placed) to confirm stock/ETF perpetuals eligibility.</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Btn
+                          onClick={handleCheckTradfiAgreement}
+                          disabled={checkingTradfiAgreement || signingTradfiAgreement}
+                          loading={checkingTradfiAgreement}
+                          variant="secondary"
+                          className="min-h-[34px] text-xs px-3"
+                        >
+                          {checkingTradfiAgreement ? 'Checking...' : 'Check Status'}
+                        </Btn>
+                        {tradfiAgreementStatus?.signed === false && (
+                          <Btn
+                            onClick={handleSignTradfiAgreement}
+                            disabled={signingTradfiAgreement || checkingTradfiAgreement}
+                            loading={signingTradfiAgreement}
+                            variant="primary"
+                            className="min-h-[34px] text-xs px-3"
+                          >
+                            {signingTradfiAgreement ? 'Signing...' : 'Sign via API'}
+                          </Btn>
+                        )}
+                      </div>
+                    </div>
+                    {tradfiAgreementStatus && (
+                      <div
+                        className={cn(
+                          'rounded-lg border px-3 py-2 text-xs flex items-start gap-2',
+                          tradfiAgreementStatus.signed === true
+                            ? 'bg-green/10 border-green/30 text-green'
+                            : tradfiAgreementStatus.signed === false
+                              ? 'bg-amber/10 border-amber/35 text-amber'
+                              : 'bg-red/10 border-red/30 text-red'
+                        )}
+                      >
+                        {tradfiAgreementStatus.signed === true ? (
+                          <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold">{tradfiAgreementStatus.message}</p>
+                          {tradfiAgreementStatus.detail && (
+                            <p className="text-[11px] opacity-80 mt-0.5 break-words">{tradfiAgreementStatus.detail}</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-3 border-t border-border/50">
                     <div className="max-w-md">

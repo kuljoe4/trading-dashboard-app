@@ -2,6 +2,11 @@ import { OrderManagerService } from './orderManager';
 import { ExecutionStatus } from '../models/ExecutionResult';
 import { MarketFeedService } from './market_feed.service';
 import { SessionConfig } from '../models/SessionConfig';
+import {
+  checkTradFiAgreementWithBinance,
+  pickTradFiProbeSymbolFromCatalog,
+  signTradFiAgreementWithBinance,
+} from './tradfi_agreement.helper';
 
 describe('TradFi Agreement Isolation & Watchlist Live Config Sync', () => {
   describe('OrderManagerService TradFi-Perps agreement scoping', () => {
@@ -116,6 +121,19 @@ describe('TradFi Agreement Isolation & Watchlist Live Config Sync', () => {
       expect(binanceClient.restAPI.newOrder).toHaveBeenCalledTimes(2);
     });
 
+    it('detects Binance error code -4411 and scopes it strictly to tradfiAgreementRequired', async () => {
+      const { om, sessionState, binanceClient } = createOrderManager();
+
+      const err: any = new Error('Binance API error -4411');
+      err.code = -4411;
+      binanceClient.restAPI.newOrder.mockRejectedValueOnce(err);
+
+      const res = await om.enter('sess-1', 'MVLLUSDT', 'LONG', 100, 1, 95, null);
+      expect(res.status).toBe(ExecutionStatus.ORDER_REJECTED);
+      expect(sessionState.tradfiAgreementRequired).toBe(true);
+      expect(sessionState.agreementRequired).toBe(false);
+    });
+
     it('auto-probes TradFi entries after 15m and clears tradfiAgreementRequired on success', async () => {
       const { om, sessionState, binanceClient } = createOrderManager();
       sessionState.tradfiAgreementRequired = true;
@@ -137,6 +155,135 @@ describe('TradFi Agreement Isolation & Watchlist Live Config Sync', () => {
       expect(res.status).toBe(ExecutionStatus.SUCCESS);
       expect(sessionState.tradfiAgreementRequired).toBe(false);
       expect(sessionState.tradfiAgreementRequiredSince).toBeNull();
+    });
+  });
+
+  describe('Live TradFi-Perps agreement verification & signing helper', () => {
+    const createClientFactory = (proxyFetchImpl: jest.Mock) => ({
+      genericRequest: jest.fn(async (fn: () => Promise<any>) => fn()),
+      proxyFetch: proxyFetchImpl,
+    });
+
+    it('picks preferred TradFi probe symbol from exchange catalog', () => {
+      expect(
+        pickTradFiProbeSymbolFromCatalog([
+          { symbol: 'BTCUSDT', assetClass: 'crypto' },
+          { symbol: 'MVLLUSDT', assetClass: 'tradfi' },
+          { symbol: 'TSLAUSDT', assetClass: 'tradfi' },
+        ]),
+      ).toBe('TSLAUSDT');
+      expect(pickTradFiProbeSymbolFromCatalog([])).toBe('XAUUSDT');
+    });
+
+    it('returns unconfigured when no live credentials exist', async () => {
+      const proxyFetch = jest.fn();
+      const result = await checkTradFiAgreementWithBinance({
+        creds: null,
+        probeSymbol: 'TSLAUSDT',
+        binanceClientFactory: createClientFactory(proxyFetch),
+      });
+      expect(result.status).toBe('unconfigured');
+      expect(result.signed).toBeNull();
+      expect(proxyFetch).not.toHaveBeenCalled();
+    });
+
+    it('returns unsigned and triggers onStatusResolved(true) when /fapi/v1/order/test returns -4411', async () => {
+      const proxyFetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () => JSON.stringify({ code: -4411, msg: 'Please sign TradFi-Perps agreement contract fapi.' }),
+      });
+      const onStatusResolved = jest.fn();
+
+      const result = await checkTradFiAgreementWithBinance({
+        creds: { apiKey: 'live_key_123', apiSecret: 'live_secret_456' },
+        probeSymbol: 'TSLAUSDT',
+        binanceClientFactory: createClientFactory(proxyFetch),
+        onStatusResolved,
+      });
+
+      expect(result.status).toBe('unsigned');
+      expect(result.signed).toBe(false);
+      expect(result.code).toBe(-4411);
+      expect(result.symbol).toBe('TSLAUSDT');
+      expect(onStatusResolved).toHaveBeenCalledWith(true);
+
+      const calledUrl = String(proxyFetch.mock.calls[0][0]);
+      expect(calledUrl).toContain('/fapi/v1/order/test?');
+      expect(calledUrl).toContain('symbol=TSLAUSDT');
+      expect(calledUrl).toContain('signature=');
+    });
+
+    it('returns signed and triggers onStatusResolved(false) on 200 OK or post-agreement filter error (-4164)', async () => {
+      const proxyFetch = jest.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({}),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 400,
+          text: async () => JSON.stringify({ code: -4164, msg: "Order's notional must be no smaller than 5" }),
+        });
+      const onStatusResolved = jest.fn();
+      const binanceClientFactory = createClientFactory(proxyFetch);
+
+      const okRes = await checkTradFiAgreementWithBinance({
+        creds: { apiKey: 'live_key_123', apiSecret: 'live_secret_456' },
+        probeSymbol: 'TSLAUSDT',
+        binanceClientFactory,
+        onStatusResolved,
+      });
+      expect(okRes.status).toBe('signed');
+      expect(okRes.signed).toBe(true);
+      expect(onStatusResolved).toHaveBeenLastCalledWith(false);
+
+      const filterRes = await checkTradFiAgreementWithBinance({
+        creds: { apiKey: 'live_key_123', apiSecret: 'live_secret_456' },
+        probeSymbol: 'TSLAUSDT',
+        binanceClientFactory,
+        onStatusResolved,
+      });
+      expect(filterRes.status).toBe('signed');
+      expect(filterRes.signed).toBe(true);
+      expect(filterRes.code).toBe(-4164);
+    });
+
+    it('returns error (signed: null) on auth failure (-2015) without falsely claiming signed or unsigned', async () => {
+      const proxyFetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: async () => JSON.stringify({ code: -2015, msg: 'Invalid API-key, IP, or permissions for action.' }),
+      });
+      const onStatusResolved = jest.fn();
+
+      const result = await checkTradFiAgreementWithBinance({
+        creds: { apiKey: 'live_key_123', apiSecret: 'live_secret_456' },
+        probeSymbol: 'TSLAUSDT',
+        binanceClientFactory: createClientFactory(proxyFetch),
+        onStatusResolved,
+      });
+      expect(result.status).toBe('error');
+      expect(result.signed).toBeNull();
+      expect(onStatusResolved).not.toHaveBeenCalled();
+    });
+
+    it('signs TradFi-Perps agreement via signed POST /fapi/v1/stock/contract', async () => {
+      const proxyFetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ msg: 'success' }),
+      });
+
+      const result = await signTradFiAgreementWithBinance({
+        creds: { apiKey: 'live_key_123', apiSecret: 'live_secret_456' },
+        binanceClientFactory: createClientFactory(proxyFetch),
+      });
+      expect(result.ok).toBe(true);
+      expect(result.status).toBe(200);
+      expect(String(proxyFetch.mock.calls[0][0])).toContain('/fapi/v1/stock/contract?');
+      expect(String(proxyFetch.mock.calls[0][0])).toContain('signature=');
     });
   });
 

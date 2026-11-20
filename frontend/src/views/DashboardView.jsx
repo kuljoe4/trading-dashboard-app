@@ -1196,8 +1196,28 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 })
 GateBanner.displayName = 'GateBanner'
 
-const DashboardTopBannerDock = React.memo(({ apiStatus, agreementRequired, tradfiAgreementRequired, gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, showResumingFeedback, onManage, onResetAgreement }) => {
+const DashboardTopBannerDock = React.memo(({ apiStatus, agreementRequired, tradfiAgreementRequired, gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, showResumingFeedback, onManage, onResetAgreement, onCheckTradfiAgreement, onSignTradfiAgreement }) => {
   const hasTopConnectivityAlert = useTradingStore(state => Boolean((state.wsStatus === 'error' && state.wsError) || state.apiError || state.wsStatus === 'reconnecting'));
+  const [tradfiBusy, setTradfiBusy] = useState(null);
+  const [tradfiFeedback, setTradfiFeedback] = useState(null);
+
+  const runTradfiAction = async (kind, fn) => {
+    if (!fn || tradfiBusy) return;
+    setTradfiBusy(kind);
+    setTradfiFeedback(null);
+    try {
+      const res = await fn();
+      if (res?.signed === false) {
+        setTradfiFeedback('Still unsigned on Binance (-4411)');
+      } else if (res?.status === 'error') {
+        setTradfiFeedback(res.message || 'Check failed');
+      }
+    } catch (e) {
+      setTradfiFeedback(e?.response?.data?.message || e?.message || 'Action failed');
+    } finally {
+      setTradfiBusy(null);
+    }
+  };
 
   return (
     <aside
@@ -1258,23 +1278,36 @@ const DashboardTopBannerDock = React.memo(({ apiStatus, agreementRequired, tradf
             <AlertCircle size={13} className="text-amber shrink-0" aria-hidden="true" />
             <span className="font-semibold text-amber shrink-0">TradFi-Perps Agreement</span>
             <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
-            <span className="text-muted truncate">Stock/ETF futures paused until signed on Binance (crypto pairs unaffected).</span>
+            <span className="text-muted truncate">
+              {tradfiFeedback || 'Stock/ETF futures paused until signed on Binance (crypto pairs unaffected).'}
+            </span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            {onResetAgreement && (
+            {onCheckTradfiAgreement && (
               <button
                 type="button"
-                onClick={onResetAgreement}
-                className="px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 border border-border text-[10.5px] font-semibold text-fg transition-colors cursor-pointer"
+                disabled={Boolean(tradfiBusy)}
+                onClick={() => runTradfiAction('check', onCheckTradfiAgreement)}
+                className="px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 border border-border text-[10.5px] font-semibold text-fg transition-colors cursor-pointer disabled:opacity-50"
               >
-                Retry TradFi
+                {tradfiBusy === 'check' ? 'Checking…' : 'Check Status'}
+              </button>
+            )}
+            {onSignTradfiAgreement && (
+              <button
+                type="button"
+                disabled={Boolean(tradfiBusy)}
+                onClick={() => runTradfiAction('sign', onSignTradfiAgreement)}
+                className="px-2 py-0.5 rounded bg-amber/15 hover:bg-amber/25 border border-amber/35 text-[10.5px] font-semibold text-amber transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {tradfiBusy === 'sign' ? 'Signing…' : 'Sign via API'}
               </button>
             )}
             <a
               href="https://www.binance.com/en/futures/BTCUSDT"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-2 py-0.5 rounded bg-amber/15 hover:bg-amber/25 border border-amber/30 text-[10.5px] font-semibold text-amber transition-colors"
+              className="px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 border border-border text-[10.5px] font-semibold text-muted hover:text-fg transition-colors hidden sm:inline-flex"
             >
               Open Binance
             </a>
@@ -2503,6 +2536,20 @@ export function DashboardView({ initialStrategy }) {
             } catch (e) {
               console.error('Failed to reset agreement requirement', e);
             }
+          }}
+          onCheckTradfiAgreement={async () => {
+            const res = await sessionAPI.checkAgreementStatus();
+            if (res.data?.signed === true) {
+              useTradingStore.setState({ tradfiAgreementRequired: false });
+            }
+            return res.data;
+          }}
+          onSignTradfiAgreement={async () => {
+            const res = await sessionAPI.signTradFiAgreement();
+            if (res.data?.signed === true) {
+              useTradingStore.setState({ tradfiAgreementRequired: false });
+            }
+            return res.data;
           }}
         />
 

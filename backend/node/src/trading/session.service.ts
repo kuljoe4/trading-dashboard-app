@@ -28,6 +28,11 @@ import { AuditLogService } from "./audit-log.service";
 import { Trade } from "../models/Trade";
 import { v4 as uuid } from "uuid";
 import { Settings as SettingsEntity } from "../models/entities/Settings.entity";
+import {
+  checkTradFiAgreementWithBinance,
+  pickTradFiProbeSymbolFromCatalog,
+  signTradFiAgreementWithBinance,
+} from "../engine/tradfi_agreement.helper";
 import { decrypt } from "../lib/crypto";
 import { ConfigValidationException } from "../lib/exceptions";
 import { BinanceClientFactory, BinanceRequestQueue } from "../lib/binanceClientFactory";
@@ -4061,6 +4066,95 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       tradfi_count: tradFiCount,
       crypto_count: symbols.length - tradFiCount,
       cached_at: Date.now(),
+    };
+  }
+
+  resetAgreementRequirement() {
+    return this.tradingSessionService.resetAgreementRequirement();
+  }
+
+  private async resolveLiveBinanceCredentials(): Promise<{ apiKey: string; apiSecret: string; proxyUrl?: string } | null> {
+    let apiKey = "";
+    let apiSecret = "";
+    let proxyUrl: string | undefined;
+
+    try {
+      const settings = await this.settingsRepository.findOne({
+        where: { id: "default" },
+        select: ["id", "binance_api_key", "binance_api_secret", "proxy_url"] as any,
+      });
+      if (settings?.binance_api_key) apiKey = decrypt(settings.binance_api_key) || "";
+      if (settings?.binance_api_secret) apiSecret = decrypt(settings.binance_api_secret) || "";
+      if (settings?.proxy_url) proxyUrl = settings.proxy_url.trim();
+    } catch (_) {
+      // Fallback to environment variables below
+    }
+
+    if (!apiKey) apiKey = (process.env.BINANCE_API_KEY || "").trim();
+    if (!apiSecret) apiSecret = (process.env.BINANCE_API_SECRET || "").trim();
+    if (!proxyUrl) proxyUrl = (process.env.PROXY_URL || process.env.HTTPS_PROXY || "").trim() || undefined;
+
+    if (!apiKey || !apiSecret) return null;
+    return { apiKey: apiKey.trim(), apiSecret: apiSecret.trim(), proxyUrl };
+  }
+
+  private async pickTradFiProbeSymbol(): Promise<string> {
+    try {
+      const catalog = await this.marketFeed.getAvailableSymbols({ includeNonUsdt: false });
+      return pickTradFiProbeSymbolFromCatalog(catalog);
+    } catch (_) {
+      return "XAUUSDT";
+    }
+  }
+
+  /**
+   * Verifies whether Binance's TradFi-Perps agreement is signed on the configured live account
+   * using Binance's zero-execution POST /fapi/v1/order/test dry-run endpoint.
+   * Error -4411 ("Please sign TradFi-Perps agreement contract fapi.") definitively confirms unsigned.
+   */
+  async checkTradFiAgreementStatus() {
+    const creds = await this.resolveLiveBinanceCredentials();
+    const probeSymbol = creds ? await this.pickTradFiProbeSymbol() : "XAUUSDT";
+    return checkTradFiAgreementWithBinance({
+      creds,
+      probeSymbol,
+      binanceClientFactory: this.binanceClientFactory,
+      onStatusResolved: (required) => this.tradingSessionService.setTradFiAgreementRequired(required),
+    });
+  }
+
+  /**
+   * Explicitly signs Binance's TradFi-Perps agreement contract via POST /fapi/v1/stock/contract
+   * when triggered by the user, then immediately re-verifies status.
+   */
+  async signTradFiAgreement(clientIp?: string, userAgent?: string) {
+    const creds = await this.resolveLiveBinanceCredentials();
+    if (!creds) {
+      throw new BadRequestException("No live Binance API key/secret configured.");
+    }
+
+    const signResult = await signTradFiAgreementWithBinance({
+      creds,
+      binanceClientFactory: this.binanceClientFactory,
+    });
+    if (!signResult.ok) {
+      throw new BadRequestException(
+        `Binance rejected TradFi-Perps contract signing: ${signResult.errorMessage || `HTTP ${signResult.status}`}`,
+      );
+    }
+
+    await this.auditLog.log({
+      action: "SIGN_TRADFI_AGREEMENT",
+      ip: clientIp,
+      userAgent,
+      details: { status: "signed" },
+    });
+
+    this.tradingSessionService.setTradFiAgreementRequired(false);
+    const verification = await this.checkTradFiAgreementStatus();
+    return {
+      ...verification,
+      signedViaApi: true,
     };
   }
 }

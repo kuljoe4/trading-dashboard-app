@@ -1450,7 +1450,7 @@ export class OrderManagerService {
           }
 
           let agreementMsg = `[${symbol}] Binance entry failed: ${errMsg}`;
-          const isTradFiAgreementErr = errMsg.includes('TradFi-Perps') || (errMsg.includes('agreement') && isTradFi);
+          const isTradFiAgreementErr = errMsg.includes('-4411') || errMsg.includes('TradFi-Perps') || (errMsg.includes('agreement') && isTradFi);
           if (isTradFiAgreementErr) {
             agreementMsg = `TradFi-Perps agreement required on Binance to trade ${symbol} (stock/ETF futures). Crypto perpetuals remain unaffected. (${errMsg})`;
             this.sessionState.tradfiAgreementRequired = true;
@@ -2058,7 +2058,7 @@ export class OrderManagerService {
             msg: `CRITICAL: Insufficient funds for SL placement on ${trade.symbol}. Unwind may be required.`,
             level: 'error'
          });
-      } else if (errMsg.includes('TradFi-Perps') || (errMsg.includes('agreement') && (this.marketFeed.getSymbolFilters(trade.symbol) as any)?.assetClass === 'tradfi')) {
+      } else if (errMsg.includes('-4411') || errMsg.includes('TradFi-Perps') || (errMsg.includes('agreement') && (this.marketFeed.getSymbolFilters(trade.symbol) as any)?.assetClass === 'tradfi')) {
          this.sessionState.tradfiAgreementRequired = true;
          this.sessionState.tradfiAgreementRequiredSince = Date.now();
          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {

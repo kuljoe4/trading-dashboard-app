@@ -234,7 +234,8 @@ export class MarketFeedService {
     // RESEARCH-02: Increase TTL to 12 hours for metadata that rarely changes, further reducing weight usage.
     const CACHE_TTL = 12 * 60 * 60 * 1000;
 
-    // RESEARCH-02: DB-First Metadata Loading
+    // RESEARCH-02: DB-First Metadata Loading (v2 includes TradFi/Overnight futures alongside Crypto)
+    const CACHE_SCHEMA_VERSION = 2;
     if (MarketFeedService.cachedExchangeInfo.size === 0) {
       try {
         const settings = await this.settingsRepository.createQueryBuilder('settings')
@@ -243,11 +244,13 @@ export class MarketFeedService {
           .getOne();
         if (settings && settings.exchange_info_cache && settings.exchange_info_ts) {
           const age = now - Number(settings.exchange_info_ts);
-          if (age < CACHE_TTL) {
-            this.logger.log(`Loading exchange info from DB cache (Age: ${Math.round(age / 3600000)}h)...`);
-            const cache = settings.exchange_info_cache;
+          const cache = settings.exchange_info_cache;
+          const cacheVersion = Number(cache?.__schemaVersion || 1);
+          if (age < CACHE_TTL && cacheVersion >= CACHE_SCHEMA_VERSION) {
+            this.logger.log(`Loading exchange info from DB cache (Age: ${Math.round(age / 3600000)}h, v${cacheVersion})...`);
             MarketFeedService.cachedExchangeInfo.clear();
             Object.keys(cache).forEach(symbol => {
+              if (symbol === '__schemaVersion') return;
               MarketFeedService.cachedExchangeInfo.set(symbol, cache[symbol]);
             });
 
@@ -259,6 +262,8 @@ export class MarketFeedService {
             MarketFeedService.lastExchangeInfoFetch = Number(settings.exchange_info_ts);
             MarketFeedService.lastExchangeInfoBase = restBase;
             this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
+          } else if (age < CACHE_TTL && cacheVersion < CACHE_SCHEMA_VERSION) {
+            this.logger.log(`[MarketFeed] Upgrading exchange_info_cache from v${cacheVersion} to v${CACHE_SCHEMA_VERSION} to include TradFi/Overnight futures symbols.`);
           }
         }
       } catch (dbErr) {
@@ -320,55 +325,63 @@ export class MarketFeedService {
 
         if (data && Array.isArray(data.symbols)) {
           MarketFeedService.cachedExchangeInfo.clear();
-          let filteredCryptoCount = 0;
-          let filteredOtherCount = 0;
+          let filteredInactiveCount = 0;
+          let tradFiCount = 0;
 
           for (const s of data.symbols) {
-            // BOLT: Only include symbols that are actively trading in the target environment
+            // BOLT: Include all actively trading USDS-M Futures symbols (Crypto COIN + TradFi/Overnight COMMODITY, EQUITY, INDEX, TRADFI)
             if (s.status === 'TRADING' || s.status === 'SETTLING') {
-              // COMPLIANCE: Filter out TradFi/Non-Crypto symbols (Gold, Silver, Equities)
-              // Binance Futures uses underlyingType 'COIN' for standard cryptocurrencies.
-              const isCrypto = s.underlyingType === 'COIN' || !s.underlyingType;
-              const isTradFi = s.underlyingType === 'COMMODITY' || s.underlyingType === 'EQUITY' || s.underlyingType === 'INDEX';
+              const underlyingType = String((s as any).underlyingType || 'COIN').toUpperCase();
+              const underlyingSubType = Array.isArray((s as any).underlyingSubType) ? (s as any).underlyingSubType : [];
+              const contractType = String((s as any).contractType || 'PERPETUAL').toUpperCase();
+              const isTradFi =
+                underlyingType !== 'COIN' ||
+                contractType.includes('TRADFI') ||
+                contractType.includes('TRADIFI') ||
+                underlyingSubType.some((st: any) => /TRADFI|COMMODITY|EQUITY|STOCK|INDEX|OVERNIGHT|FOREX|METAL/i.test(String(st || '')));
 
-              if (isCrypto && !isTradFi) {
-                // BOLT OPTIMIZATION: Pre-parse critical filter values to avoid O(N) find() and parseFloat() in the hot-path
-                const parsed: any = { ...s };
-                if (s.filters && Array.isArray(s.filters)) {
-                  for (const f of s.filters) {
-                    if (f.filterType === 'PRICE_FILTER') {
-                      parsed.tickSize = parseFloat(String(f.tickSize));
-                      parsed.pricePrecision = Math.max(0, Math.round(-Math.log10(parsed.tickSize)));
-                    } else if (f.filterType === 'LOT_SIZE') {
-                      parsed.stepSize = parseFloat(String(f.stepSize));
-                      parsed.qtyPrecision = Math.max(0, Math.round(-Math.log10(parsed.stepSize)));
-                    } else if (f.filterType === 'MARKET_LOT_SIZE') {
-                      parsed.marketMaxQty = parseFloat(String(f.maxQty));
-                      parsed.marketMinQty = parseFloat(String(f.minQty));
-                    } else if (f.filterType === 'PERCENT_PRICE') {
-                      parsed.multiplierUp = parseFloat(String(f.multiplierUp || '1.1'));
-                      parsed.multiplierDown = parseFloat(String(f.multiplierDown || '0.9'));
-                    } else if (f.filterType === 'MIN_NOTIONAL' || f.filterType === 'NOTIONAL') {
-                      parsed.minNotional = parseFloat(String(f.notional || f.minNotional || '0'));
-                    }
+              if (isTradFi) tradFiCount++;
+
+              // BOLT OPTIMIZATION: Pre-parse critical filter values to avoid O(N) find() and parseFloat() in the hot-path
+              const parsed: any = {
+                ...s,
+                underlyingType,
+                underlyingSubType,
+                contractType,
+                assetClass: isTradFi ? 'tradfi' : 'crypto',
+              };
+              if (s.filters && Array.isArray(s.filters)) {
+                for (const f of s.filters) {
+                  if (f.filterType === 'PRICE_FILTER') {
+                    parsed.tickSize = parseFloat(String(f.tickSize));
+                    parsed.pricePrecision = Math.max(0, Math.round(-Math.log10(parsed.tickSize)));
+                  } else if (f.filterType === 'LOT_SIZE') {
+                    parsed.stepSize = parseFloat(String(f.stepSize));
+                    parsed.qtyPrecision = Math.max(0, Math.round(-Math.log10(parsed.stepSize)));
+                  } else if (f.filterType === 'MARKET_LOT_SIZE') {
+                    parsed.marketMaxQty = parseFloat(String(f.maxQty));
+                    parsed.marketMinQty = parseFloat(String(f.minQty));
+                  } else if (f.filterType === 'PERCENT_PRICE') {
+                    parsed.multiplierUp = parseFloat(String(f.multiplierUp || '1.1'));
+                    parsed.multiplierDown = parseFloat(String(f.multiplierDown || '0.9'));
+                  } else if (f.filterType === 'MIN_NOTIONAL' || f.filterType === 'NOTIONAL') {
+                    parsed.minNotional = parseFloat(String(f.notional || f.minNotional || '0'));
                   }
                 }
-                delete parsed.filters;
-                MarketFeedService.cachedExchangeInfo.set(s.symbol, parsed);
-              } else {
-                filteredOtherCount++;
               }
+              delete parsed.filters;
+              MarketFeedService.cachedExchangeInfo.set(s.symbol, parsed);
             } else {
-              filteredCryptoCount++;
+              filteredInactiveCount++;
             }
           }
           MarketFeedService.lastExchangeInfoFetch = now;
           MarketFeedService.lastExchangeInfoBase = restBase;
           this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
-          this.logger.log(`[MarketFeed] Exchange info: ${this.exchangeInfo.size} symbols cached. (Filtered: ${filteredCryptoCount} inactive, ${filteredOtherCount} non-crypto)`);
+          this.logger.log(`[MarketFeed] Exchange info: ${this.exchangeInfo.size} symbols cached (${tradFiCount} TradFi/Overnight, ${filteredInactiveCount} inactive skipped).`);
 
           // RESEARCH-02: Persist to DB
-          const cacheObj: any = {};
+          const cacheObj: any = { __schemaVersion: CACHE_SCHEMA_VERSION };
           MarketFeedService.cachedExchangeInfo.forEach((val, key) => { cacheObj[key] = val; });
 
           const limit = this.sessionState.binanceRateLimit.limit;
@@ -387,6 +400,107 @@ export class MarketFeedService {
   }
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
+
+  /**
+   * Returns the full cached Binance USDS-M Futures symbol catalog enriched with
+   * any available live ticker metrics (zero extra Binance REST calls when cached).
+   * Allows users to browse and add Static Watchlist symbols without running a dynamic scan first.
+   */
+  async getAvailableSymbols(options?: { includeNonUsdt?: boolean }) {
+    const includeNonUsdt = Boolean(options?.includeNonUsdt);
+
+    if (this.exchangeInfo.size === 0 && !this.sessionState.isBanned()) {
+      await this.fetchExchangeInfo(this.currentRestBase || ENGINE_CONSTANTS.BINANCE_REST_BASE);
+    }
+
+    const items: Array<{
+      symbol: string;
+      baseAsset: string;
+      quoteAsset: string;
+      contractType: string;
+      underlyingType: string;
+      underlyingSubType: string[];
+      assetClass: 'crypto' | 'tradfi';
+      status: string;
+      price: number;
+      open_24h: number;
+      pct: number;
+      volume_24h: number;
+    }> = [];
+
+    const seen = new Set<string>();
+
+    this.exchangeInfo.forEach((info, symbol) => {
+      if (!symbol || symbol === '__schemaVersion') return;
+      const quoteAsset = String(info?.quoteAsset || (symbol.endsWith('USDT') ? 'USDT' : '')).toUpperCase();
+      if (!includeNonUsdt && quoteAsset !== 'USDT' && !symbol.endsWith('USDT')) return;
+
+      const ticker = this.tickerCache.getTicker(symbol);
+      const price = Number(ticker?.price || ticker?.mark_price || 0);
+      const open24h = Number(ticker?.open_24h || 0);
+      const pct = price > 0 && open24h > 0 ? ((price - open24h) / open24h) * 100 : 0;
+      const volume24h = Number(ticker?.volume_24h || 0);
+      const underlyingType = String(info?.underlyingType || 'COIN').toUpperCase();
+      const underlyingSubType = Array.isArray(info?.underlyingSubType) ? info.underlyingSubType : [];
+      const contractType = String(info?.contractType || 'PERPETUAL').toUpperCase();
+      const assetClass: 'crypto' | 'tradfi' =
+        info?.assetClass === 'tradfi' ||
+        underlyingType !== 'COIN' ||
+        contractType.includes('TRADFI') ||
+        contractType.includes('TRADIFI') ||
+        underlyingSubType.some((st: any) => /TRADFI|COMMODITY|EQUITY|STOCK|INDEX|OVERNIGHT|FOREX|METAL/i.test(String(st || '')))
+          ? 'tradfi'
+          : 'crypto';
+
+      seen.add(symbol);
+      items.push({
+        symbol,
+        baseAsset: String(info?.baseAsset || symbol.replace(/USDT$/, '')),
+        quoteAsset: quoteAsset || 'USDT',
+        contractType,
+        underlyingType,
+        underlyingSubType,
+        assetClass,
+        status: String(info?.status || 'TRADING'),
+        price,
+        open_24h: open24h,
+        pct,
+        volume_24h: volume24h,
+      });
+    });
+
+    // Include any live ticker symbols not yet in exchangeInfo (e.g. brand-new listings)
+    const tickers = this.tickerCache.getLatestTickers();
+    for (const t of tickers) {
+      if (!t?.symbol || seen.has(t.symbol)) continue;
+      if (!includeNonUsdt && !t.symbol.endsWith('USDT')) continue;
+      const price = Number(t.price || t.mark_price || 0);
+      const open24h = Number(t.open_24h || 0);
+      const pct = price > 0 && open24h > 0 ? ((price - open24h) / open24h) * 100 : 0;
+      seen.add(t.symbol);
+      items.push({
+        symbol: t.symbol,
+        baseAsset: t.symbol.replace(/USDT$/, ''),
+        quoteAsset: t.symbol.endsWith('USDT') ? 'USDT' : '',
+        contractType: 'PERPETUAL',
+        underlyingType: 'COIN',
+        underlyingSubType: [],
+        assetClass: 'crypto',
+        status: 'TRADING',
+        price,
+        open_24h: open24h,
+        pct,
+        volume_24h: Number(t.volume_24h || 0),
+      });
+    }
+
+    items.sort((a, b) => {
+      if (b.volume_24h !== a.volume_24h) return b.volume_24h - a.volume_24h;
+      return a.symbol.localeCompare(b.symbol);
+    });
+
+    return items;
+  }
 
   /**
    * SRE/Resilience: Seed the TickerCache from REST market data when the

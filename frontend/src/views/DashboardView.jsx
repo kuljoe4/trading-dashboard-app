@@ -38,6 +38,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { SmoothCollapse, SmoothSwap } from '../components/ui/SmoothMotion'
+import { StrategyDetailSkeleton, DecisionLogSkeleton, ScannerRowsSkeleton } from '../components/ui/Skeletons'
 import { useNow } from '../hooks/useNow'
 
 const TemporalRiskGrid = React.memo(() => {
@@ -559,15 +561,27 @@ const preloadStrategyDetailView = () => { import('./StrategyDetailView'); };
 const preloadConfigModal = () => { import('../components/ConfigModal'); };
 const preloadScannerOverlay = () => { import('../components/ScannerOverlay'); };
 
-const LoadingFallback = () => (
-  <div className="max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 space-y-3" aria-busy="true" aria-label="Loading view">
-    <div className="h-[58px] rounded-2xl bg-surface/50 border border-border/30 animate-pulse" />
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
-      {[0, 1, 2, 3].map(i => (
-        <div key={i} className="h-[64px] rounded-xl bg-surface/50 border border-border/30 animate-pulse" />
-      ))}
+const ModalLoadingFallback = () => (
+  <div className="w-full h-full flex flex-col bg-background" role="status" aria-busy="true" aria-label="Loading configuration">
+    <div className="h-14 w-full px-5 border-b border-border/40 flex items-center justify-between shrink-0">
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-surface/60 skeleton-shimmer" />
+        <div className="space-y-1.5">
+          <div className="w-36 h-3.5 rounded bg-surface/70 skeleton-shimmer" />
+          <div className="w-24 h-2.5 rounded bg-surface/45 skeleton-shimmer" />
+        </div>
+      </div>
+      <div className="w-7 h-7 rounded-lg bg-surface/55 skeleton-shimmer" />
     </div>
-    <div className="h-[180px] rounded-2xl bg-surface/40 border border-border/30 animate-pulse" />
+    <div className="flex-1 w-full p-5 space-y-3 overflow-hidden">
+      <div className="h-10 w-full rounded-xl bg-surface/50 border border-border/30 skeleton-shimmer" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} className="h-24 rounded-xl bg-surface/45 border border-border/25 skeleton-shimmer" />
+        ))}
+      </div>
+      <div className="h-32 w-full rounded-xl bg-surface/35 border border-border/25 skeleton-shimmer" />
+    </div>
   </div>
 )
 
@@ -594,76 +608,60 @@ const BanBanner = ({ apiStatus }) => {
   const isBan = !!apiStatus.isBanned && !isGeo;
   const hasBanCountdown = !!apiStatus?.banUntil && timeLeft > 0;
   const cooldownEnd = apiStatus.banUntil ? new Date(apiStatus.banUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'unknown';
+  const detailText = apiStatus.lastErrorMessage || (isGeo
+    ? 'Host IP is restricted by Binance. Configure a Proxy URL in Settings or switch to Testnet/Paper mode.'
+    : 'Automatic requests paused to protect account standing.');
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -20 }}
+      initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
       role="alert"
       aria-live="polite"
       className={cn(
-        "p-5 rounded-2xl mb-6 flex flex-col md:flex-row items-center gap-4 shadow-xl border",
-        (isBan || isGeo) ? "bg-red/20 border-red/40 shadow-red/5" : "bg-amber/20 border-amber/40 shadow-amber/5"
+        "pointer-events-auto px-3 py-1.5 rounded-lg flex items-center justify-between gap-2.5 text-[11px] border bg-surface/95 backdrop-blur-md shadow-lg",
+        (isBan || isGeo) ? "border-red/40 text-red" : "border-amber/40 text-amber"
       )}
     >
-      <div className={cn(
-        "w-12 h-12 rounded-full flex items-center justify-center shrink-0 animate-pulse",
-        (isBan || isGeo) ? "bg-red/20 text-red" : "bg-amber/20 text-amber"
-      )}>
-        <AlertCircle size={24} />
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+        <span className="font-semibold shrink-0">
+          {isGeo ? 'Geo-Restricted (451)' : (isBan ? 'Binance IP Ban' : 'Rate Limit Guard')}
+        </span>
+        <span className="opacity-35 shrink-0" aria-hidden="true">·</span>
+        <span className="text-text/80 truncate" title={detailText}>
+          {detailText}
+        </span>
       </div>
-      <div className="flex-1 text-center md:text-left">
-        <h3 className={cn(
-          "text-sm font-black uppercase tracking-tight mb-1",
-          (isBan || isGeo) ? "text-red" : "text-amber"
-        )}>
-          {isGeo ? 'Binance Regional Geo-Restriction (HTTP 451)' : (isBan ? 'Binance IP Ban / Restriction' : 'Rate Limit Protection')}
-        </h3>
-        <p className={cn(
-          "text-xs font-bold",
-          (isBan || isGeo) ? "text-red/80" : "text-amber/80"
-        )}>
-          {apiStatus.lastErrorMessage || (isGeo ? 'Host IP is located in a jurisdiction restricted by Binance. Please configure a Proxy URL in Settings or switch to Testnet/Paper mode.' : `Automatic requests are paused to protect your account standing. Normal operations will resume shortly.`)}
-        </p>
-      </div>
-      <div className="flex flex-col items-center md:items-end gap-1.5 shrink-0">
-        <div className={cn(
-          "px-4 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest border flex items-center gap-2",
-          (isBan || isGeo) ? "bg-red/20 border-red/30 text-red" : "bg-amber/20 border-amber/30 text-amber"
-        )}>
-          <span className="w-2 h-2 rounded-full bg-current motion-safe:animate-ping" aria-hidden="true" />
-          {isGeo ? 'Geo-Blocked' : (hasBanCountdown ? formatDuration(timeLeft) : (isBan ? 'Restricted' : 'Active'))}
-        </div>
-        {hasBanCountdown && (
-          <div className="flex items-center gap-1.5 opacity-60">
-            <History size={10} />
-            <span className="text-[9px] font-bold uppercase tracking-tighter">Ends at {cooldownEnd}</span>
-          </div>
-        )}
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="font-mono tabular-nums text-[10px] font-semibold">
+          {isGeo ? 'Geo-Blocked' : (hasBanCountdown ? `${formatDuration(timeLeft)} (until ${cooldownEnd})` : (isBan ? 'Restricted' : 'Active'))}
+        </span>
         {(isBan || isGeo) && (
-           <Btn
-             onClick={async () => {
-               try {
-                 await sessionAPI.clearBan();
-                 useTradingStore.setState(st => ({
-                   apiStatus: {
-                     ...st.apiStatus,
-                     isBanned: false,
-                     isRateLimited: false,
-                     isGeoBlocked: false,
-                     banUntil: null,
-                     lastErrorMessage: null
-                   }
-                 }));
-               } catch (e) {
-                 console.error('Failed to clear ban:', e);
-               }
-             }}
-             className="w-full mt-2"
-             variant="outline"
-             size="sm">
-               Unlock
-           </Btn>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await sessionAPI.clearBan();
+                useTradingStore.setState(st => ({
+                  apiStatus: {
+                    ...st.apiStatus,
+                    isBanned: false,
+                    isRateLimited: false,
+                    isGeoBlocked: false,
+                    banUntil: null,
+                    lastErrorMessage: null
+                  }
+                }));
+              } catch (e) {
+                console.error('Failed to clear ban:', e);
+              }
+            }}
+            className="px-2 py-0.5 rounded bg-red/15 hover:bg-red/25 border border-red/30 text-[10px] font-semibold text-red transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red/40"
+          >
+            Unlock
+          </button>
         )}
       </div>
     </motion.div>
@@ -1109,13 +1107,13 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 
   const isGatedIdle = (gateState === 'sleeping' || gateState === 'max_trades_period' || gateState === 'sl_guard') && activeTradesCount === 0;
 
-  // Visual Cue Styling
+  // Slim out-of-flow inline visual cue styling (0 CLS)
   const bannerStyle = cn(
-    "p-3.5 sm:p-4 rounded-xl mb-3 text-xs font-bold border flex flex-col gap-2 shadow-sm transition-colors duration-300 relative overflow-hidden",
-    scannerPaused ? "bg-red/10 border-red/20 text-red shadow-[0_0_15px_rgba(239,68,68,0.1)]" :
-    (gateState === 'sl_guard') ? "bg-red/5 border-red/20 text-red shadow-[0_0_12px_rgba(239,68,68,0.05)]" :
-    "bg-amber/10 border-amber/20 text-amber shadow-[0_0_12px_rgba(245,166,35,0.05)]",
-    (hibernating || isGatedIdle) && "bg-slate-500/10 border-slate-500/20 text-slate-400"
+    "pointer-events-auto px-3 py-1.5 rounded-lg text-[11px] border bg-surface/95 backdrop-blur-md shadow-lg flex items-center justify-between gap-2.5 transition-colors duration-200",
+    scannerPaused ? "border-red/35 text-red" :
+    (gateState === 'sl_guard') ? "border-red/35 text-red" :
+    "border-amber/35 text-amber",
+    (hibernating || isGatedIdle) && "border-border/60 text-muted"
   );
 
   const totalPeriodSec = Math.max(1, (config?.trades_period_min || 60) * 60);
@@ -1123,26 +1121,51 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
       className={bannerStyle}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 min-w-0 flex-1">
         {hibernating ? (
-          <Zap size={16} className={cn("animate-pulse", hibernationMode === 'light' ? "text-accent" : "text-amber")} />
+          <Zap size={13} className={cn("shrink-0", hibernationMode === 'light' ? "text-accent" : "text-amber")} />
         ) : gateState === 'sleeping' ? (
-          <Pause size={16} className="text-slate-400" />
+          <Pause size={13} className="text-muted shrink-0" />
         ) : scannerPaused ? (
-          <XCircle size={16} className="text-red animate-pulse" />
+          <XCircle size={13} className="text-red shrink-0" />
         ) : (
           <PulseDot color="bg-amber" />
         )}
-        <span className="uppercase tracking-widest flex-1 min-w-0 truncate">
-          {hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
+        <span className="font-semibold shrink-0">
+          {hibernating ? (hibernationMode === 'light' ? 'Light Sleep' : 'Deep Sleep') : (messages[gateState] || 'Risk gate active')}
         </span>
+        {reason && reason !== 'OK' && (
+          <>
+            <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
+            <span className="font-mono text-[10px] opacity-75 truncate hidden sm:inline" title={reason}>
+              {reason}
+            </span>
+          </>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 shrink-0">
+        {nextSlotSec !== null && nextSlotSec > 0 && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-16 sm:w-24 bg-border/30 h-1 rounded-full overflow-hidden">
+              <div
+                className="h-full w-full origin-left bg-amber transition-transform duration-1000 ease-linear"
+                style={{ transform: `scaleX(${Math.max(0, Math.min(1, progressPct / 100))})` }}
+              />
+            </div>
+            <span className="font-mono text-[10px] font-semibold text-amber tabular-nums">
+              {waitTimeStr}
+            </span>
+          </div>
+        )}
         {showResumingFeedback && (
-          <span className="px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-[9px] font-mono text-accent flex items-center gap-1 shrink-0">
-            <RefreshCw size={9} className="animate-spin" /> Syncing
+          <span className="text-[10px] font-mono text-accent flex items-center gap-1">
+            <RefreshCw size={10} className="animate-spin" /> Syncing
           </span>
         )}
         {hibernating ? (
@@ -1153,45 +1176,80 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
               if (onManage) onManage();
             }}
             className={cn(
-              "ml-auto px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border shrink-0 flex items-center gap-1.5 cursor-pointer transition-all hover:scale-95 active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-              hibernationMode === 'light' ? "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20" : "bg-amber/15 border-amber/35 text-amber hover:bg-amber/25"
+              "px-2 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              hibernationMode === 'light' ? "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20" : "bg-amber/15 border-amber/30 text-amber hover:bg-amber/25"
             )}
             title="Configure Hibernation & Sleep parameters in Settings"
           >
-            <SettingsIcon size={10} /> MANAGE
+            <SettingsIcon size={10} /> Manage
           </button>
         ) : isGatedIdle && (
           <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
-            <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20 shrink-0">
-              <Leaf size={10} /> RESOURCE SAVER
-            </div>
+            <span className="text-[10px] font-medium text-accent flex items-center gap-1">
+              <Leaf size={10} /> Resource Saver
+            </span>
           </Tooltip>
         )}
       </div>
-      {reason && reason !== 'OK' && (
-        <div className="pl-7 opacity-80 font-mono text-[10px] tracking-tight truncate">
-          Backend: {reason}
-        </div>
-      )}
-
-      {/* Dynamic Micro-Progress Timeline Bar for Period Release Countdown (GPU scaleX avoids layout reflow) */}
-      {nextSlotSec !== null && nextSlotSec > 0 && (
-        <div className="flex items-center gap-3 mt-1">
-          <div className="flex-1 bg-border/20 h-1.5 rounded-full overflow-hidden relative border border-white/5">
-            <div
-              className="h-full w-full origin-left bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)] transition-transform duration-1000 ease-linear"
-              style={{ transform: `scaleX(${Math.max(0, Math.min(1, progressPct / 100))})` }}
-            />
-          </div>
-          <span className="px-2 py-0.5 rounded bg-amber/20 border border-amber/35 text-[9px] font-black font-mono text-amber shrink-0 animate-pulse tabular-nums">
-            {waitTimeStr}
-          </span>
-        </div>
-      )}
     </motion.div>
   )
 })
 GateBanner.displayName = 'GateBanner'
+
+const DashboardTopBannerDock = React.memo(({ apiStatus, agreementRequired, gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, showResumingFeedback, onManage }) => {
+  const hasTopConnectivityAlert = useTradingStore(state => Boolean((state.wsStatus === 'error' && state.wsError) || state.apiError || state.wsStatus === 'reconnecting'));
+
+  return (
+    <aside
+      aria-label="Trading Engine Status and Risk Gate Notices"
+      aria-live="polite"
+      className={cn(
+        "fixed left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] max-w-[920px] z-[115] pointer-events-none flex flex-col gap-1.5 transition-[top] duration-200",
+        hasTopConnectivityAlert ? "top-12" : "top-2"
+      )}
+    >
+      <BanBanner apiStatus={apiStatus} />
+
+      {Boolean(agreementRequired) && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          role="alert"
+          className="pointer-events-auto px-3 py-1.5 rounded-lg bg-surface/95 backdrop-blur-md border border-red/45 text-[11px] shadow-lg flex items-center justify-between gap-2.5"
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <AlertCircle size={13} className="text-red shrink-0" aria-hidden="true" />
+            <span className="font-semibold text-red shrink-0">Agreement Required</span>
+            <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
+            <span className="text-muted truncate">Sign Binance TradFi-Perps agreement to unlock trading.</span>
+          </div>
+          <a
+            href="https://www.binance.com/en/futures/BTCUSDT"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2 py-0.5 rounded bg-red/15 hover:bg-red/25 border border-red/30 text-[10.5px] font-semibold text-red transition-colors shrink-0"
+          >
+            Open Binance
+          </a>
+        </motion.div>
+      )}
+
+      <GateBanner
+        gateState={gateState}
+        scannerPaused={scannerPaused}
+        reason={reason}
+        nextSlotTs={nextSlotTs}
+        hibernating={hibernating}
+        hibernationMode={hibernationMode}
+        activeTradesCount={activeTradesCount}
+        showResumingFeedback={showResumingFeedback}
+        onManage={onManage}
+      />
+    </aside>
+  );
+});
+DashboardTopBannerDock.displayName = 'DashboardTopBannerDock'
 
 // ScannerPreview renders 🔥 Fast Market Expansion banner when market activity is high (extracted to standalone component)
 export { ScannerPreview } from '../components/ScannerPreview'
@@ -2198,7 +2256,14 @@ export function DashboardView({ initialStrategy }) {
     setScannerFocusLabel(typeof label === 'string' ? label : null);
     setShowScanner(true);
   }, []);
-  const handleEditPrimary = React.useCallback(() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }, [config]);
+  const handleEditPrimary = React.useCallback(() => {
+    preloadConfigModal();
+    setIsEditMode(true);
+    setSelectedConfig(config);
+    setModalConfig(config);
+    setEditingVariantIndex(null);
+    setShowConfig(true);
+  }, [config]);
   const handleSelectPrimary = React.useCallback(() => {
     window.location.hash = `#/strategy/${encodeURIComponent(currentStrategy.strategy_label)}`;
   }, [currentStrategy.strategy_label]);
@@ -2206,6 +2271,7 @@ export function DashboardView({ initialStrategy }) {
   const handleEditVariant = React.useCallback((label) => {
     const idx = config.strategy_variants?.findIndex(v => v.strategy_label === label);
     if (idx !== -1) {
+      preloadConfigModal();
       const resolved = resolveStrategyConfig(config, config.strategy_variants[idx]);
       const variantConfig = {
         ...resolved,
@@ -2213,6 +2279,7 @@ export function DashboardView({ initialStrategy }) {
       };
       setIsEditMode(true);
       setSelectedConfig(variantConfig);
+      setModalConfig(variantConfig);
       setEditingVariantIndex(idx);
       setShowConfig(true);
     }
@@ -2279,12 +2346,14 @@ export function DashboardView({ initialStrategy }) {
       )}
       <Sidebar selected={selected} />
 
+      <SmoothSwap contentKey={selected ? `strategy:${selected}` : 'overview'} duration={0.16} yOffset={4}>
       {selected ? (
-        <Suspense fallback={<LoadingFallback />}>
+        <Suspense fallback={<StrategyDetailSkeleton />}>
           <StrategyDetailView
             s={strategyData}
             onBack={() => { window.location.hash = '#/'; }}
             onEdit={strategyData?.strategy_label === config.strategy_label ? handleEditPrimary : () => handleEditVariant(strategyData?.strategy_label)}
+            onEditMouseEnter={preloadConfigModal}
             onPause={togglePause}
             onOpenScanner={handleOpenScanner}
           />
@@ -2366,44 +2435,19 @@ export function DashboardView({ initialStrategy }) {
               </div>
             </ViewHeader>
 
-        <div aria-live="polite">
-          <BanBanner apiStatus={apiStatus} />
-          {agreementRequired && (
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-red/20 border border-red/40 p-3.5 rounded-xl mb-3 flex flex-col md:flex-row items-center gap-3 shadow-lg"
-            >
-              <div className="w-9 h-9 rounded-full bg-red/20 flex items-center justify-center text-red shrink-0 animate-pulse">
-                <AlertCircle size={18} />
-              </div>
-              <div className="flex-1 text-center md:text-left">
-                <h3 className="text-xs font-black uppercase tracking-tight text-red mb-0.5">Exchange Agreement Required</h3>
-                <p className="text-[11px] font-bold text-red/80">Binance requires you to sign the TradFi-Perps agreement contract. Trading is restricted until this is completed on the Binance website.</p>
-              </div>
-              <a
-                href="https://www.binance.com/en/futures/BTCUSDT"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-1.5 bg-red text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-red/90 transition-all shadow-md active:scale-95 shrink-0"
-              >
-                Go to Binance
-              </a>
-            </motion.div>
-          )}
-
-          <GateBanner
-            gateState={gateState}
-            scannerPaused={scannerPaused}
-            reason={gateReason}
-            nextSlotTs={nextSlotTs}
-            hibernating={hibernating}
-            hibernationMode={hibernationMode}
-            activeTradesCount={activeTrades.length}
-            showResumingFeedback={showResumingFeedback}
-            onManage={handleEditPrimary}
-          />
-        </div>
+        <DashboardTopBannerDock
+          apiStatus={apiStatus}
+          agreementRequired={agreementRequired}
+          gateState={gateState}
+          scannerPaused={scannerPaused}
+          reason={gateReason}
+          nextSlotTs={nextSlotTs}
+          hibernating={hibernating}
+          hibernationMode={hibernationMode}
+          activeTradesCount={activeTrades.length}
+          showResumingFeedback={showResumingFeedback}
+          onManage={handleEditPrimary}
+        />
 
         {/* Unified Portfolio & Risk Limits Strip */}
         <div className="flex flex-col gap-2.5 mb-3">
@@ -2775,7 +2819,8 @@ export function DashboardView({ initialStrategy }) {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 col-span-1 md:col-span-2">
                 <button
-                  onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+                  onClick={() => { preloadConfigModal(); setIsEditMode(false); setSelectedConfig(null); setModalConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
+                  onMouseEnter={preloadConfigModal}
                   disabled={loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
                   aria-label="Create new trading strategy"
                   className={cn(
@@ -2872,7 +2917,7 @@ export function DashboardView({ initialStrategy }) {
                   transition={{ duration: 0.25 }}
                   className="overflow-hidden pt-2 border-t border-border/20"
                 >
-                  <Suspense fallback={<LoadingFallback />}>
+                  <Suspense fallback={<DecisionLogSkeleton />}>
                     <DecisionLog />
                   </Suspense>
                 </motion.div>
@@ -2882,6 +2927,7 @@ export function DashboardView({ initialStrategy }) {
         </div>
       </div>
       )}
+      </SmoothSwap>
 
       {/* Modals & Drawers */}
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig} repositionInputs={false} dismissible={false} noBodyStyles>
@@ -2892,12 +2938,12 @@ export function DashboardView({ initialStrategy }) {
                 <Drawer.Title>Configuration</Drawer.Title>
                 <Drawer.Description>Form to configure trading strategy parameters</Drawer.Description>
               </VisuallyHidden>
-              <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
-                <Suspense fallback={<LoadingFallback />}>
-                  {modalConfig && (
+              <div className="flex-1 w-full overflow-hidden min-h-0 flex flex-col">
+                <Suspense fallback={<ModalLoadingFallback />}>
+                  {showConfig && (modalConfig || selectedConfig || config) && (
                     <ConfigModal
                       key={isEditMode ? `edit-${strategyId || selectedConfig?.id || 'session'}-${editingVariantIndex ?? 'base'}` : 'new'}
-                      initialConfig={modalConfig}
+                      initialConfig={modalConfig || selectedConfig || config}
                       baseConfig={config}
                       initialEditingVariantIndex={editingVariantIndex}
                       onSave={handleConfigSave}
@@ -2924,7 +2970,7 @@ export function DashboardView({ initialStrategy }) {
                 </VisuallyHidden>
               </div>
               <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                <Suspense fallback={<LoadingFallback />}>
+                <Suspense fallback={<ScannerRowsSkeleton rows={7} showHeader />}>
                   {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} selectedStrategyLabel={scannerFocusLabel || selected} />}
                 </Suspense>
               </div>

@@ -7,6 +7,7 @@ import { ChevronLeft, ArrowLeft, Activity, Clock } from 'lucide-react'
 import { sessionAPI } from '../api/client'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { TradeDetailContent } from '../components/trade/TradeDetailContent'
+import { TradeDetailSkeleton } from '../components/ui/Skeletons'
 import { formatDuration } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
 
@@ -15,6 +16,9 @@ const TradeDetailView = ({ tradeId }) => {
   const [historicalTrade, setHistoricalTrade] = useState(null)
   const activeTrade = (activeTrades || []).find(t => t.id === tradeId || t.symbol === tradeId)
   const trade = activeTrade || historicalTrade
+  const [hydrating, setHydrating] = useState(() => Boolean(tradeId && !activeTrade))
+  const [isClosing, setIsClosing] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
   const now = useNow()
 
   const duration = useMemo(() => {
@@ -28,42 +32,53 @@ const TradeDetailView = ({ tradeId }) => {
   useResourceFocus('trade', tradeId);
 
   useEffect(() => {
-    if (tradeId) {
-      // REST Hydration: Fetch immediate state (active OR persisted historical trade)
-      sessionAPI.getTrade(tradeId).then(res => {
-         if (res.data) {
-           if (res.data.status && res.data.status !== 'OPEN') {
-             const normalized = normalizeTrade(res.data, null, false);
-             if (normalized) setHistoricalTrade({ ...normalized, _is_full: true });
-             return;
-           }
-           const currentState = useTradingStore.getState();
-           // Map current active trades, replacing the hydrated one if it matches
-           const nextTrades = currentState.activeTrades.map(t => {
-             if (t.id === res.data.id || t.symbol === res.data.symbol) {
-               const normalized = normalizeTrade(res.data, t, false);
-               return normalized ? { ...t, ...normalized, _is_full: true } : { ...t, ...res.data, _is_full: true };
-             }
-             return t;
-           });
-           // If it wasn't in activeTrades yet and is OPEN, add it
-           if (!nextTrades.some(t => t.id === res.data.id || t.symbol === res.data.symbol)) {
-             const normalized = normalizeTrade(res.data, null, false);
-             if (normalized) nextTrades.push({ ...normalized, _is_full: true });
-           }
-           updateStats({ activeTrades: nextTrades });
-         }
-      }).catch(() => {});
+    if (!tradeId) {
+      setHydrating(false);
+      return;
     }
+    let cancelled = false;
+    setHydrating(true);
+    // REST Hydration: Fetch immediate state (active OR persisted historical trade)
+    sessionAPI.getTrade(tradeId).then(res => {
+      if (cancelled) return;
+      if (res.data) {
+        if (res.data.status && res.data.status !== 'OPEN') {
+          const normalized = normalizeTrade(res.data, null, false);
+          if (normalized) setHistoricalTrade({ ...normalized, _is_full: true });
+          return;
+        }
+        const currentState = useTradingStore.getState();
+        // Map current active trades, replacing the hydrated one if it matches
+        const nextTrades = currentState.activeTrades.map(t => {
+          if (t.id === res.data.id || t.symbol === res.data.symbol) {
+            const normalized = normalizeTrade(res.data, t, false);
+            return normalized ? { ...t, ...normalized, _is_full: true } : { ...t, ...res.data, _is_full: true };
+          }
+          return t;
+        });
+        // If it wasn't in activeTrades yet and is OPEN, add it
+        if (!nextTrades.some(t => t.id === res.data.id || t.symbol === res.data.symbol)) {
+          const normalized = normalizeTrade(res.data, null, false);
+          if (normalized) nextTrades.push({ ...normalized, _is_full: true });
+        }
+        updateStats({ activeTrades: nextTrades });
+      }
+    }).catch(() => {}).finally(() => {
+      if (!cancelled) setHydrating(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [tradeId, updateStats]);
 
-  const [isClosing, setIsClosing] = useState(false)
-  const [confirmClose, setConfirmClose] = useState(false)
+  if (!trade && hydrating) {
+    return <TradeDetailSkeleton />;
+  }
 
   if (!trade) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center">
-        <div className="w-16 h-16 rounded-full bg-surface border border-border flex items-center justify-center mb-6 text-dim/20 animate-pulse">
+        <div className="w-16 h-16 rounded-full bg-surface border border-border flex items-center justify-center mb-6 text-dim/20">
            <Activity size={32} />
         </div>
         <h2 className="text-xl font-bold mb-2">Trade Not Found</h2>

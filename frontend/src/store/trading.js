@@ -1684,34 +1684,96 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     return true;
   },
 
-  setWatchlistLimit: async (maxSymbols) => {
+  availableSymbols: [],
+  availableSymbolsLoading: false,
+  availableSymbolsFetchedAt: 0,
+  availableSymbolsMeta: { total: 0, tradfi_count: 0, crypto_count: 0 },
+
+  fetchAvailableSymbols: async (force = false) => {
+    const st = get();
+    const now = Date.now();
+    // 2-minute client TTL to avoid redundant fetches while keeping live prices fresh
+    if (!force && st.availableSymbols.length > 0 && now - (st.availableSymbolsFetchedAt || 0) < 120000) {
+      return st.availableSymbols;
+    }
+    if (st.availableSymbolsLoading) return st.availableSymbols;
+
+    set({ availableSymbolsLoading: true });
+    try {
+      const res = await sessionAPI.getSymbols(false);
+      const data = res?.data || {};
+      const list = Array.isArray(data.symbols) ? data.symbols : [];
+      set({
+        availableSymbols: list,
+        availableSymbolsFetchedAt: Date.now(),
+        availableSymbolsMeta: {
+          total: Number(data.total ?? list.length),
+          tradfi_count: Number(data.tradfi_count ?? list.filter((s) => s.assetClass === 'tradfi').length),
+          crypto_count: Number(data.crypto_count ?? list.filter((s) => s.assetClass !== 'tradfi').length),
+        },
+        availableSymbolsLoading: false,
+      });
+      return list;
+    } catch (err) {
+      set({ availableSymbolsLoading: false });
+      return get().availableSymbols;
+    }
+  },
+
+  setWatchlistLimit: async (maxSymbols, targetStrategyLabel = null) => {
     const limit = Math.max(0, parseInt(maxSymbols, 10) || 0);
     const st = get();
-    const currentSymbols = Array.isArray(st.config?.symbols) ? [...st.config.symbols] : [];
+    const variants = Array.isArray(st.config?.strategy_variants) ? [...st.config.strategy_variants] : [];
+    const isVariant = targetStrategyLabel && targetStrategyLabel !== st.config?.strategy_label && targetStrategyLabel !== 'Base Strategy';
+    const variantIdx = isVariant ? variants.findIndex(v => v.strategy_label === targetStrategyLabel) : -1;
+
+    const targetConfig = variantIdx >= 0 ? variants[variantIdx] : st.config;
+    const currentSymbols = Array.isArray(targetConfig?.symbols) ? [...targetConfig.symbols] : [];
     let nextSymbols = currentSymbols;
 
     if (limit > 0 && currentSymbols.length > limit) {
-      // Retain active trade symbols first, then take up to limit
       const activeSyms = new Set((st.activeTrades || []).map(t => t.symbol));
       const inPos = currentSymbols.filter(s => activeSyms.has(s));
       const notInPos = currentSymbols.filter(s => !activeSyms.has(s));
       nextSymbols = [...inPos, ...notInPos].slice(0, limit);
     }
 
-    await st.patchConfig({
-      watchlist_max_symbols: limit,
-      symbols: nextSymbols
-    });
+    if (variantIdx >= 0) {
+      variants[variantIdx] = {
+        ...variants[variantIdx],
+        watchlist_max_symbols: limit,
+        symbols: nextSymbols,
+      };
+      await st.patchConfig({ strategy_variants: variants });
+    } else {
+      await st.patchConfig({
+        watchlist_max_symbols: limit,
+        symbols: nextSymbols
+      });
+    }
     get().addAlert({
       level: 'info',
       title: 'Watchlist Capacity Updated',
-      message: limit > 0 ? `Watchlist limit set to ${limit} symbol${limit === 1 ? '' : 's'}.` : 'Watchlist capacity set to unlimited.'
+      message: `${targetStrategyLabel ? `${targetStrategyLabel}: ` : ''}${limit > 0 ? `limit set to ${limit} symbol${limit === 1 ? '' : 's'}` : 'capacity set to unlimited'}.`
     });
   },
 
-  setWatchlistScheduler: async (settings) => {
+  setWatchlistScheduler: async (settings, targetStrategyLabel = null) => {
     const st = get();
-    await st.patchConfig(settings);
+    const variants = Array.isArray(st.config?.strategy_variants) ? [...st.config.strategy_variants] : [];
+    const isVariant = targetStrategyLabel && targetStrategyLabel !== st.config?.strategy_label && targetStrategyLabel !== 'Base Strategy';
+    const variantIdx = isVariant ? variants.findIndex(v => v.strategy_label === targetStrategyLabel) : -1;
+
+    if (variantIdx >= 0) {
+      variants[variantIdx] = {
+        ...variants[variantIdx],
+        ...settings,
+      };
+      await st.patchConfig({ strategy_variants: variants });
+    } else {
+      await st.patchConfig(settings);
+    }
+
     if (settings.watchlist_locked !== undefined) {
       get().addAlert({
         level: settings.watchlist_locked ? 'warn' : 'success',
@@ -1727,9 +1789,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
   },
 
-  rotateWatchlistNow: async () => {
+  rotateWatchlistNow: async (targetStrategyLabel = null) => {
     const st = get();
-    if (st.config?.watchlist_locked) {
+    const variants = Array.isArray(st.config?.strategy_variants) ? [...st.config.strategy_variants] : [];
+    const isVariant = targetStrategyLabel && targetStrategyLabel !== st.config?.strategy_label && targetStrategyLabel !== 'Base Strategy';
+    const variantIdx = isVariant ? variants.findIndex(v => v.strategy_label === targetStrategyLabel) : -1;
+    const targetConfig = variantIdx >= 0 ? { ...st.config, ...variants[variantIdx] } : st.config;
+
+    if (targetConfig?.watchlist_locked) {
       get().addAlert({
         level: 'warn',
         title: 'Watchlist Locked',
@@ -1738,16 +1805,20 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       return false;
     }
 
-    // Pick top favorable scanner opportunity
-    const scannerOpps = Array.isArray(st.scannerResults) ? st.scannerResults : [];
-    const currentSymbols = new Set(Array.isArray(st.config?.symbols) ? st.config.symbols : []);
+    const labelKey = variantIdx >= 0 ? targetStrategyLabel : (st.config?.strategy_label || 'Base Strategy');
+    const variantOpps = st.variantScannerResults?.[labelKey];
+    const scannerOpps = Array.isArray(variantOpps) && variantOpps.length > 0
+      ? variantOpps
+      : (Array.isArray(st.scannerResults) && st.scannerResults.length > 0 ? st.scannerResults : (st.availableSymbols || []));
+    const currentSymbols = new Set(Array.isArray(targetConfig?.symbols) ? targetConfig.symbols : []);
     const activeSymbols = new Set((st.activeTrades || []).map(t => t.symbol));
+    const minScore = targetConfig?.watchlist_min_score || 70;
 
     const candidate = scannerOpps.find(o =>
       o.symbol &&
       !currentSymbols.has(o.symbol) &&
       !activeSymbols.has(o.symbol) &&
-      (o.score >= (st.config?.watchlist_min_score || 70) || o.signalResult?.allFired || Math.abs(o.pct || 0) >= 1.5)
+      ((o.score !== undefined && o.score >= minScore) || o.signalResult?.allFired || Math.abs(o.pct || 0) >= 1.5 || Number(o.volume_24h || 0) > 0)
     );
 
     if (!candidate) {
@@ -1759,7 +1830,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       return false;
     }
 
-    await st.addToWatchlist(candidate.symbol);
+    await st.addToWatchlist(candidate.symbol, variantIdx >= 0 ? targetStrategyLabel : null);
     return true;
   },
   

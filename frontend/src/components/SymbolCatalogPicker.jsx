@@ -1,0 +1,691 @@
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import {
+  Search,
+  Plus,
+  Check,
+  X,
+  RefreshCw,
+  Layers,
+  Copy,
+  Sparkles,
+  Globe,
+  TrendingUp,
+} from 'lucide-react';
+import { useTradingStore } from '../store/trading';
+import { cn, Tooltip } from './ui/primitives';
+
+const STARTER_SYMBOLS = [
+  { symbol: 'BTCUSDT', baseAsset: 'BTC', assetClass: 'crypto' },
+  { symbol: 'ETHUSDT', baseAsset: 'ETH', assetClass: 'crypto' },
+  { symbol: 'SOLUSDT', baseAsset: 'SOL', assetClass: 'crypto' },
+  { symbol: 'BNBUSDT', baseAsset: 'BNB', assetClass: 'crypto' },
+  { symbol: 'XRPUSDT', baseAsset: 'XRP', assetClass: 'crypto' },
+  { symbol: 'DOGEUSDT', baseAsset: 'DOGE', assetClass: 'crypto' },
+  { symbol: 'XAUUSDT', baseAsset: 'XAU', assetClass: 'tradfi', underlyingType: 'COMMODITY' },
+  { symbol: 'XAGUSDT', baseAsset: 'XAG', assetClass: 'tradfi', underlyingType: 'COMMODITY' },
+];
+
+const formatCompactVol = (v) => {
+  const n = Number(v || 0);
+  if (!n || n <= 0) return null;
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+  return `$${n.toFixed(0)}`;
+};
+
+const formatPrice = (p) => {
+  const n = Number(p || 0);
+  if (!n || n <= 0) return null;
+  if (n >= 1000) return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  if (n >= 1) return `$${n.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}`;
+  return `$${n.toPrecision(4)}`;
+};
+
+/**
+ * Unified Binance Futures Symbol Catalog & Strategy-to-Strategy Static Watchlist Picker.
+ * Works immediately without requiring a prior dynamic scan by reading cached exchange symbols
+ * from GET /session/symbols combined with live scanner results and other strategies' watchlists.
+ */
+export const SymbolCatalogPicker = React.memo(({
+  selectedSymbols = [],
+  onAddSymbol,
+  onAddBulkSymbols,
+  onRemoveSymbol,
+  currentStrategyLabel = null,
+  strategiesOverride = null,
+  maxLimit = 0,
+  compact = false,
+  defaultExpanded = false,
+  inputRef: externalInputRef = null,
+}) => {
+  const availableSymbols = useTradingStore((s) => s.availableSymbols || []);
+  const availableSymbolsLoading = useTradingStore((s) => s.availableSymbolsLoading);
+  const fetchAvailableSymbols = useTradingStore((s) => s.fetchAvailableSymbols);
+  const scannerResults = useTradingStore((s) => s.scannerResults || []);
+  const variantScannerResults = useTradingStore((s) => s.variantScannerResults || {});
+  const storeConfig = useTradingStore((s) => s.config || {});
+
+  const [query, setQuery] = useState('');
+  const [activeTab, setActiveTab] = useState('catalog'); // 'catalog' | 'strategies'
+  const [category, setCategory] = useState('all'); // 'all' | 'crypto' | 'tradfi' | 'movers'
+  const [sortBy, setSortBy] = useState('volume'); // 'volume' | 'change' | 'alpha'
+  const [isOpen, setIsOpen] = useState(defaultExpanded);
+  const [copiedSourceKey, setCopiedSourceKey] = useState(null);
+
+  const internalInputRef = useRef(null);
+  const resolvedInputRef = externalInputRef || internalInputRef;
+
+  useEffect(() => {
+    if (typeof fetchAvailableSymbols === 'function') {
+      fetchAvailableSymbols(false);
+    }
+  }, [fetchAvailableSymbols]);
+
+  const selectedSet = useMemo(() => {
+    return new Set((Array.isArray(selectedSymbols) ? selectedSymbols : []).map((s) => String(s || '').toUpperCase()));
+  }, [selectedSymbols]);
+
+  // Unified symbol universe: Exchange Catalog + Base Scanner + All Variant Scanners
+  const universe = useMemo(() => {
+    const map = new Map();
+
+    // 1. Exchange catalog from backend (all active Binance USDS-M Futures including TradFi/Overnight)
+    for (const item of availableSymbols) {
+      if (!item?.symbol) continue;
+      const sym = String(item.symbol).toUpperCase();
+      map.set(sym, {
+        symbol: sym,
+        baseAsset: item.baseAsset || sym.replace(/USDT$/, ''),
+        assetClass: item.assetClass === 'tradfi' ? 'tradfi' : 'crypto',
+        underlyingType: item.underlyingType || 'COIN',
+        contractType: item.contractType || 'PERPETUAL',
+        price: Number(item.price || 0),
+        pct: Number(item.pct || 0),
+        volume_24h: Number(item.volume_24h || 0),
+        score: undefined,
+      });
+    }
+
+    // 2. Overlay live scanner results (base + variants) for live score & freshest price/pct
+    const overlayOpp = (opp) => {
+      if (!opp?.symbol) return;
+      const sym = String(opp.symbol).toUpperCase();
+      if (!sym.endsWith('USDT')) return;
+      const existing = map.get(sym);
+      const pctVal = opp.pct !== undefined ? Number(opp.pct) : (opp.momentum !== undefined ? Number(opp.momentum) : existing?.pct ?? 0);
+      map.set(sym, {
+        symbol: sym,
+        baseAsset: existing?.baseAsset || sym.replace(/USDT$/, ''),
+        assetClass: existing?.assetClass || 'crypto',
+        underlyingType: existing?.underlyingType || 'COIN',
+        contractType: existing?.contractType || 'PERPETUAL',
+        price: Number(opp.price || existing?.price || 0),
+        pct: pctVal,
+        volume_24h: Number(opp.vol || opp.volume || opp.volume_24h || existing?.volume_24h || 0),
+        score: opp.score !== undefined ? Number(opp.score) : existing?.score,
+      });
+    };
+
+    for (const opp of scannerResults) overlayOpp(opp);
+    Object.values(variantScannerResults || {}).forEach((arr) => {
+      if (Array.isArray(arr)) {
+        for (const opp of arr) overlayOpp(opp);
+      }
+    });
+
+    // 3. Minimal offline fallback ONLY if catalog & scanner are both completely empty
+    if (map.size === 0) {
+      for (const s of STARTER_SYMBOLS) {
+        map.set(s.symbol, {
+          ...s,
+          contractType: 'PERPETUAL',
+          price: 0,
+          pct: 0,
+          volume_24h: 0,
+          score: undefined,
+        });
+      }
+    }
+
+    return Array.from(map.values());
+  }, [availableSymbols, scannerResults, variantScannerResults]);
+
+  const tradFiCount = useMemo(() => universe.filter((u) => u.assetClass === 'tradfi').length, [universe]);
+  const cryptoCount = universe.length - tradFiCount;
+
+  const filteredCatalog = useMemo(() => {
+    const q = query.trim().toUpperCase();
+    let list = universe.filter((item) => {
+      if (category === 'crypto' && item.assetClass !== 'crypto') return false;
+      if (category === 'tradfi' && item.assetClass !== 'tradfi') return false;
+      if (category === 'movers' && Math.abs(item.pct || 0) < 2.0) return false;
+      if (q && !item.symbol.includes(q) && !(item.underlyingType || '').includes(q)) return false;
+      return true;
+    });
+
+    if (sortBy === 'change') {
+      list = [...list].sort((a, b) => Math.abs(b.pct || 0) - Math.abs(a.pct || 0));
+    } else if (sortBy === 'alpha') {
+      list = [...list].sort((a, b) => a.symbol.localeCompare(b.symbol));
+    } else {
+      list = [...list].sort((a, b) => {
+        if ((b.volume_24h || 0) !== (a.volume_24h || 0)) return (b.volume_24h || 0) - (a.volume_24h || 0);
+        if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+        return a.symbol.localeCompare(b.symbol);
+      });
+    }
+
+    return list.slice(0, q ? 60 : 48);
+  }, [universe, query, category, sortBy]);
+
+  // Build other strategies' symbol lists (both their Static Watchlist & Live Scanned symbols)
+  const otherStrategies = useMemo(() => {
+    const baseCfg = strategiesOverride?.baseConfig || storeConfig || {};
+    const variants = Array.isArray(strategiesOverride?.variants)
+      ? strategiesOverride.variants
+      : (Array.isArray(baseCfg.strategy_variants) ? baseCfg.strategy_variants : []);
+
+    const list = [];
+    const baseLabel = baseCfg.strategy_label || 'Base Strategy';
+    const normalizedCurrent = String(currentStrategyLabel || '').trim();
+
+    if (!normalizedCurrent || normalizedCurrent !== baseLabel) {
+      const staticSyms = Array.isArray(baseCfg.symbols) ? baseCfg.symbols.filter(Boolean) : [];
+      const liveSyms = (scannerResults || []).map((r) => r?.symbol).filter(Boolean);
+      list.push({
+        id: 'base',
+        label: baseLabel,
+        isBase: true,
+        timeframe: baseCfg.scan_interval || '5m',
+        staticSymbols: Array.from(new Set(staticSyms)),
+        liveSymbols: Array.from(new Set(liveSyms)).slice(0, 15),
+      });
+    }
+
+    variants.forEach((v, idx) => {
+      if (!v) return;
+      const vLabel = v.strategy_label || `Variant #${idx + 1}`;
+      if (normalizedCurrent && vLabel === normalizedCurrent) return;
+      const staticSyms = Array.isArray(v.symbols) ? v.symbols.filter(Boolean) : [];
+      const liveArr = variantScannerResults?.[vLabel] || [];
+      const liveSyms = Array.isArray(liveArr) ? liveArr.map((r) => r?.symbol).filter(Boolean) : [];
+      list.push({
+        id: `variant-${idx}`,
+        label: vLabel,
+        isBase: false,
+        timeframe: v.scan_interval || baseCfg.scan_interval || '5m',
+        staticSymbols: Array.from(new Set(staticSyms)),
+        liveSymbols: Array.from(new Set(liveSyms)).slice(0, 15),
+      });
+    });
+
+    return list;
+  }, [strategiesOverride, storeConfig, currentStrategyLabel, scannerResults, variantScannerResults]);
+
+  const directTypedSymbol = useMemo(() => {
+    const q = query.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+    if (!q || q.length < 2) return null;
+    const candidate = q.endsWith('USDT') ? q : `${q}USDT`;
+    if (selectedSet.has(candidate)) return null;
+    return candidate;
+  }, [query, selectedSet]);
+
+  const handleToggleSymbol = (sym) => {
+    const clean = String(sym || '').trim().toUpperCase();
+    if (!clean) return;
+    const finalSym = clean.endsWith('USDT') ? clean : `${clean}USDT`;
+    if (selectedSet.has(finalSym)) {
+      onRemoveSymbol?.(finalSym);
+    } else {
+      onAddSymbol?.(finalSym);
+    }
+  };
+
+  const handleCopyBulk = (symbolsList, sourceKey) => {
+    const toAdd = (symbolsList || []).filter((s) => s && !selectedSet.has(String(s).toUpperCase()));
+    if (toAdd.length === 0) return;
+    if (typeof onAddBulkSymbols === 'function') {
+      onAddBulkSymbols(toAdd);
+    } else if (typeof onAddSymbol === 'function') {
+      toAdd.forEach((s) => onAddSymbol(s));
+    }
+    setCopiedSourceKey(sourceKey);
+    setTimeout(() => setCopiedSourceKey(null), 1500);
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5 w-full min-w-0">
+      {/* Top Search & Source Switcher Row */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full min-w-0">
+        <div className="relative flex-1 min-w-0">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+          <input
+            ref={resolvedInputRef}
+            type="text"
+            value={query}
+            onFocus={() => setIsOpen(true)}
+            onChange={(e) => {
+              setQuery(e.target.value.toUpperCase());
+              setIsOpen(true);
+              if (activeTab !== 'catalog') setActiveTab('catalog');
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && directTypedSymbol) {
+                e.preventDefault();
+                onAddSymbol?.(directTypedSymbol);
+                setQuery('');
+              } else if (e.key === 'Escape') {
+                setQuery('');
+              }
+            }}
+            placeholder="Search any Binance Futures pair (BTC, SOL, XAU, TSLA)..."
+            aria-label="Search symbols to add to static watchlist"
+            className="w-full bg-background/60 border border-border rounded-lg pl-8 pr-28 py-1.5 text-xs font-mono text-text placeholder:text-muted/50 focus:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 transition-colors"
+          />
+          <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {directTypedSymbol && (
+              <button
+                type="button"
+                onClick={() => {
+                  onAddSymbol?.(directTypedSymbol);
+                  setQuery('');
+                }}
+                className="px-1.5 py-0.5 rounded bg-accent text-background text-[10px] font-mono font-semibold hover:bg-accent/90 transition-colors flex items-center gap-0.5 cursor-pointer shrink-0"
+              >
+                <Plus size={11} />
+                <span>Add</span>
+              </button>
+            )}
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label="Clear symbol search"
+                className="text-muted hover:text-text p-0.5 cursor-pointer"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Toggle Catalog vs From Strategy */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Segmented Source Tabs: Market Catalog vs Copy from Strategy */}
+          <div className="inline-flex items-center rounded-lg border border-border/70 bg-background/50 p-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('catalog');
+                setIsOpen(true);
+              }}
+              className={cn(
+                'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer',
+                activeTab === 'catalog' && isOpen
+                  ? 'bg-surface text-text shadow-xs'
+                  : 'text-muted hover:text-text'
+              )}
+            >
+              <Globe size={12} className="text-accent" />
+              <span>Catalog</span>
+              <span className="font-mono text-[10px] text-muted tabular-nums">{universe.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('strategies');
+                setIsOpen(true);
+              }}
+              className={cn(
+                'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer',
+                activeTab === 'strategies' && isOpen
+                  ? 'bg-surface text-text shadow-xs'
+                  : 'text-muted hover:text-text'
+              )}
+            >
+              <Layers size={12} className="text-accent" />
+              <span>From Strategy</span>
+              {otherStrategies.length > 0 && (
+                <span className="font-mono text-[10px] text-muted tabular-nums">{otherStrategies.length}</span>
+              )}
+            </button>
+          </div>
+
+          <Tooltip content="Refresh Binance Futures symbol catalog">
+            <button
+              type="button"
+              onClick={() => fetchAvailableSymbols?.(true)}
+              disabled={availableSymbolsLoading}
+              aria-label="Refresh symbol catalog"
+              className="p-1.5 rounded-lg border border-border/70 bg-background/50 text-muted hover:text-text hover:border-border transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw size={13} className={cn(availableSymbolsLoading && 'animate-spin text-accent')} />
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* Expandable Picker Body */}
+      {isOpen && (
+        <div className="rounded-xl border border-border/70 bg-background/40 overflow-hidden">
+          {activeTab === 'catalog' ? (
+            <>
+              {/* Filter & Sort Strip */}
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-border/50 bg-surface/40">
+                <div className="flex items-center gap-1 flex-wrap">
+                  {[
+                    { id: 'all', label: `All (${universe.length})` },
+                    { id: 'crypto', label: `Crypto (${cryptoCount})` },
+                    { id: 'tradfi', label: `TradFi / Overnight (${tradFiCount})` },
+                    { id: 'movers', label: 'Movers >2%' },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setCategory(tab.id)}
+                      className={cn(
+                        'px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer',
+                        category === tab.id
+                          ? 'bg-accent/15 text-accent border border-accent/30'
+                          : 'text-muted hover:text-text border border-transparent hover:bg-white/5'
+                      )}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-1.5 text-[11px] text-muted">
+                  <span className="hidden sm:inline">Sort:</span>
+                  {[
+                    { id: 'volume', label: 'Volume' },
+                    { id: 'change', label: '24h %' },
+                    { id: 'alpha', label: 'A–Z' },
+                  ].map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSortBy(s.id)}
+                      className={cn(
+                        'px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer',
+                        sortBy === s.id ? 'text-text font-semibold bg-white/10' : 'text-muted hover:text-text'
+                      )}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                  {!defaultExpanded && (
+                    <button
+                      type="button"
+                      onClick={() => setIsOpen(false)}
+                      aria-label="Close symbol browser"
+                      className="ml-1 p-0.5 rounded text-muted hover:text-text cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Symbol Grid (Fixed height eliminates CLS during async catalog load and category switches) */}
+              <div className={cn('p-2 overflow-y-auto no-scrollbar', compact ? 'h-52' : 'h-64')}>
+                {availableSymbolsLoading && universe.length === 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5" aria-busy="true" aria-label="Loading Binance Futures symbol catalog">
+                    {Array.from({ length: 8 }).map((_, idx) => (
+                      <div
+                        key={idx}
+                        className="h-[46px] rounded-lg border border-border/40 bg-surface/50 px-2.5 py-2 flex items-center justify-between gap-2 animate-pulse"
+                      >
+                        <div className="flex flex-col gap-1.5 flex-1">
+                          <div className="h-3 w-12 rounded bg-border/60" />
+                          <div className="h-2.5 w-16 rounded bg-border/40" />
+                        </div>
+                        <div className="h-3 w-8 rounded bg-border/50" />
+                      </div>
+                    ))}
+                  </div>
+                ) : filteredCatalog.length === 0 ? (
+                  <div className="py-6 text-center space-y-2">
+                    <p className="text-xs text-muted">
+                      {category === 'tradfi'
+                        ? 'No TradFi / Overnight contracts loaded yet. Refresh catalog or type a symbol (e.g. XAUUSDT, TSLAUSDT) to pin directly.'
+                        : 'No matching pairs found.'}
+                    </p>
+                    {directTypedSymbol && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onAddSymbol?.(directTypedSymbol);
+                          setQuery('');
+                        }}
+                        className="px-3 py-1 rounded-lg bg-accent/15 border border-accent/30 text-accent text-xs font-mono font-medium hover:bg-accent/25 cursor-pointer"
+                      >
+                        + Add {directTypedSymbol} manually
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">
+                    {filteredCatalog.map((item) => {
+                      const isAdded = selectedSet.has(item.symbol);
+                      const isPos = (item.pct || 0) >= 0;
+                      const volStr = formatCompactVol(item.volume_24h);
+                      const priceStr = formatPrice(item.price);
+                      const base = item.symbol.replace(/USDT$/, '');
+
+                      return (
+                        <button
+                          key={item.symbol}
+                          type="button"
+                          onClick={() => handleToggleSymbol(item.symbol)}
+                          className={cn(
+                            'flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-lg border text-left transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                            isAdded
+                              ? 'bg-accent/12 border-accent/45 text-text'
+                              : 'bg-surface/60 border-border/50 hover:border-accent/40 hover:bg-surface text-text'
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className="font-mono text-xs font-semibold truncate">{base}</span>
+                              {item.assetClass === 'tradfi' && (
+                                <span className="text-[9px] font-mono font-medium text-amber px-1 rounded bg-amber/10 shrink-0">
+                                  {item.underlyingType === 'COMMODITY'
+                                    ? 'CMD'
+                                    : item.underlyingType === 'EQUITY'
+                                    ? 'EQ'
+                                    : item.underlyingType === 'INDEX'
+                                    ? 'IDX'
+                                    : 'TradFi'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono tabular-nums text-muted truncate">
+                              {priceStr ? <span>{priceStr}</span> : <span>USDT Perp</span>}
+                              {volStr && <span className="opacity-70">{volStr}</span>}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col items-end shrink-0 gap-0.5">
+                            {item.price > 0 && (
+                              <span className={cn('text-[10px] font-mono font-medium tabular-nums', isPos ? 'text-green' : 'text-red')}>
+                                {isPos ? '+' : ''}{Number(item.pct || 0).toFixed(1)}%
+                              </span>
+                            )}
+                            <span className={cn('text-muted', isAdded && 'text-accent')}>
+                              {isAdded ? <Check size={12} /> : <Plus size={12} />}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {maxLimit === 1 && (
+                <div className="px-3 py-1.5 border-t border-border/40 bg-amber/5 text-[11px] text-amber flex items-center justify-between">
+                  <span>Solo mode active (limit 1)</span>
+                  <span className="text-muted font-mono text-[10px]">Clicking a symbol swaps the active pair</span>
+                </div>
+              )}
+            </>
+          ) : (
+            /* Copy / Import from Other Strategies Tab (fixed height matches Market Catalog for 0 CLS on tab toggle) */
+            <div className={cn('p-3 space-y-2.5 overflow-y-auto no-scrollbar', compact ? 'h-[246px]' : 'h-[294px]')}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-text flex items-center gap-1.5">
+                  <Copy size={12} className="text-accent" />
+                  Import static or scanned pairs from other strategies
+                </span>
+                {!defaultExpanded && (
+                  <button
+                    type="button"
+                    onClick={() => setIsOpen(false)}
+                    aria-label="Close strategy import"
+                    className="p-0.5 rounded text-muted hover:text-text cursor-pointer"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+
+              {otherStrategies.length === 0 ? (
+                <div className="py-6 text-center text-xs text-muted border border-dashed border-border/50 rounded-lg">
+                  No other strategies configured yet. Add a strategy variant to share static watchlists between strategies.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {otherStrategies.map((strat) => {
+                    const unaddedStatic = strat.staticSymbols.filter((s) => !selectedSet.has(s));
+                    const unaddedLive = strat.liveSymbols.filter((s) => !selectedSet.has(s));
+                    const staticKey = `${strat.id}-static`;
+                    const liveKey = `${strat.id}-live`;
+
+                    return (
+                      <div
+                        key={strat.id}
+                        className="p-2.5 rounded-lg border border-border/60 bg-surface/60 space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xs font-semibold text-text truncate">{strat.label}</span>
+                            <span className="text-[10px] font-mono text-muted">{strat.timeframe}</span>
+                            {strat.isBase && (
+                              <span className="text-[10px] text-accent font-medium">Base</span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {strat.staticSymbols.length > 0 && (
+                              <button
+                                type="button"
+                                disabled={unaddedStatic.length === 0}
+                                onClick={() => handleCopyBulk(unaddedStatic, staticKey)}
+                                className={cn(
+                                  'px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed',
+                                  copiedSourceKey === staticKey
+                                    ? 'bg-green/15 border-green/35 text-green'
+                                    : 'bg-accent/12 border-accent/35 text-accent hover:bg-accent/20'
+                                )}
+                              >
+                                {copiedSourceKey === staticKey ? <Check size={11} /> : <Copy size={11} />}
+                                <span>
+                                  {copiedSourceKey === staticKey
+                                    ? 'Copied'
+                                    : unaddedStatic.length > 0
+                                    ? `Copy Static (${unaddedStatic.length})`
+                                    : 'Static Synced'}
+                                </span>
+                              </button>
+                            )}
+
+                            {strat.liveSymbols.length > 0 && (
+                              <button
+                                type="button"
+                                disabled={unaddedLive.length === 0}
+                                onClick={() => handleCopyBulk(unaddedLive, liveKey)}
+                                className={cn(
+                                  'px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed',
+                                  copiedSourceKey === liveKey
+                                    ? 'bg-green/15 border-green/35 text-green'
+                                    : 'bg-surface border-border text-text hover:border-accent/40'
+                                )}
+                              >
+                                {copiedSourceKey === liveKey ? <Check size={11} /> : <TrendingUp size={11} />}
+                                <span>
+                                  {copiedSourceKey === liveKey
+                                    ? 'Copied'
+                                    : unaddedLive.length > 0
+                                    ? `Copy Live (${unaddedLive.length})`
+                                    : 'Live Synced'}
+                                </span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Individual Symbol Chips (Static first, then Live) */}
+                        {strat.staticSymbols.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {strat.staticSymbols.map((sym) => {
+                              const alreadyIn = selectedSet.has(sym);
+                              return (
+                                <button
+                                  key={sym}
+                                  type="button"
+                                  onClick={() => handleToggleSymbol(sym)}
+                                  className={cn(
+                                    'px-2 py-0.5 rounded text-[11px] font-mono border transition-colors flex items-center gap-1 cursor-pointer',
+                                    alreadyIn
+                                      ? 'bg-accent/15 border-accent/40 text-accent'
+                                      : 'bg-background/60 border-border/60 text-text hover:border-accent/40'
+                                  )}
+                                >
+                                  <span>{sym.replace(/USDT$/, '')}</span>
+                                  {alreadyIn ? <Check size={10} /> : <Plus size={10} className="text-muted" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : strat.liveSymbols.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {strat.liveSymbols.slice(0, 10).map((sym) => {
+                              const alreadyIn = selectedSet.has(sym);
+                              return (
+                                <button
+                                  key={sym}
+                                  type="button"
+                                  onClick={() => handleToggleSymbol(sym)}
+                                  className={cn(
+                                    'px-2 py-0.5 rounded text-[11px] font-mono border transition-colors flex items-center gap-1 cursor-pointer',
+                                    alreadyIn
+                                      ? 'bg-accent/15 border-accent/40 text-accent'
+                                      : 'bg-background/60 border-border/60 text-muted hover:text-text hover:border-accent/40'
+                                  )}
+                                >
+                                  <span>{sym.replace(/USDT$/, '')}</span>
+                                  {alreadyIn ? <Check size={10} /> : <Plus size={10} />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-muted">No static or scanned symbols on this strategy yet.</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+SymbolCatalogPicker.displayName = 'SymbolCatalogPicker';
+export default SymbolCatalogPicker;

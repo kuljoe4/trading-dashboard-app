@@ -59,6 +59,10 @@ html[data-low-glare="true"] .animate-pulse {
 }
 
 @layer base {
+  html {
+    scrollbar-gutter: stable;
+  }
+
   body {
     @apply bg-background text-text font-sans antialiased selection:bg-accent/30 selection:text-white;
     background-color: var(--color-background);
@@ -187,10 +191,114 @@ html[data-low-glare="true"] .animate-pulse {
   .animate-handoff-slide {
     animation: handoff-slide 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+
+  /* Smooth GPU-composited enter utilities (compatible with Tailwind v4 without external animate plugin) */
+  @keyframes ui-enter {
+    from {
+      opacity: var(--ui-enter-opacity, 1);
+      transform: translate3d(var(--ui-enter-x, 0), var(--ui-enter-y, 0), 0) scale(var(--ui-enter-scale, 1));
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  .animate-in {
+    animation-name: ui-enter;
+    animation-duration: var(--ui-enter-duration, 220ms);
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    animation-fill-mode: both;
+  }
+  .fade-in {
+    --ui-enter-opacity: 0;
+  }
+  .slide-in-from-top-1 {
+    --ui-enter-y: -4px;
+  }
+  .slide-in-from-top-2 {
+    --ui-enter-y: -8px;
+  }
+  .slide-in-from-bottom-2 {
+    --ui-enter-y: 8px;
+  }
+  .slide-in-from-bottom-4 {
+    --ui-enter-y: 16px;
+  }
+  .zoom-in {
+    --ui-enter-scale: 0.96;
+  }
+  .zoom-in-95 {
+    --ui-enter-scale: 0.95;
+  }
+  .animate-in.duration-150 {
+    --ui-enter-duration: 150ms;
+  }
+  .animate-in.duration-200 {
+    --ui-enter-duration: 200ms;
+  }
+  .animate-in.duration-300 {
+    --ui-enter-duration: 300ms;
+  }
+
+  /* Smooth SVG indicator transitions for dials, ladders, and progress meters */
+  .svg-smooth-transform {
+    transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+  .svg-smooth-stroke {
+    transition: stroke-dashoffset 320ms cubic-bezier(0.22, 1, 0.36, 1), stroke 260ms ease-out;
+  }
+  .svg-smooth-color {
+    transition: fill 260ms ease-out, stroke 260ms ease-out;
+  }
+
+  /* GPU-composited zero-CLS skeleton shimmer (compositor-only translate3d) */
+  @keyframes skeleton-shimmer {
+    0% {
+      transform: translate3d(-100%, 0, 0);
+    }
+    100% {
+      transform: translate3d(100%, 0, 0);
+    }
+  }
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .skeleton-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.045) 50%,
+      transparent 100%
+    );
+    transform: translate3d(-100%, 0, 0);
+    animation: skeleton-shimmer 1.65s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    pointer-events: none;
+  }
+  html[data-low-glare="true"] .skeleton-shimmer::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-event-arrive,
-    .animate-handoff-slide {
+    .animate-handoff-slide,
+    .animate-in {
       animation: none !important;
+    }
+    .skeleton-shimmer::after {
+      animation: none !important;
+      opacity: 0 !important;
+    }
+    .svg-smooth-transform,
+    .svg-smooth-stroke,
+    .svg-smooth-color {
+      transition: none !important;
     }
   }
 }

@@ -1,16 +1,30 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react'
-import { createPortal } from 'react-dom'
-import { Eye, Shield, RefreshCw, Lock, Unlock, Plus, X, Sparkles, ChevronDown, ChevronUp, Clock, AlertCircle, Layers, Target, ArrowRightLeft, Download, CheckSquare, Square, Filter, CheckCircle2 } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { useTradingStore } from '../store/trading'
-import { cn, Tooltip } from './ui/primitives'
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import {
+  Eye,
+  Shield,
+  Lock,
+  Unlock,
+  X,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Layers,
+  Target,
+  ArrowRightLeft,
+  SlidersHorizontal,
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useTradingStore } from '../store/trading';
+import { cn, Tooltip } from './ui/primitives';
+import { SymbolCatalogPicker } from './SymbolCatalogPicker';
 
 const LIMIT_PRESETS = [
   { label: '1 (Solo)', value: 1 },
-  { label: '2 Pairs', value: 2 },
-  { label: '3 Pairs', value: 3 },
-  { label: '5 Pairs', value: 5 },
-  { label: '10 Pairs', value: 10 },
+  { label: '2', value: 2 },
+  { label: '3', value: 3 },
+  { label: '5', value: 5 },
+  { label: '10', value: 10 },
   { label: 'Unlimited', value: 0 },
 ];
 
@@ -23,69 +37,82 @@ const INTERVAL_PRESETS = [
   { label: '1d', value: 1440 },
 ];
 
-const POPULAR_MARKET_PAIRS = [
-  { symbol: 'BTCUSDT', price: 65420.0, pct: 1.8, score: 85 },
-  { symbol: 'ETHUSDT', price: 3480.0, pct: 2.4, score: 88 },
-  { symbol: 'SOLUSDT', price: 152.4, pct: 3.5, score: 92 },
-  { symbol: 'BNBUSDT', price: 588.5, pct: 0.9, score: 78 },
-  { symbol: 'DOGEUSDT', price: 0.128, pct: -1.2, score: 65 },
-  { symbol: 'ADAUSDT', price: 0.385, pct: 0.5, score: 70 },
-  { symbol: 'XRPUSDT', price: 0.584, pct: -0.8, score: 68 },
-  { symbol: 'AVAXUSDT', price: 28.9, pct: 4.1, score: 89 },
-  { symbol: 'LINKUSDT', price: 13.2, pct: 1.2, score: 74 },
-  { symbol: 'NEARUSDT', price: 5.12, pct: 2.8, score: 81 },
-  { symbol: 'SUIUSDT', price: 1.85, pct: 5.2, score: 94 },
-  { symbol: 'PEPEUSDT', price: 0.0000092, pct: 6.8, score: 91 },
-  { symbol: 'SHIBUSDT', price: 0.000018, pct: 1.1, score: 72 },
-  { symbol: 'LITUSDT', price: 2.84, pct: 2.4, score: 86 },
-  { symbol: 'APTUSDT', price: 8.45, pct: 3.1, score: 83 },
-  { symbol: 'FETUSDT', price: 1.42, pct: 4.8, score: 90 },
-  { symbol: 'RENDERUSDT', price: 5.65, pct: 2.1, score: 79 },
-  { symbol: 'INJUSDT', price: 21.30, pct: -1.5, score: 66 },
-  { symbol: 'ARBUSDT', price: 0.54, pct: 0.8, score: 71 },
-  { symbol: 'OPUSDT', price: 1.55, pct: 1.9, score: 76 },
-  { symbol: 'TIAUSDT', price: 5.10, pct: -2.3, score: 62 },
-  { symbol: 'WIFUSDT', price: 2.35, pct: 7.4, score: 95 },
+const SCHEDULER_PRESETS = [
+  {
+    id: 'solo_scalper',
+    title: 'Solo Scalper',
+    meta: '1 pair · Locked',
+    desc: 'Strictly monitors 1 pinned pair with zero rotation drift.',
+    maxLimit: 1,
+    autoRotate: false,
+    intervalMin: 15,
+    locked: true,
+  },
+  {
+    id: 'daily_trend',
+    title: 'Daily Trend',
+    meta: '1 pair · 24h rotate',
+    desc: 'Tracks the leading performer and refreshes every 24 hours.',
+    maxLimit: 1,
+    autoRotate: true,
+    intervalMin: 1440,
+    locked: false,
+  },
+  {
+    id: 'momentum_basket',
+    title: 'Momentum Basket',
+    meta: '3 pairs · 1h rotate',
+    desc: 'Maintains a focused 3-pair basket rotated every hour.',
+    maxLimit: 3,
+    autoRotate: true,
+    intervalMin: 60,
+    locked: false,
+  },
 ];
+
+const formatPrice = (p) => {
+  const n = Number(p || 0);
+  if (!n || n <= 0) return null;
+  if (n >= 1000) return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  return `$${n.toPrecision(4)}`;
+};
 
 export const WatchlistManager = React.memo(({
   className,
   compact = false,
   activeStrategyLabel,
-  onSelectStrategy
+  onSelectStrategy,
+  defaultPickerOpen = true,
 }) => {
-  const config = useTradingStore(state => state.config || {});
-  const scannerResults = useTradingStore(state => state.scannerResults || []);
-  const activeTrades = useTradingStore(state => state.activeTrades || []);
-  const patchConfig = useTradingStore(state => state.patchConfig);
-  const addToWatchlist = useTradingStore(state => state.addToWatchlist);
-  const importBulkToWatchlist = useTradingStore(state => state.importBulkToWatchlist);
-  const removeFromWatchlist = useTradingStore(state => state.removeFromWatchlist);
-  const setWatchlistLimit = useTradingStore(state => state.setWatchlistLimit);
-  const setWatchlistScheduler = useTradingStore(state => state.setWatchlistScheduler);
-  const rotateWatchlistNow = useTradingStore(state => state.rotateWatchlistNow);
-  const addAlert = useTradingStore(state => state.addAlert);
+  const config = useTradingStore((state) => state.config || {});
+  const scannerResults = useTradingStore((state) => state.scannerResults || []);
+  const variantScannerResults = useTradingStore((state) => state.variantScannerResults || {});
+  const availableSymbols = useTradingStore((state) => state.availableSymbols || []);
+  const fetchAvailableSymbols = useTradingStore((state) => state.fetchAvailableSymbols);
+  const activeTrades = useTradingStore((state) => state.activeTrades || []);
+  const patchConfig = useTradingStore((state) => state.patchConfig);
+  const importBulkToWatchlist = useTradingStore((state) => state.importBulkToWatchlist);
+  const setWatchlistLimit = useTradingStore((state) => state.setWatchlistLimit);
+  const setWatchlistScheduler = useTradingStore((state) => state.setWatchlistScheduler);
+  const rotateWatchlistNow = useTradingStore((state) => state.rotateWatchlistNow);
+  const addAlert = useTradingStore((state) => state.addAlert);
 
-  const [internalActiveTab, setInternalActiveTab] = useState('base'); // 'base' or variant strategy_label
-  const [search, setSearch] = useState('');
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [internalActiveTab, setInternalActiveTab] = useState('base');
+  const [showScheduler, setShowScheduler] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
+  const searchInputRef = useRef(null);
 
-  // Global Scanner Import Modal state
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [importTargetStrategy, setImportTargetStrategy] = useState('base');
-  const [selectedImportSymbols, setSelectedImportSymbols] = useState(new Set());
-  const [importSearchQuery, setImportSearchQuery] = useState('');
-
-  const dropdownRef = useRef(null);
-  const inputRef = useRef(null);
+  useEffect(() => {
+    if (typeof fetchAvailableSymbols === 'function') {
+      fetchAvailableSymbols(false);
+    }
+  }, [fetchAvailableSymbols]);
 
   const variants = useMemo(() => {
     return Array.isArray(config.strategy_variants) ? config.strategy_variants : [];
   }, [config.strategy_variants]);
 
-  // Single source of truth: sync with activeStrategyLabel if provided from parent (ScannerOverlay)
   const activeTab = useMemo(() => {
     if (activeStrategyLabel !== undefined) {
       if (!activeStrategyLabel || activeStrategyLabel === (config.strategy_label || 'Momentum')) {
@@ -104,10 +131,9 @@ export const WatchlistManager = React.memo(({
     }
   };
 
-  // Determine current active target strategy config
   const activeVariantIdx = useMemo(() => {
     if (activeTab === 'base') return -1;
-    return variants.findIndex(v => v.strategy_label === activeTab);
+    return variants.findIndex((v) => v.strategy_label === activeTab);
   }, [variants, activeTab]);
 
   const activeStrategyConfig = useMemo(() => {
@@ -116,6 +142,10 @@ export const WatchlistManager = React.memo(({
     }
     return config;
   }, [config, variants, activeVariantIdx]);
+
+  const targetStrategyDisplay = activeVariantIdx >= 0
+    ? activeTab
+    : (config.strategy_label || 'Base Strategy');
 
   const symbols = useMemo(() => {
     return Array.isArray(activeStrategyConfig.symbols) ? activeStrategyConfig.symbols : [];
@@ -127,183 +157,42 @@ export const WatchlistManager = React.memo(({
   const intervalMin = Number(activeStrategyConfig.watchlist_rotate_interval_min ?? config.watchlist_rotate_interval_min) || 15;
 
   const activeTradeSymbols = useMemo(() => {
-    return new Set(activeTrades.map(t => t.symbol));
+    return new Set(activeTrades.map((t) => t.symbol));
   }, [activeTrades]);
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setIsDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const variantScannerResults = useTradingStore(state => state.variantScannerResults || {});
-
-  // Consolidate live opportunities across base/variants and market candidate pool
-  const availableCandidates = useMemo(() => {
-    const q = search.trim().toUpperCase();
-    const currentSet = new Set(symbols);
-
-    const candidatesMap = new Map();
-
-    // 1. Add popular market pairs as baseline pool
-    POPULAR_MARKET_PAIRS.forEach(p => {
-      candidatesMap.set(p.symbol, { ...p });
-    });
-
-    // 2. Overlay base scanner opportunities
-    (scannerResults || []).forEach(opp => {
-      if (opp && opp.symbol) {
-        const existing = candidatesMap.get(opp.symbol) || {};
-        candidatesMap.set(opp.symbol, {
-          ...existing,
-          symbol: opp.symbol,
-          price: opp.price ?? existing.price,
-          pct: opp.pct ?? opp.momentum ?? existing.pct ?? 0,
-          score: opp.score ?? existing.score ?? 70,
-        });
-      }
-    });
-
-    // 3. Overlay variant scanner opportunities
-    Object.values(variantScannerResults || {}).forEach(resultsArr => {
-      if (Array.isArray(resultsArr)) {
-        resultsArr.forEach(opp => {
-          if (opp && opp.symbol) {
-            const existing = candidatesMap.get(opp.symbol) || {};
-            candidatesMap.set(opp.symbol, {
-              ...existing,
-              symbol: opp.symbol,
-              price: opp.price ?? existing.price,
-              pct: opp.pct ?? opp.momentum ?? existing.pct ?? 0,
-              score: opp.score ?? existing.score ?? 70,
-            });
-          }
-        });
-      }
-    });
-
-    // 4. Dynamic query candidate generator (allows picking ANY typed USDT pair)
-    if (q) {
-      const cleanQ = q.endsWith('USDT') ? q : `${q}USDT`;
-      if (!candidatesMap.has(cleanQ)) {
-        candidatesMap.set(cleanQ, {
-          symbol: cleanQ,
-          price: undefined,
-          pct: 0,
-          score: 75
+  // Live metadata lookup map (Catalog + Scanner + Variant Scanners)
+  const symbolMetaMap = useMemo(() => {
+    const map = new Map();
+    for (const s of availableSymbols) {
+      if (s?.symbol) map.set(s.symbol, s);
+    }
+    for (const opp of scannerResults) {
+      if (opp?.symbol) {
+        const prev = map.get(opp.symbol) || {};
+        map.set(opp.symbol, {
+          ...prev,
+          ...opp,
+          pct: opp.pct ?? opp.momentum ?? prev.pct,
         });
       }
     }
-
-    return Array.from(candidatesMap.values())
-      .filter(item => {
-        if (!item || !item.symbol) return false;
-        if (currentSet.has(item.symbol)) return false;
-        if (!q) return true;
-        return item.symbol.includes(q);
-      })
-      .slice(0, 12);
-  }, [scannerResults, variantScannerResults, symbols, search]);
-
-  // Consolidated list of ALL active scanner opportunities for the Global Scanner Import Modal
-  const allScannerCandidates = useMemo(() => {
-    const candidatesMap = new Map();
-
-    POPULAR_MARKET_PAIRS.forEach(p => {
-      candidatesMap.set(p.symbol, { ...p });
-    });
-
-    (scannerResults || []).forEach(opp => {
-      if (opp && opp.symbol) {
-        const existing = candidatesMap.get(opp.symbol) || {};
-        candidatesMap.set(opp.symbol, {
-          ...existing,
-          symbol: opp.symbol,
-          price: opp.price ?? existing.price,
-          pct: opp.pct ?? opp.momentum ?? existing.pct ?? 0,
-          score: opp.score ?? existing.score ?? 70,
-        });
-      }
-    });
-
-    Object.values(variantScannerResults || {}).forEach(resultsArr => {
-      if (Array.isArray(resultsArr)) {
-        resultsArr.forEach(opp => {
-          if (opp && opp.symbol) {
-            const existing = candidatesMap.get(opp.symbol) || {};
-            candidatesMap.set(opp.symbol, {
-              ...existing,
-              symbol: opp.symbol,
-              price: opp.price ?? existing.price,
-              pct: opp.pct ?? opp.momentum ?? existing.pct ?? 0,
-              score: opp.score ?? existing.score ?? 70,
+    Object.values(variantScannerResults || {}).forEach((arr) => {
+      if (Array.isArray(arr)) {
+        for (const opp of arr) {
+          if (opp?.symbol) {
+            const prev = map.get(opp.symbol) || {};
+            map.set(opp.symbol, {
+              ...prev,
+              ...opp,
+              pct: opp.pct ?? opp.momentum ?? prev.pct,
             });
           }
-        });
+        }
       }
     });
+    return map;
+  }, [availableSymbols, scannerResults, variantScannerResults]);
 
-    return Array.from(candidatesMap.values()).sort((a, b) => (b.score || 0) - (a.score || 0));
-  }, [scannerResults, variantScannerResults]);
-
-  const targetImportConfig = useMemo(() => {
-    if (importTargetStrategy === 'base') return config;
-    const v = variants.find(varItem => varItem.strategy_label === importTargetStrategy);
-    return v || config;
-  }, [config, variants, importTargetStrategy]);
-
-  const targetImportSymbols = useMemo(() => {
-    return Array.isArray(targetImportConfig?.symbols) ? targetImportConfig.symbols : [];
-  }, [targetImportConfig?.symbols]);
-
-  const targetImportLimit = Number(targetImportConfig?.watchlist_max_symbols ?? config.watchlist_max_symbols) || 0;
-
-  const filteredScannerCandidates = useMemo(() => {
-    const q = importSearchQuery.trim().toUpperCase();
-    if (!q) return allScannerCandidates;
-    return allScannerCandidates.filter(c => c.symbol.includes(q));
-  }, [allScannerCandidates, importSearchQuery]);
-
-  const handleToggleCandidateSelect = (sym) => {
-    setSelectedImportSymbols(prev => {
-      const next = new Set(prev);
-      if (next.has(sym)) next.delete(sym);
-      else next.add(sym);
-      return next;
-    });
-  };
-
-  const handleToggleSelectAll = () => {
-    if (selectedImportSymbols.size === filteredScannerCandidates.length) {
-      setSelectedImportSymbols(new Set());
-    } else {
-      const unadded = filteredScannerCandidates
-        .filter(c => !targetImportSymbols.includes(c.symbol))
-        .map(c => c.symbol);
-      setSelectedImportSymbols(new Set(unadded));
-    }
-  };
-
-  const handleSelectTopN = (n) => {
-    const unadded = filteredScannerCandidates
-      .filter(c => !targetImportSymbols.includes(c.symbol))
-      .slice(0, n)
-      .map(c => c.symbol);
-    setSelectedImportSymbols(new Set(unadded));
-  };
-
-  const handleExecuteBulkImport = async (symbolsToImport, targetLabel) => {
-    await importBulkToWatchlist(symbolsToImport, targetLabel);
-    setShowImportModal(false);
-    setSelectedImportSymbols(new Set());
-  };
-
-  // Target-aware Watchlist Update Handler (Supports Strategy Variant Isolation)
   const handleUpdateTargetSymbols = async (nextSymbols) => {
     if (activeVariantIdx >= 0) {
       const updatedVariants = [...variants];
@@ -323,23 +212,17 @@ export const WatchlistManager = React.memo(({
     const cleanSym = sym.endsWith('USDT') ? sym : `${sym}USDT`;
 
     const currentSymbols = [...symbols];
-    if (currentSymbols.includes(cleanSym)) {
-      setSearch('');
-      setIsDropdownOpen(false);
-      return;
-    }
+    if (currentSymbols.includes(cleanSym)) return;
 
     let nextSymbols = [...currentSymbols];
     let replacedSymbol = null;
 
     if (maxLimit > 0 && nextSymbols.length >= maxLimit) {
-      // Find a symbol that is NOT in an active position to replace
-      const replaceableIndex = nextSymbols.findIndex(s => !activeTradeSymbols.has(s));
+      const replaceableIndex = nextSymbols.findIndex((s) => !activeTradeSymbols.has(s));
       if (replaceableIndex !== -1) {
         replacedSymbol = nextSymbols[replaceableIndex];
         nextSymbols.splice(replaceableIndex, 1, cleanSym);
       } else {
-        // Fallback: replace first
         replacedSymbol = nextSymbols[0];
         nextSymbols = [cleanSym];
       }
@@ -353,52 +236,39 @@ export const WatchlistManager = React.memo(({
       level: 'success',
       title: 'Watchlist Updated',
       message: replacedSymbol
-        ? `Replaced ${replacedSymbol} with ${cleanSym}${maxLimit === 1 ? ' (Single-Symbol Mode)' : ''}.`
-        : `Added ${cleanSym} to ${activeVariantIdx >= 0 ? activeTab : 'Static Watchlist'}.`
+        ? `Swapped ${replacedSymbol} with ${cleanSym} on ${targetStrategyDisplay}.`
+        : `Added ${cleanSym} to ${targetStrategyDisplay}.`,
     });
+  };
 
-    setSearch('');
-    setIsDropdownOpen(false);
+  const handleAddBulkSymbols = async (symbolsToAdd) => {
+    if (!Array.isArray(symbolsToAdd) || symbolsToAdd.length === 0) return;
+    await importBulkToWatchlist(symbolsToAdd, activeVariantIdx >= 0 ? activeTab : null);
   };
 
   const handleRemoveSymbol = async (sym) => {
-    const nextSymbols = symbols.filter(s => s !== sym);
+    const nextSymbols = symbols.filter((s) => s !== sym);
     await handleUpdateTargetSymbols(nextSymbols);
     addAlert({
       level: 'info',
       title: 'Symbol Removed',
-      message: `Removed ${sym} from ${activeVariantIdx >= 0 ? activeTab : 'Static Watchlist'}.`
+      message: `Removed ${sym} from ${targetStrategyDisplay}.`,
     });
   };
 
   const handleSetTargetLimit = async (limitVal) => {
-    const limit = Math.max(0, parseInt(limitVal, 10) || 0);
-    let nextSymbols = [...symbols];
+    await setWatchlistLimit(limitVal, activeVariantIdx >= 0 ? activeTab : null);
+  };
 
-    if (limit > 0 && symbols.length > limit) {
-      const inPos = symbols.filter(s => activeTradeSymbols.has(s));
-      const notInPos = symbols.filter(s => !activeTradeSymbols.has(s));
-      nextSymbols = [...inPos, ...notInPos].slice(0, limit);
-    }
-
-    if (activeVariantIdx >= 0) {
-      const updatedVariants = [...variants];
-      updatedVariants[activeVariantIdx] = {
-        ...updatedVariants[activeVariantIdx],
-        watchlist_max_symbols: limit,
-        symbols: nextSymbols,
-      };
-      await patchConfig({ strategy_variants: updatedVariants });
-    } else {
-      await setWatchlistLimit(limit);
-    }
+  const handleSetTargetScheduler = async (settings) => {
+    await setWatchlistScheduler(settings, activeVariantIdx >= 0 ? activeTab : null);
   };
 
   const handleApplyPresetTemplate = async (preset) => {
     let targetSymbols = [...symbols];
     if (preset.maxLimit > 0 && targetSymbols.length > preset.maxLimit) {
-      const inPos = targetSymbols.filter(s => activeTradeSymbols.has(s));
-      const notInPos = targetSymbols.filter(s => !activeTradeSymbols.has(s));
+      const inPos = targetSymbols.filter((s) => activeTradeSymbols.has(s));
+      const notInPos = targetSymbols.filter((s) => !activeTradeSymbols.has(s));
       targetSymbols = [...inPos, ...notInPos].slice(0, preset.maxLimit);
     }
     const updatePayload = {
@@ -423,56 +293,45 @@ export const WatchlistManager = React.memo(({
     addAlert({
       level: 'success',
       title: `${preset.title} Applied`,
-      message: `${preset.title} configured for ${activeVariantIdx >= 0 ? activeTab : (config.strategy_label || 'Base Strategy')}. ${preset.desc}`,
+      message: `${preset.title} applied to ${targetStrategyDisplay}.`,
     });
-  };
-
-  const handleSetTargetScheduler = async (settings) => {
-    if (activeVariantIdx >= 0) {
-      const updatedVariants = [...variants];
-      updatedVariants[activeVariantIdx] = {
-        ...updatedVariants[activeVariantIdx],
-        ...settings,
-      };
-      await patchConfig({ strategy_variants: updatedVariants });
-    } else {
-      await setWatchlistScheduler(settings);
-    }
   };
 
   const handleManualRotate = async () => {
     setIsRotating(true);
     try {
-      await rotateWatchlistNow();
+      await rotateWatchlistNow(activeVariantIdx >= 0 ? activeTab : null);
     } finally {
       setTimeout(() => setIsRotating(false), 400);
     }
   };
 
   return (
-    <div className={cn(
-      "w-full max-w-full min-w-0 overflow-hidden bg-surface/70 border border-border/70 rounded-2xl p-3 sm:p-4 transition-all shadow-sm",
-      isLocked && "border-amber/30 bg-amber/[0.02]",
-      className
-    )}>
-      {/* Strategy Selector Tabs (only shown if not unified with parent dropdown and variants exist) */}
+    <div
+      className={cn(
+        'w-full max-w-full min-w-0 bg-surface border border-border/70 rounded-xl p-3 sm:p-4 transition-colors',
+        isLocked && 'border-amber/35',
+        className
+      )}
+    >
+      {/* Strategy Switcher Tabs (only shown when standalone and variants exist) */}
       {!activeStrategyLabel && variants.length > 0 && (
-        <div className="flex items-center gap-1.5 mb-3 pb-2.5 border-b border-border/30 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-dim shrink-0 mr-1">
-            <Layers size={11} className="text-accent" />
-            <span>Target Strategy:</span>
-          </div>
+        <div className="flex items-center gap-1.5 mb-3 pb-2.5 border-b border-border/50 overflow-x-auto no-scrollbar">
+          <span className="flex items-center gap-1 text-[11px] font-medium text-muted shrink-0 mr-1">
+            <Layers size={12} className="text-accent" />
+            Strategy:
+          </span>
           <button
             type="button"
             onClick={() => handleSelectTab('base')}
             className={cn(
-              "px-2.5 py-1 rounded-lg text-[9.5px] font-mono font-bold uppercase tracking-wider transition-all border shrink-0 outline-none focus-visible:ring-1 focus-visible:ring-accent",
+              'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors border shrink-0 cursor-pointer',
               activeTab === 'base'
-                ? "bg-accent text-background font-black border-accent shadow-sm"
-                : "bg-surface border-border/60 text-dim hover:text-text hover:border-border"
+                ? 'bg-accent/15 text-accent border-accent/40'
+                : 'bg-background/40 border-border/60 text-muted hover:text-text'
             )}
           >
-            Base: {config.strategy_label || 'Momentum'}
+            {config.strategy_label || 'Base Strategy'}
           </button>
           {variants.map((v, i) => (
             <button
@@ -480,443 +339,336 @@ export const WatchlistManager = React.memo(({
               type="button"
               onClick={() => handleSelectTab(v.strategy_label)}
               className={cn(
-                "px-2.5 py-1 rounded-lg text-[9.5px] font-mono font-bold uppercase tracking-wider transition-all border shrink-0 outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors border shrink-0 cursor-pointer',
                 activeTab === v.strategy_label
-                  ? "bg-violet-500 text-white font-black border-violet-400 shadow-sm"
-                  : "bg-surface border-border/60 text-dim hover:text-violet-200 hover:border-violet-500/40"
+                  ? 'bg-accent/15 text-accent border-accent/40'
+                  : 'bg-background/40 border-border/60 text-muted hover:text-text'
               )}
             >
-              Variant #{i + 1}: {v.strategy_label}
+              {v.strategy_label}
             </button>
           ))}
         </div>
       )}
 
-      {/* Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border/40 min-w-0">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
-            <Eye size={15} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-              <span className="text-xs font-black uppercase tracking-wider text-text truncate">
+      {/* Clean Single-Row Header */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border/50">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Eye size={15} className="text-accent shrink-0" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-semibold text-text truncate">
                 {activeVariantIdx >= 0 ? `${activeTab} Watchlist` : 'Static Watchlist'}
               </span>
-              <span className={cn(
-                "px-2 py-0.5 rounded-full text-[9px] font-mono font-black border shrink-0 whitespace-nowrap",
-                maxLimit > 0 && symbols.length >= maxLimit ? "bg-amber/10 border-amber/30 text-amber" : "bg-accent/10 border-accent/30 text-accent"
-              )}>
-                {symbols.length}{maxLimit > 0 ? ` / ${maxLimit} Max` : ' (Unlimited)'}
+              <span className="text-[11px] font-mono tabular-nums text-muted">
+                {symbols.length}
+                {maxLimit > 0 ? ` / ${maxLimit}` : ' pinned'}
               </span>
+              {isLocked && (
+                <span className="text-[10px] font-medium text-amber flex items-center gap-1">
+                  <Lock size={10} /> Frozen
+                </span>
+              )}
             </div>
-            <p className="text-[9.5px] text-dim font-medium leading-tight mt-0.5 truncate">
+            <p className="text-[11px] text-muted truncate">
               {activeStrategyConfig.global_scanner_enabled === false
-                ? "Static mode: strictly evaluating monitored symbols below"
-                : "Strict symbol routing & dynamic scanner market discovery"}
+                ? 'Static routing — trades only the pairs pinned below.'
+                : 'Pin pairs from the Binance Futures catalog or copy from another strategy.'}
             </p>
           </div>
         </div>
 
-        {/* Status Indicators & Fast Actions */}
-        <div className="flex items-center gap-1.5 w-full sm:w-auto min-w-0 flex-wrap">
-          {/* Import Scanner Symbols Action Button */}
-          <Tooltip content="Import symbols from Global Scanner into any strategy static watchlist with persistent sync">
-            <button
-              type="button"
-              onClick={() => {
-                setImportTargetStrategy(activeTab);
-                setShowImportModal(true);
-              }}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border border-accent/50 bg-accent/20 text-accent hover:bg-accent/30 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer shadow-xs active:scale-95"
-            >
-              <Download size={11} className="text-accent" />
-              <span>Import Scanner Symbols</span>
-            </button>
-          </Tooltip>
-
-          {/* Lock / Freeze Status Pill */}
-          <Tooltip content={isLocked ? "Watchlist is Locked: Automated rotation is disabled" : "Watchlist is Unlocked: Click to Lock/Freeze"}>
+        {/* Concise Utility Actions */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Tooltip content={isLocked ? 'Unlock watchlist to allow auto-rotation' : 'Lock watchlist to freeze changes'}>
             <button
               type="button"
               onClick={() => handleSetTargetScheduler({ watchlist_locked: !isLocked })}
               className={cn(
-                "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                'flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition-colors cursor-pointer',
                 isLocked
-                  ? "bg-amber/15 border-amber/30 text-amber hover:bg-amber/20"
-                  : "bg-surface border-border text-dim hover:text-text hover:border-border-hover"
+                  ? 'bg-amber/15 border-amber/35 text-amber'
+                  : 'bg-background/50 border-border/70 text-muted hover:text-text'
               )}
             >
-              {isLocked ? <Lock size={11} className="text-amber" /> : <Unlock size={11} />}
-              {isLocked ? "Locked (No Change)" : "Unlocked"}
+              {isLocked ? <Lock size={11} /> : <Unlock size={11} />}
+              <span>{isLocked ? 'Locked' : 'Lock'}</span>
             </button>
           </Tooltip>
 
-          {/* Auto-Rotate Status Pill */}
-          <Tooltip content={isAutoRotate ? `Auto-Rotate: Every ${intervalMin >= 1440 ? '24h' : `${intervalMin}m`} picks top favorable opportunity` : "Auto-Rotate is Off"}>
-            <button
-              type="button"
-              onClick={() => handleSetTargetScheduler({ watchlist_auto_rotate: !isAutoRotate })}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                isAutoRotate && !isLocked
-                  ? "bg-green/15 border-green/30 text-green hover:bg-green/20"
-                  : "bg-surface border-border text-dim hover:text-text hover:border-border-hover"
-              )}
-            >
-              <span className={cn(
-                "w-1.5 h-1.5 rounded-full shrink-0",
-                isAutoRotate && !isLocked ? "bg-green animate-pulse" : "bg-dim/40"
-              )} />
-              {isAutoRotate ? `Rotate: ${intervalMin >= 1440 ? '1d' : `${intervalMin}m`}` : "Rotate: Off"}
-            </button>
-          </Tooltip>
-
-          {/* Manual Rotate Button */}
-          <Tooltip content="Promote top favorable scanner candidate into watchlist now">
+          <Tooltip content="Promote the top favorable market candidate into this watchlist now">
             <button
               type="button"
               disabled={isLocked || isRotating}
               onClick={handleManualRotate}
               className={cn(
-                "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                'flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition-colors cursor-pointer',
                 isLocked
-                  ? "opacity-50 cursor-not-allowed bg-surface border-border text-dim"
-                  : "bg-accent/15 border-accent/40 text-accent hover:bg-accent/25 active:scale-95"
+                  ? 'opacity-45 cursor-not-allowed bg-background/40 border-border/50 text-muted'
+                  : 'bg-background/50 border-border/70 text-text hover:border-accent/40 hover:text-accent'
               )}
             >
-              <Sparkles size={11} className={cn("text-accent", isRotating && "animate-spin")} />
+              <Sparkles size={11} className={cn('text-accent', isRotating && 'animate-spin')} />
               <span>Rotate Now</span>
             </button>
           </Tooltip>
 
-          {/* Toggle Advanced Settings */}
-          <Tooltip content="Configure capacity limits, intervals, and thresholds">
-            <button
-              type="button"
-              onClick={() => setShowSettings(!showSettings)}
-              className="p-1 rounded-lg bg-surface border border-border text-dim hover:text-text hover:border-border-hover transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              aria-label="Toggle Watchlist Settings"
-            >
-              {showSettings ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
-          </Tooltip>
+          <button
+            type="button"
+            onClick={() => setShowScheduler((prev) => !prev)}
+            aria-expanded={showScheduler}
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors cursor-pointer',
+              showScheduler || isAutoRotate
+                ? 'bg-accent/12 border-accent/35 text-accent'
+                : 'bg-background/50 border-border/70 text-muted hover:text-text'
+            )}
+          >
+            <SlidersHorizontal size={11} />
+            <span>
+              Scheduler{isAutoRotate && !isLocked ? ` · ${intervalMin >= 1440 ? '1d' : `${intervalMin}m`}` : ''}
+            </span>
+            {showScheduler ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
         </div>
       </div>
 
-      {/* Expandable Settings Drawer */}
-      <AnimatePresence>
-        {showSettings && (
+      {/* Expandable Watchlist Scheduler & Capacity Panel */}
+      <AnimatePresence initial={false}>
+        {showScheduler && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden border-b border-border/30 bg-background/30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-3 mb-3"
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden border-b border-border/50"
           >
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {/* Capacity Limit Selector */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] font-black uppercase tracking-wider text-dim">
-                  Watchlist Limit (Enforced)
-                </label>
-                <div className="flex flex-wrap gap-1">
-                  {LIMIT_PRESETS.map(p => (
-                    <button
-                      key={p.value}
-                      type="button"
-                      onClick={() => handleSetTargetLimit(p.value)}
-                      className={cn(
-                        "px-2 py-1 rounded text-[9px] font-mono font-bold uppercase transition-all outline-none focus-visible:ring-1 focus-visible:ring-accent",
-                        maxLimit === p.value
-                          ? "bg-accent text-background font-black shadow-sm"
-                          : "bg-surface border border-border/40 text-dim hover:text-text"
-                      )}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-                <span className="text-[8px] text-dim/80">
-                  {maxLimit === 1
-                    ? "Strict single-symbol mode: selecting any candidate replaces the current symbol."
-                    : maxLimit > 0
-                    ? `Strict ceiling: only up to ${maxLimit} symbols stay on the list.`
-                    : "Uncapped: symbols can be added freely."}
-                </span>
-              </div>
-
-              {/* Rotation Scheduler Interval */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] font-black uppercase tracking-wider text-dim">
-                  Rotation Frequency
-                </label>
-                <div className="flex flex-wrap gap-1">
-                  {INTERVAL_PRESETS.map(p => (
-                    <button
-                      key={p.value}
-                      type="button"
-                      disabled={isLocked}
-                      onClick={() => handleSetTargetScheduler({ watchlist_rotate_interval_min: p.value })}
-                      className={cn(
-                        "px-2 py-1 rounded text-[9px] font-mono font-bold uppercase transition-all outline-none focus-visible:ring-1 focus-visible:ring-accent",
-                        intervalMin === p.value
-                          ? "bg-green text-background font-black shadow-sm"
-                          : "bg-surface border border-border/40 text-dim hover:text-text",
-                        isLocked && "opacity-50 cursor-not-allowed"
-                      )}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-                <span className="text-[8px] text-dim/80">
-                  Cadence for promoting top favorable scanner opportunities (5m up to 1d / 24h).
-                </span>
-              </div>
-
-              {/* Mode & Safeguard Notice */}
-              <div className="flex flex-col gap-1.5 bg-surface/40 p-2.5 rounded-xl border border-border/30">
-                <div className="flex items-center gap-1.5 text-accent text-[9px] font-black uppercase tracking-wider">
-                  <Shield size={12} /> SRE Capital Safeguard
-                </div>
-                <p className="text-[8.5px] text-dim leading-relaxed">
-                  Symbols with active open positions are <span className="text-text font-bold">never evicted</span> during auto-rotation or capacity enforcement.
-                </p>
-              </div>
-
-              {/* 1-Click Practical Setup Recommendations */}
-              <div className="md:col-span-3 flex flex-col gap-2 pt-2 border-t border-border/30">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-wider text-accent">
-                    <Sparkles size={12} className="text-accent" />
-                    <span>1-Click Practical Setup Recommendations</span>
+            <div className="py-3 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Capacity Limit */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-text">Capacity Limit</span>
+                    <span className="text-[11px] font-mono text-muted tabular-nums">
+                      {maxLimit > 0 ? `Max ${maxLimit}` : 'Unlimited'}
+                    </span>
                   </div>
-                  <span className="text-[8px] text-dim font-mono">
-                    Instant rule configuration for {activeVariantIdx >= 0 ? activeTab : (config.strategy_label || 'Base Strategy')}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {[
-                    {
-                      id: 'solo_scalper',
-                      title: 'Solo Scalper',
-                      badge: '1 Coin • Locked',
-                      desc: 'Strictly monitors & trades 1 locked pair. Zero rotation drift.',
-                      maxLimit: 1,
-                      autoRotate: false,
-                      intervalMin: 15,
-                      locked: true,
-                    },
-                    {
-                      id: 'daily_trend',
-                      title: 'Daily Trend',
-                      badge: '1 Coin • 1d Rotate',
-                      desc: 'Tracks top daily performer, refreshed every 24 hours (1d).',
-                      maxLimit: 1,
-                      autoRotate: true,
-                      intervalMin: 1440,
-                      locked: false,
-                    },
-                    {
-                      id: 'momentum_basket',
-                      title: 'Momentum Basket',
-                      badge: '3 Coins • 1h Rotate',
-                      desc: 'Top 3 high-volume momentum pairs rotated hourly.',
-                      maxLimit: 3,
-                      autoRotate: true,
-                      intervalMin: 60,
-                      locked: false,
-                    },
-                  ].map(preset => {
-                    const isActive =
-                      maxLimit === preset.maxLimit &&
-                      isAutoRotate === preset.autoRotate &&
-                      isLocked === preset.locked &&
-                      (!preset.autoRotate || intervalMin === preset.intervalMin);
-
-                    return (
+                  <div className="flex flex-wrap gap-1">
+                    {LIMIT_PRESETS.map((p) => (
                       <button
-                        key={preset.id}
+                        key={p.value}
                         type="button"
-                        onClick={() => handleApplyPresetTemplate(preset)}
+                        onClick={() => handleSetTargetLimit(p.value)}
                         className={cn(
-                          "flex flex-col text-left p-2.5 rounded-xl border transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer group",
-                          isActive
-                            ? "bg-accent/15 border-accent text-text shadow-xs"
-                            : "bg-surface/60 border-border/50 hover:bg-surface hover:border-border text-dim hover:text-text"
+                          'px-2.5 py-1 rounded-md text-[11px] font-mono border transition-colors cursor-pointer',
+                          maxLimit === p.value
+                            ? 'bg-accent text-background font-semibold border-accent'
+                            : 'bg-background/50 border-border/60 text-muted hover:text-text'
                         )}
                       >
-                        <div className="flex items-center justify-between w-full mb-1">
-                          <span className="text-[10.5px] font-black font-mono text-text group-hover:text-accent transition-colors">
-                            {preset.title}
-                          </span>
-                          <span className={cn(
-                            "px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-wider border",
-                            isActive ? "bg-accent text-background border-accent" : "bg-white/5 border-border/40 text-dim"
-                          )}>
-                            {preset.badge}
-                          </span>
-                        </div>
-                        <p className="text-[8.5px] leading-relaxed text-dim/90">
-                          {preset.desc}
-                        </p>
+                        {p.label}
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
+
+                {/* Auto-Rotate Schedule */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-text flex items-center gap-1.5">
+                      <Clock size={12} className="text-accent" />
+                      Auto-Rotate Cadence
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isLocked}
+                      onClick={() => handleSetTargetScheduler({ watchlist_auto_rotate: !isAutoRotate })}
+                      className={cn(
+                        'px-2 py-0.5 rounded text-[11px] font-medium border transition-colors cursor-pointer disabled:opacity-45',
+                        isAutoRotate && !isLocked
+                          ? 'bg-green/15 border-green/35 text-green'
+                          : 'bg-background/50 border-border/60 text-muted hover:text-text'
+                      )}
+                    >
+                      {isAutoRotate ? 'Enabled' : 'Off'}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {INTERVAL_PRESETS.map((p) => (
+                      <button
+                        key={p.value}
+                        type="button"
+                        disabled={isLocked}
+                        onClick={() =>
+                          handleSetTargetScheduler({
+                            watchlist_auto_rotate: true,
+                            watchlist_rotate_interval_min: p.value,
+                          })
+                        }
+                        className={cn(
+                          'px-2.5 py-1 rounded-md text-[11px] font-mono border transition-colors cursor-pointer disabled:opacity-45',
+                          isAutoRotate && intervalMin === p.value
+                            ? 'bg-green/15 border-green/40 text-green font-semibold'
+                            : 'bg-background/50 border-border/60 text-muted hover:text-text'
+                        )}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 1-Click Scheduler Presets */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                {SCHEDULER_PRESETS.map((preset) => {
+                  const isActive =
+                    maxLimit === preset.maxLimit &&
+                    isAutoRotate === preset.autoRotate &&
+                    isLocked === preset.locked &&
+                    (!preset.autoRotate || intervalMin === preset.intervalMin);
+
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handleApplyPresetTemplate(preset)}
+                      className={cn(
+                        'text-left p-2.5 rounded-lg border transition-colors cursor-pointer',
+                        isActive
+                          ? 'bg-accent/10 border-accent/45 text-text'
+                          : 'bg-background/40 border-border/60 hover:border-border text-muted hover:text-text'
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-text">{preset.title}</span>
+                        <span className="text-[10px] font-mono text-muted">{preset.meta}</span>
+                      </div>
+                      <p className="text-[11px] text-muted mt-1 leading-snug">{preset.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-1.5 text-[11px] text-muted">
+                <Shield size={12} className="text-accent shrink-0" />
+                <span>Symbols with active open positions are never evicted during rotation or capacity updates.</span>
               </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Active Symbols Strip / Solo Mode Hero Card */}
-      <div className="pt-3">
+      {/* Active Pinned Symbols Strip */}
+      <div className="py-3">
         {maxLimit === 1 && symbols.length === 1 ? (
           (() => {
             const sym = symbols[0];
-            const opp = scannerResults.find(r => r?.symbol === sym) || POPULAR_MARKET_PAIRS.find(p => p.symbol === sym);
+            const meta = symbolMetaMap.get(sym);
             const inPosition = activeTradeSymbols.has(sym);
-            const pct = opp?.pct !== undefined ? opp.pct : opp?.momentum;
+            const pct = meta?.pct;
             const isLong = (pct || 0) >= 0;
-            const price = opp?.price;
+            const priceStr = formatPrice(meta?.price);
 
             return (
-              <div className="bg-surface/90 border border-accent/40 rounded-xl p-3 shadow-sm relative overflow-hidden flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-accent/15 border border-accent/30 flex items-center justify-center text-accent shrink-0">
-                    <Target size={20} className="text-accent" />
-                  </div>
-                  <div>
+              <div className="bg-background/50 border border-accent/35 rounded-lg p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Target size={16} className="text-accent shrink-0" />
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[15px] font-black font-mono text-text">
-                        {sym.replace('USDT', '')}
-                        <span className="text-dim/60 text-[10px] ml-0.5">/USDT</span>
+                      <span className="text-sm font-semibold font-mono text-text">
+                        {sym.replace(/USDT$/, '')}
+                        <span className="text-muted text-[11px] font-normal">/USDT</span>
                       </span>
-                      <span className="px-2 py-0.2 rounded-full text-[8px] font-black uppercase tracking-wider bg-accent/20 border border-accent/40 text-accent font-mono">
-                        Solo Focus
-                      </span>
+                      <span className="text-[11px] text-accent font-medium">Solo Focus</span>
+                      {meta?.assetClass === 'tradfi' && (
+                        <span className="text-[10px] font-mono text-amber">TradFi</span>
+                      )}
                       {inPosition && (
-                        <span className="px-2 py-0.2 rounded-full text-[8px] font-black uppercase tracking-wider bg-green/20 border border-green/40 text-green font-mono flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green animate-pulse" />
-                          In Active Trade
+                        <span className="text-[11px] text-green font-medium flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green" />
+                          In Position
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3 mt-1 text-[10.5px] font-mono flex-wrap">
-                      {price !== undefined && (
-                        <span className="text-text font-bold">
-                          ${price >= 1 ? price.toFixed(2) : price.toPrecision(4)}
-                        </span>
-                      )}
-                      {pct !== undefined && (
-                        <span className={cn("font-bold flex items-center gap-0.5", isLong ? "text-green" : "text-red")}>
+                    <div className="flex items-center gap-2.5 mt-0.5 text-xs font-mono tabular-nums text-muted">
+                      {priceStr && <span className="text-text">{priceStr}</span>}
+                      {pct !== undefined && meta?.price > 0 && (
+                        <span className={cn(isLong ? 'text-green' : 'text-red')}>
                           {isLong ? '+' : ''}{Number(pct).toFixed(2)}%
-                        </span>
-                      )}
-                      {opp?.score !== undefined && (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/5 border border-white/10 text-accent font-bold">
-                          Score: ★{Number(opp.score).toFixed(0)}
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0 pt-2 sm:pt-0 border-t border-border/20 sm:border-0">
-                  <Tooltip content="Quick swap this solo coin with another market candidate">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        inputRef.current?.focus();
-                        setIsDropdownOpen(true);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent/15 border border-accent/40 text-accent hover:bg-accent/25 text-xs font-mono font-bold transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer"
-                    >
-                      <ArrowRightLeft size={13} />
-                      <span>Swap Coin</span>
-                    </button>
-                  </Tooltip>
-                  <Tooltip content={inPosition ? `Warning: ${sym} has an open position` : `Remove ${sym} from Watchlist`}>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSymbol(sym)}
-                      className="p-1.5 rounded-lg text-dim hover:text-red hover:bg-white/5 border border-border/40 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-red cursor-pointer"
-                      aria-label={`Remove ${sym}`}
-                    >
-                      <X size={14} />
-                    </button>
-                  </Tooltip>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => searchInputRef.current?.focus()}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-accent/12 border border-accent/35 text-accent hover:bg-accent/20 text-xs font-medium cursor-pointer"
+                  >
+                    <ArrowRightLeft size={12} />
+                    <span>Swap Pair</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSymbol(sym)}
+                    aria-label={`Remove ${sym}`}
+                    className="p-1.5 rounded-md text-muted hover:text-red border border-border/60 hover:border-red/40 cursor-pointer"
+                  >
+                    <X size={13} />
+                  </button>
                 </div>
               </div>
             );
           })()
         ) : symbols.length === 0 ? (
-          <div className="border border-dashed border-border/60 rounded-xl p-3 text-center bg-background/20">
-            <p className="text-[10px] text-dim font-bold uppercase tracking-wider">
-              No symbols in {activeVariantIdx >= 0 ? activeTab : 'Static Watchlist'}
-            </p>
-            <p className="text-[9px] text-dim/60 mt-0.5">
-              Add a pair below from the candidate picker or type any USDT perpetual contract symbol.
-            </p>
+          <div className="px-3 py-2.5 rounded-lg border border-dashed border-border/60 bg-background/25 flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-xs text-muted">
+              No symbols pinned to <strong className="text-text font-medium">{targetStrategyDisplay}</strong>. Pick from the catalog or copy from another strategy below.
+            </span>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-1.5 sm:gap-2 min-w-0 max-w-full">
+          <div className="flex flex-wrap gap-1.5">
             {symbols.map((sym) => {
-              const opp = scannerResults.find(r => r?.symbol === sym) || POPULAR_MARKET_PAIRS.find(p => p.symbol === sym);
+              const meta = symbolMetaMap.get(sym);
               const inPosition = activeTradeSymbols.has(sym);
-              const pct = opp?.pct !== undefined ? opp.pct : opp?.momentum;
+              const pct = meta?.pct;
               const isLong = (pct || 0) >= 0;
-              const price = opp?.price;
+              const priceStr = formatPrice(meta?.price);
 
               return (
                 <div
                   key={sym}
                   className={cn(
-                    "flex items-center gap-2 pl-2.5 pr-1.5 py-1.5 rounded-xl border transition-all shadow-sm max-w-full min-w-0",
+                    'flex items-center gap-2 pl-2.5 pr-1.5 py-1 rounded-lg border text-xs font-mono transition-colors',
                     inPosition
-                      ? "bg-accent/10 border-accent/40 text-text"
-                      : "bg-surface border-border/70 hover:border-accent/40 text-text"
+                      ? 'bg-accent/10 border-accent/40 text-text'
+                      : 'bg-background/50 border-border/70 text-text'
                   )}
                 >
-                  <div className="flex flex-col leading-none">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-xs font-black">{sym}</span>
-                      {inPosition && (
-                        <span className="px-1 py-0.2 rounded text-[7.5px] font-black uppercase bg-green/20 text-green border border-green/30">
-                          In Position
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5 text-[9px] font-mono">
-                      {price !== undefined && (
-                        <span className="text-dim/80">
-                          ${price >= 1 ? price.toFixed(2) : price.toPrecision(4)}
-                        </span>
-                      )}
-                      {pct !== undefined && (
-                        <span className={cn("font-bold", isLong ? "text-green" : "text-red")}>
-                          {isLong ? '+' : ''}{Number(pct).toFixed(2)}%
-                        </span>
-                      )}
-                      {opp?.score !== undefined && (
-                        <span className="text-[8px] text-accent font-black">
-                          ★{Number(opp.score).toFixed(0)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <Tooltip content={inPosition ? `Warning: ${sym} has an open position` : `Remove ${sym} from Watchlist`}>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSymbol(sym)}
-                      className="p-1 rounded-md text-dim hover:text-red hover:bg-white/5 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-red"
-                      aria-label={`Remove ${sym}`}
-                    >
-                      <X size={12} />
-                    </button>
-                  </Tooltip>
+                  <span className="font-semibold">{sym.replace(/USDT$/, '')}</span>
+                  {meta?.assetClass === 'tradfi' && (
+                    <span className="text-[9px] text-amber">TradFi</span>
+                  )}
+                  {priceStr && <span className="text-[11px] text-muted tabular-nums">{priceStr}</span>}
+                  {pct !== undefined && meta?.price > 0 && (
+                    <span className={cn('text-[11px] tabular-nums', isLong ? 'text-green' : 'text-red')}>
+                      {isLong ? '+' : ''}{Number(pct).toFixed(1)}%
+                    </span>
+                  )}
+                  {inPosition && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-green shrink-0" title="Active position" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSymbol(sym)}
+                    aria-label={`Remove ${sym}`}
+                    className="p-0.5 rounded text-muted hover:text-red transition-colors cursor-pointer"
+                  >
+                    <X size={12} />
+                  </button>
                 </div>
               );
             })}
@@ -924,332 +676,23 @@ export const WatchlistManager = React.memo(({
         )}
       </div>
 
-      {/* Quick Add Search & Full Candidate Picker */}
-      <div className="mt-3 pt-3 border-t border-border/30 relative" ref={dropdownRef}>
-        {maxLimit === 1 && (
-          <div className="mb-2 px-2.5 py-1 rounded-lg bg-amber/10 border border-amber/20 text-[8.5px] font-bold text-amber flex items-center justify-between">
-            <span>Single-Symbol Mode (Limit: 1)</span>
-            <span className="font-mono text-amber/80">Selecting any symbol below automatically swaps the active static pair</span>
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 w-full min-w-0">
-          <div className="relative flex-1 min-w-0">
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Search candidate symbol... (e.g. LIT, SOL, BTC, ETH)"
-              value={search}
-              onFocus={() => setIsDropdownOpen(true)}
-              onChange={(e) => {
-                setSearch(e.target.value.toUpperCase());
-                setIsDropdownOpen(true);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && search) {
-                  handleAddSymbol(search);
-                } else if (e.key === 'Escape') {
-                  setIsDropdownOpen(false);
-                }
-              }}
-              className="w-full min-w-0 bg-background/40 border border-border/60 rounded-xl px-3 py-1.5 text-xs font-mono text-text placeholder:text-dim/40 focus:border-accent focus-visible:ring-1 focus-visible:ring-accent outline-none transition-colors"
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-text"
-              >
-                <X size={12} />
-              </button>
-            )}
-          </div>
-
-          <button
-            type="button"
-            disabled={!search}
-            onClick={() => handleAddSymbol(search)}
-            className={cn(
-              "flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition-colors border outline-none focus-visible:ring-2 focus-visible:ring-accent shrink-0",
-              search
-                ? "bg-accent text-background font-black border-accent hover:bg-accent/90 cursor-pointer"
-                : "bg-surface border-border text-dim/40 cursor-not-allowed"
-            )}
-          >
-            <Plus size={13} />
-            <span>{maxLimit === 1 && symbols.length > 0 ? 'Swap' : 'Add'}</span>
-          </button>
-        </div>
-
-        {/* Autocomplete Candidate Dropdown */}
-        <AnimatePresence>
-          {isDropdownOpen && availableCandidates.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: -5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -5 }}
-              className="absolute left-0 right-0 bottom-full mb-1.5 bg-surface/95 backdrop-blur-xl border border-border/80 rounded-xl shadow-2xl z-50 overflow-hidden max-h-64 overflow-y-auto"
-            >
-              <div className="p-1.5 flex flex-col gap-0.5">
-                <div className="px-2 py-1 text-[8.5px] font-black uppercase tracking-wider text-dim border-b border-border/20 flex justify-between">
-                  <span>Candidate Symbols (USDT Perpetual)</span>
-                  <span>Momentum / Score</span>
-                </div>
-                {availableCandidates.map(opp => {
-                  const isLong = (opp.pct || opp.momentum || 0) >= 0;
-                  return (
-                    <button
-                      key={opp.symbol}
-                      type="button"
-                      onClick={() => handleAddSymbol(opp.symbol)}
-                      className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-white/5 text-left text-xs font-mono transition-colors outline-none focus-visible:bg-white/10"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-text">{opp.symbol}</span>
-                        {Number(opp.price) > 0 && (
-                          <span className="text-[10px] text-dim/70">
-                            ${Number(opp.price) >= 1 ? Number(opp.price).toFixed(2) : Number(opp.price).toPrecision(4)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={cn("text-[10px] font-bold", isLong ? "text-green" : "text-red")}>
-                          {isLong ? '+' : ''}{Number(opp.pct || opp.momentum || 0).toFixed(2)}%
-                        </span>
-                        {opp.score !== undefined && (
-                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-accent/10 border border-accent/20 text-accent font-black">
-                            {Number(opp.score).toFixed(0)}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+      {/* Unified Market Catalog & Copy-from-Strategy Picker (works immediately without dynamic scan!) */}
+      <div className="pt-2.5 border-t border-border/50">
+        <SymbolCatalogPicker
+          selectedSymbols={symbols}
+          onAddSymbol={handleAddSymbol}
+          onAddBulkSymbols={handleAddBulkSymbols}
+          onRemoveSymbol={handleRemoveSymbol}
+          currentStrategyLabel={targetStrategyDisplay}
+          maxLimit={maxLimit}
+          compact={compact}
+          defaultExpanded={defaultPickerOpen || symbols.length === 0}
+          inputRef={searchInputRef}
+        />
       </div>
-
-      {/* Global Scanner Bulk Import Modal — portaled so it always appears over the active viewport */}
-      {typeof document !== 'undefined' && createPortal(
-        <AnimatePresence>
-          {showImportModal && (
-            <div className="fixed inset-0 z-[10200] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md" data-vaul-no-drag>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-surface border border-border/80 rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col max-h-[85vh] overflow-hidden text-left"
-            >
-              {/* Modal Header */}
-              <div className="p-4 border-b border-border/50 bg-surface/50 flex items-center justify-between gap-3 shrink-0">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-xl bg-accent/20 border border-accent/40 flex items-center justify-center text-accent shrink-0">
-                    <Download size={16} />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-black uppercase tracking-wider text-text flex items-center gap-2">
-                      <span>Import from Global Scanner</span>
-                      <span className="text-[9px] px-2 py-0.2 rounded-full bg-accent/10 border border-accent/30 text-accent font-mono font-bold">
-                        {allScannerCandidates.length} Active Candidates
-                      </span>
-                    </h3>
-                    <p className="text-[10px] text-dim leading-none mt-0.5">
-                      Select opportunities to add to static watchlist with persistent database sync.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowImportModal(false)}
-                  className="p-1.5 rounded-lg text-dim hover:text-text hover:bg-white/10 transition-colors"
-                  aria-label="Close modal"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              {/* Modal Control Bar */}
-              <div className="p-3 border-b border-border/30 bg-background/40 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
-                {/* Target Strategy Dropdown */}
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-dim shrink-0">
-                    Target Strategy:
-                  </span>
-                  <select
-                    value={importTargetStrategy}
-                    onChange={(e) => setImportTargetStrategy(e.target.value)}
-                    className="bg-surface border border-border/70 rounded-lg px-2.5 py-1 text-xs font-mono font-bold text-text focus:border-accent outline-none"
-                  >
-                    <option value="base">Base: {config.strategy_label || 'Momentum Strategy'}</option>
-                    {variants.map((v, i) => (
-                      <option key={v.strategy_label || i} value={v.strategy_label}>
-                        Variant #{i + 1}: {v.strategy_label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Target Strategy Capacity Info */}
-                <div className="text-[10px] font-mono text-dim flex items-center gap-1.5">
-                  <span>Target Current:</span>
-                  <strong className="text-accent font-bold">
-                    {targetImportSymbols.length}
-                  </strong>
-                  <span>/</span>
-                  <strong className="text-text font-bold">
-                    {targetImportLimit > 0 ? `${targetImportLimit} Max` : 'Unlimited'}
-                  </strong>
-                </div>
-              </div>
-
-              {/* Search & Bulk Select Actions Bar */}
-              <div className="px-4 py-2.5 border-b border-border/30 flex flex-wrap items-center justify-between gap-2 shrink-0">
-                <input
-                  type="text"
-                  placeholder="Filter scanner candidates..."
-                  value={importSearchQuery}
-                  onChange={(e) => setImportSearchQuery(e.target.value.toUpperCase())}
-                  className="bg-background/60 border border-border/60 rounded-xl px-3 py-1 text-xs font-mono text-text placeholder:text-dim/50 focus:border-accent outline-none w-full sm:w-56"
-                />
-
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={handleToggleSelectAll}
-                    className="px-2.5 py-1 rounded-lg text-[9.5px] font-mono font-bold uppercase bg-surface border border-border text-dim hover:text-text transition-colors"
-                  >
-                    {selectedImportSymbols.size === filteredScannerCandidates.length ? 'Deselect All' : 'Select All'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSelectTopN(3)}
-                    className="px-2.5 py-1 rounded-lg text-[9.5px] font-mono font-bold uppercase bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25 transition-colors"
-                  >
-                    Top 3
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSelectTopN(5)}
-                    className="px-2.5 py-1 rounded-lg text-[9.5px] font-mono font-bold uppercase bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25 transition-colors"
-                  >
-                    Top 5
-                  </button>
-                </div>
-              </div>
-
-              {/* Candidates List */}
-              <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-1.5 max-h-[350px] no-scrollbar">
-                {filteredScannerCandidates.length === 0 ? (
-                  <div className="py-8 text-center text-dim font-mono text-xs">
-                    No active scanner candidates match query
-                  </div>
-                ) : (
-                  filteredScannerCandidates.map((opp) => {
-                    const isSelected = selectedImportSymbols.has(opp.symbol);
-                    const isAlreadyInWatchlist = targetImportSymbols.includes(opp.symbol);
-                    const isLong = (opp.pct || opp.momentum || 0) >= 0;
-
-                    return (
-                      <div
-                        key={opp.symbol}
-                        onClick={() => {
-                          if (isAlreadyInWatchlist) return;
-                          handleToggleCandidateSelect(opp.symbol);
-                        }}
-                        className={cn(
-                          "flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer select-none",
-                          isAlreadyInWatchlist
-                            ? "bg-white/5 border-border/30 opacity-50 cursor-not-allowed"
-                            : isSelected
-                            ? "bg-accent/15 border-accent text-text"
-                            : "bg-surface/80 border-border/60 hover:bg-surface hover:border-accent/40"
-                        )}
-                      >
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            disabled={isAlreadyInWatchlist}
-                            className="text-accent"
-                          >
-                            {isSelected ? <CheckSquare size={16} /> : <Square size={16} className="text-dim/60" />}
-                          </button>
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs font-black text-text">{opp.symbol}</span>
-                              {isAlreadyInWatchlist && (
-                                <span className="text-[8px] font-mono font-bold px-1.5 py-0.2 rounded bg-purple/20 text-purple border border-purple/30">
-                                  IN WATCHLIST
-                                </span>
-                              )}
-                            </div>
-                            {Number(opp.price) > 0 && (
-                              <span className="text-[9.5px] font-mono text-dim">
-                                ${Number(opp.price) >= 1 ? Number(opp.price).toFixed(2) : Number(opp.price).toPrecision(4)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3 font-mono text-xs">
-                          <span className={cn("font-bold", isLong ? "text-green" : "text-red")}>
-                            {isLong ? '+' : ''}{Number(opp.pct || opp.momentum || 0).toFixed(2)}%
-                          </span>
-                          {opp.score !== undefined && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/10 border border-accent/20 text-accent font-black">
-                              Score: {Number(opp.score).toFixed(0)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Modal Footer Action Bar */}
-              <div className="p-4 border-t border-border/50 bg-surface/80 flex items-center justify-between gap-3 shrink-0">
-                <span className="text-[10px] font-mono text-dim">
-                  {selectedImportSymbols.size} candidate{selectedImportSymbols.size === 1 ? '' : 's'} selected for import
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowImportModal(false)}
-                    className="px-3 py-1.5 rounded-xl border border-border text-xs font-mono text-dim hover:text-text hover:bg-white/5 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={selectedImportSymbols.size === 0}
-                    onClick={() => {
-                      handleExecuteBulkImport(
-                        Array.from(selectedImportSymbols),
-                        importTargetStrategy === 'base' ? (config.strategy_label || 'Base Strategy') : importTargetStrategy
-                      );
-                    }}
-                    className={cn(
-                      "flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-mono font-bold transition-all shadow-md outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                      selectedImportSymbols.size > 0
-                        ? "bg-accent text-background font-black hover:bg-accent/90 cursor-pointer"
-                        : "bg-surface border border-border text-dim/40 cursor-not-allowed"
-                    )}
-                  >
-                    <Download size={13} />
-                    <span>Import {selectedImportSymbols.size} Symbol{selectedImportSymbols.size === 1 ? '' : 's'}</span>
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-          )}
-        </AnimatePresence>,
-        document.body
-      )}
     </div>
   );
 });
 
 WatchlistManager.displayName = 'WatchlistManager';
+export default WatchlistManager;

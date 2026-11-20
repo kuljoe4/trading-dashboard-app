@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from './primitives';
+import { SmoothHeightContainer } from './SmoothMotion';
+import { ConditionCardsSkeleton } from './Skeletons';
 import { price as fmtPrice } from '../../lib/formatters';
 import { buildCandidateConditionsModel, computeConditionValueDelta } from '../../utils/candidateConditions';
 
@@ -188,9 +190,14 @@ export const ConditionDial = React.memo(function ConditionDial({
 
   const [tx1, ty1] = polar(cx, cy, r - strokeW * 0.95, pctToAngle(100));
   const [tx2, ty2] = polar(cx, cy, r + strokeW * 0.95, pctToAngle(100));
-  const [nx, ny] = polar(cx, cy, r - strokeW * 0.85, pctToAngle(clamped));
   const [sx, sy] = polar(cx, cy, r, -180);
   const [ex, ey] = polar(cx, cy, r, 0);
+
+  const fullArcPath = describeArc(cx, cy, r, 0, 150);
+  const arcLen = Math.PI * r;
+  const dashOffset = arcLen * (1 - clamped / 150);
+  const needleLen = r - strokeW * 0.85;
+  const needleDeg = (clamped / 150) * 180;
 
   const subTextBase = subText || (clamped <= 100 ? `${clamped}% of target` : `target + ${Math.max(0, Math.round(clamped - 100))}%`);
   void changeInfo;
@@ -207,26 +214,29 @@ export const ConditionDial = React.memo(function ConditionDial({
       <path d={describeArc(cx, cy, r, 0, 99.5)} stroke="#64748b" strokeOpacity="0.24" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
       <path d={describeArc(cx, cy, r, 100.5, 150)} stroke="#22c55e" strokeOpacity="0.26" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
 
-      {/* Active Fill Arc Halo + Core */}
-      {clamped > 0 && (
-        <>
-          <path
-            d={describeArc(cx, cy, r, 0, clamped)}
-            stroke={color}
-            strokeOpacity="0.22"
-            strokeWidth={strokeW + 4}
-            fill="none"
-            strokeLinecap="round"
-          />
-          <path
-            d={describeArc(cx, cy, r, 0, clamped)}
-            stroke={color}
-            strokeWidth={strokeW}
-            fill="none"
-            strokeLinecap="round"
-          />
-        </>
-      )}
+      {/* Active Fill Arc Halo + Core (smooth stroke-dashoffset sweep) */}
+      <path
+        d={fullArcPath}
+        stroke={color}
+        strokeOpacity={clamped > 0 ? 0.22 : 0}
+        strokeWidth={strokeW + 4}
+        fill="none"
+        strokeLinecap="round"
+        strokeDasharray={arcLen}
+        strokeDashoffset={dashOffset}
+        className="svg-smooth-stroke"
+      />
+      <path
+        d={fullArcPath}
+        stroke={color}
+        strokeOpacity={clamped > 0 ? 1 : 0}
+        strokeWidth={strokeW}
+        fill="none"
+        strokeLinecap="round"
+        strokeDasharray={arcLen}
+        strokeDashoffset={dashOffset}
+        className="svg-smooth-stroke"
+      />
 
       {/* Target Tick at 100% */}
       <line
@@ -257,19 +267,27 @@ export const ConditionDial = React.memo(function ConditionDial({
         +50%
       </text>
 
-      {/* Needle + Dual-Ring Center Hub */}
-      <line
-        x1={cx}
-        y1={cy}
-        x2={nx}
-        y2={ny}
-        stroke="currentColor"
-        className="text-text/90"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-      <circle cx={nx} cy={ny} r={isSm ? 2 : 2.5} fill={color} />
-      <circle cx={cx} cy={cy} r={isSm ? 4.5 : 5.5} fill={color} fillOpacity="0.22" />
+      {/* Smoothly Rotated Needle + Dual-Ring Center Hub */}
+      <g
+        className="svg-smooth-transform"
+        style={{
+          transformOrigin: `${cx}px ${cy}px`,
+          transform: `rotate(${needleDeg.toFixed(2)}deg)`,
+        }}
+      >
+        <line
+          x1={cx}
+          y1={cy}
+          x2={cx - needleLen}
+          y2={cy}
+          stroke="currentColor"
+          className="text-text/90"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+        />
+        <circle cx={cx - needleLen} cy={cy} r={isSm ? 2 : 2.5} fill={color} className="svg-smooth-color" />
+      </g>
+      <circle cx={cx} cy={cy} r={isSm ? 4.5 : 5.5} fill={color} fillOpacity="0.22" className="svg-smooth-color" />
       <circle cx={cx} cy={cy} r={isSm ? 2.75 : 3.25} className="fill-text" />
 
       {/* Center Readout: Relative to Target */}
@@ -280,7 +298,7 @@ export const ConditionDial = React.memo(function ConditionDial({
         fontSize={isSm ? (dialOverText.length > 14 ? '9.5' : '11.5') : (dialOverText.length > 14 ? '11.5' : '14')}
         fontWeight="800"
         fill={color}
-        className="font-mono tabular-nums"
+        className="font-mono tabular-nums svg-smooth-color"
       >
         {dialOverText || `${clamped}%`}
       </text>
@@ -747,70 +765,85 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           );
         })}
 
-        {/* Live Price Cursor Line + Floating Pill Callouts */}
-        <line
-          x1={xLeft}
-          y1={yPx}
-          x2={xRight}
-          y2={yPx}
-          stroke={zTone.color}
-          strokeOpacity="0.26"
-          strokeWidth="4.5"
-        />
-        <line
-          x1={xLeft}
-          y1={yPx}
-          x2={xRight}
-          y2={yPx}
-          stroke={zTone.color}
-          strokeWidth="1.8"
-        />
-        <circle cx={xRight} cy={yPx} r="3" fill={zTone.color} />
-
-        {/* Right Floating Live Price Pill */}
-        <rect
-          x={xRight + 5}
-          y={pillY - 8}
-          width="94"
-          height="16"
-          rx="4"
-          fill={zTone.color}
-        />
-        <text
-          x={xRight + 52}
-          y={pillY + 3.2}
-          textAnchor="middle"
-          fontSize="9"
-          fontWeight="800"
-          fill="#ffffff"
-          className="font-mono tabular-nums"
+        {/* Smooth GPU-Translated Live Price Cursor Line + Floating Pill Callouts */}
+        <g
+          className="svg-smooth-transform"
+          style={{ transform: `translateY(${Number(yPx).toFixed(2)}px)` }}
         >
-          {fmtPrice(livePrice)}
-        </text>
+          <line
+            x1={xLeft}
+            y1={0}
+            x2={xRight}
+            y2={0}
+            stroke={zTone.color}
+            strokeOpacity="0.26"
+            strokeWidth="4.5"
+            className="svg-smooth-color"
+          />
+          <line
+            x1={xLeft}
+            y1={0}
+            x2={xRight}
+            y2={0}
+            stroke={zTone.color}
+            strokeWidth="1.8"
+            className="svg-smooth-color"
+          />
+          <circle cx={xRight} cy={0} r="3" fill={zTone.color} className="svg-smooth-color" />
+        </g>
 
-        {/* Left Signed Distance Pill */}
-        <rect
-          x="5"
-          y={pillY - 7.5}
-          width="50"
-          height="15"
-          rx="4"
-          fill={zTone.color}
-          fillOpacity="0.18"
-          stroke={zTone.color}
-          strokeWidth="1"
-        />
-        <text
-          x="30"
-          y={pillY + 2.8}
-          textAnchor="middle"
-          fontSize="8.2"
-          fontWeight="800"
-          fill={zTone.color}
-          className="font-mono tabular-nums"
+        {/* Smooth GPU-Translated Right & Left Floating Pills */}
+        <g
+          className="svg-smooth-transform"
+          style={{ transform: `translateY(${Number(pillY).toFixed(2)}px)` }}
         >
-          {distText}
-        </text>
+          {/* Right Floating Live Price Pill */}
+          <rect
+            x={xRight + 5}
+            y={-8}
+            width="94"
+            height="16"
+            rx="4"
+            fill={zTone.color}
+            className="svg-smooth-color"
+          />
+          <text
+            x={xRight + 52}
+            y={3.2}
+            textAnchor="middle"
+            fontSize="9"
+            fontWeight="800"
+            fill="#ffffff"
+            className="font-mono tabular-nums"
+          >
+            {fmtPrice(livePrice)}
+          </text>
+
+          {/* Left Signed Distance Pill */}
+          <rect
+            x="5"
+            y={-7.5}
+            width="50"
+            height="15"
+            rx="4"
+            fill={zTone.color}
+            fillOpacity="0.18"
+            stroke={zTone.color}
+            strokeWidth="1"
+            className="svg-smooth-color"
+          />
+          <text
+            x="30"
+            y={2.8}
+            textAnchor="middle"
+            fontSize="8.2"
+            fontWeight="800"
+            fill={zTone.color}
+            className="font-mono tabular-nums svg-smooth-color"
+          >
+            {distText}
+          </text>
+        </g>
         </svg>
       </div>
 
@@ -827,7 +860,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           title={`Lookback SL -${slDistPct.toFixed(2)}% (1.0R) | Target +${Math.abs(pnlOrRewardPct).toFixed(2)}% (${rrRatio.toFixed(1)}R)`}
         >
           <div
-            className="h-full bg-red/30 border-r border-text/80 flex items-center justify-start pl-1"
+            className="h-full bg-red/30 border-r border-text/80 flex items-center justify-start pl-1 transition-[width] duration-300 ease-out"
             style={{ width: `${riskWingWidthPct}%` }}
           >
             <span className="text-[7.5px] font-bold text-red truncate">
@@ -835,7 +868,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
             </span>
           </div>
           <div
-            className="h-full bg-green/30 flex items-center justify-end pr-1"
+            className="h-full bg-green/30 flex items-center justify-end pr-1 transition-[width] duration-300 ease-out"
             style={{ width: `${rewardWingWidthPct}%` }}
           >
             <span className="text-[7.5px] font-bold text-green truncate">
@@ -922,25 +955,61 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
   className = '',
   lastScanTs = 0,
   nowMs = undefined,
+  headerAction = null,
+  ruleFilter = 'all',
+  entryOpp = null,
+  linkedTrade = null,
+  configuredExitRules = [],
+  isSyncing = false,
 }) {
   const mountTsRef = useRef(Date.now());
   const modelNowMs = nowMs ?? (Number(lastScanTs) > 0 ? Number(lastScanTs) : mountTsRef.current);
 
+  const isEntryFilter = ruleFilter === 'entry';
+  const isExitFilter = ruleFilter === 'exit';
+
+  // Resolve effective trade & opportunity according to the active rule filter:
+  // - 'entry': force Entry Conditions view (even for In-Pos trades, using captured entryOpp if available)
+  // - 'exit': force Exit Conditions view (live Exit Monitor if open trade exists, Closed Exit Snapshot for closed trades, or Configured Exit Preview for searching candidates)
+  // - 'all': default context-aware behavior
+  const effectiveActiveTrade = useMemo(() => {
+    if (isEntryFilter) return null;
+    if (isExitFilter) return activeTrade || linkedTrade || null;
+    return activeTrade;
+  }, [isEntryFilter, isExitFilter, activeTrade, linkedTrade]);
+
+  const effectiveOpp = useMemo(() => {
+    if (isEntryFilter && !opp?.isEntrySnapshot && entryOpp) {
+      return entryOpp;
+    }
+    return opp;
+  }, [isEntryFilter, opp, entryOpp]);
+
   const model = useMemo(() => buildCandidateConditionsModel({
-    opp,
+    opp: effectiveOpp,
     strategyConfig,
-    activeTrade,
+    activeTrade: effectiveActiveTrade,
     closedTrades,
     isPaused,
     gateState,
     gateReason,
     lastScanTs,
     nowMs: modelNowMs,
-  }), [opp, strategyConfig, activeTrade, closedTrades, isPaused, gateState, gateReason, lastScanTs, modelNowMs]);
+  }), [effectiveOpp, strategyConfig, effectiveActiveTrade, closedTrades, isPaused, gateState, gateReason, lastScanTs, modelNowMs]);
 
   const isInPos = model.mode === 'in_position';
   const hasCandidate = model.symbol && model.symbol !== '---';
   const compositeDial = model.compositeDial || { dialZone: 'watching', dialStatus: 'Watching', dialOverText: '100% to go' };
+
+  const isClosedExitSnapshotView = Boolean(
+    isExitFilter &&
+    !isInPos &&
+    effectiveOpp?.isEntrySnapshot &&
+    effectiveOpp?.exitSnapshot &&
+    effectiveOpp.exitSnapshot.tradeStatus !== 'OPEN'
+  );
+  const isExitPreviewMode = Boolean(isExitFilter && !isInPos && !isClosedExitSnapshotView);
+  const showingExitView = isInPos || isClosedExitSnapshotView || isExitPreviewMode;
 
   // Track single-shot live value changes without polling loops
   const prevSnapshotRef = useRef({ symbol: null, mode: null, overallStatus: null, markPrice: 0, items: {} });
@@ -1012,22 +1081,34 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
   }, [model.symbol, model.mode, model.overallStatus, model.markPrice, model.dir, isInPos, valueSignature, model.conditions]);
 
   const runway = isInPos ? model.positionMeta?.positionRunway : null;
+  const isOpenTradeSnapshot = Boolean(effectiveOpp?.isEntrySnapshot && effectiveOpp?.snapshotTradeStatus === 'OPEN');
+  const showExitSnapshotBar = Boolean(
+    effectiveOpp?.isEntrySnapshot &&
+    effectiveOpp?.exitSnapshot &&
+    !isEntryFilter &&
+    !isInPos
+  );
 
   return (
     <div
-      key={`${model.symbol}:${model.mode}`}
       className={cn(
-        'rounded-xl border border-border/60 bg-surface/40 backdrop-blur-sm overflow-hidden flex flex-col animate-in fade-in duration-200',
+        'rounded-xl border border-border/60 bg-surface/40 backdrop-blur-sm overflow-hidden flex flex-col transition-colors duration-300 [contain:layout_style]',
         isInPos && 'border-green/35',
+        isOpenTradeSnapshot && !isInPos && 'border-accent/40',
         compact ? 'p-2.5 gap-2' : 'p-3.5 gap-3',
         className
       )}
     >
-      {/* Top Header Strip */}
-      <div className="flex items-center justify-between gap-2 flex-wrap border-b border-border/40 pb-2">
+      {/* Top Header Strip (reserved min-height & kept mounted across Entry <-> Exit / Snapshot transitions for zero CLS) */}
+      <div className="flex items-center justify-between gap-2 flex-wrap border-b border-border/40 pb-2 min-h-[30px]">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <span className="text-[10px] font-black uppercase tracking-wider text-dim">
-            {isInPos ? 'Exit Conditions' : 'Entry Conditions'}
+          <span
+            className={cn(
+              'text-[10px] font-black uppercase tracking-wider transition-colors duration-200',
+              isInPos ? 'text-green' : (effectiveOpp?.isEntrySnapshot || isClosedExitSnapshotView) ? 'text-accent' : 'text-dim'
+            )}
+          >
+            {showingExitView ? 'Exit Conditions' : 'Entry Conditions'}
           </span>
           {hasCandidate && (
             <span className="text-xs font-black font-mono text-text">
@@ -1037,7 +1118,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
           {model.dir !== '---' && (
             <span
               className={cn(
-                'text-[10px] font-black font-mono uppercase',
+                'text-[10px] font-black font-mono uppercase transition-colors duration-200',
                 model.dir === 'LONG' ? 'text-green' : 'text-red'
               )}
             >
@@ -1045,399 +1126,586 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
             </span>
           )}
           <span className="text-[10px] font-mono text-dim">
-            · {isInPos ? 'Exit Gate' : 'Signal Gate'}: <strong className="text-text">{model.logicLabel}</strong>
+            · {showingExitView ? 'Exit Gate' : 'Signal Gate'}: <strong className="text-text">{isExitPreviewMode ? 'ARMED' : isClosedExitSnapshotView ? 'CLOSED' : model.logicLabel}</strong>
           </span>
           {handoffCue && (
             <span className="text-[10px] font-mono font-bold text-green animate-handoff-slide">
               · {handoffCue}
             </span>
           )}
-          {opp?.isEntrySnapshot && (
+          {effectiveOpp?.isEntrySnapshot && !isInPos && (
             <span className="text-[10px] font-mono text-accent">
-              · {opp.snapshotTradeStatus && opp.snapshotTradeStatus !== 'OPEN' ? `History snapshot (${opp.snapshotTradeStatus})` : 'Entry snapshot'}
-              {typeof opp.capRespected === 'boolean' && (
-                <strong className={opp.capRespected ? 'text-green' : 'text-red'}>
-                  {' '}· Cap {opp.capRespected ? 'respected' : 'exceeded'}
+              · {isClosedExitSnapshotView
+                ? `Closed exit snapshot (${effectiveOpp.snapshotTradeStatus})`
+                : isOpenTradeSnapshot
+                  ? 'In-Pos entry snapshot'
+                  : (effectiveOpp.snapshotTradeStatus && effectiveOpp.snapshotTradeStatus !== 'OPEN'
+                      ? `History snapshot (${effectiveOpp.snapshotTradeStatus})`
+                      : 'Entry snapshot')}
+              {typeof effectiveOpp.capRespected === 'boolean' && !isClosedExitSnapshotView && (
+                <strong className={effectiveOpp.capRespected ? 'text-green' : 'text-red'}>
+                  {' '}· Cap {effectiveOpp.capRespected ? 'respected' : 'exceeded'}
                 </strong>
               )}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {headerAction}
           {/* Overall Status Indicator */}
-          <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums">
-            <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', ZONE_DOT_CLASS[compositeDial.dialZone] || 'bg-dim')} />
-            <span className={cn(ZONE_TEXT_CLASS[compositeDial.dialZone] || 'text-dim')}>
-              {model.overallStatus}
-            </span>
-            {!isInPos && model.overallStatus === 'ENTRY READY' && (
-              <span className="text-green/90 font-semibold animate-handoff-slide">→ Risk</span>
-            )}
-            {hasCandidate && model.totalConditionsCount > 0 && (
-              <span className="text-dim font-normal">
-                · {model.firedConditionsCount}/{model.totalConditionsCount} signals
+          {isClosedExitSnapshotView ? (
+            <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums">
+              <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', Number(effectiveOpp.exitSnapshot?.pnlPct || 0) >= 0 ? 'bg-green' : 'bg-red')} />
+              <span className={Number(effectiveOpp.exitSnapshot?.pnlPct || 0) >= 0 ? 'text-green' : 'text-red'}>
+                {String(effectiveOpp.exitSnapshot?.exitSignalType || effectiveOpp.exitSnapshot?.exitReason || 'CLOSED').replace(/_/g, ' ')}
               </span>
-            )}
-          </div>
+            </div>
+          ) : isExitPreviewMode ? (
+            <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums">
+              <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-accent" />
+              <span className="text-dim">
+                {configuredExitRules.length} {configuredExitRules.length === 1 ? 'rule' : 'rules'} armed
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums">
+              <span className={cn('w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-200', ZONE_DOT_CLASS[compositeDial.dialZone] || 'bg-dim')} />
+              <span className={cn('transition-colors duration-200', ZONE_TEXT_CLASS[compositeDial.dialZone] || 'text-dim')}>
+                {model.overallStatus}
+              </span>
+              {!isInPos && model.overallStatus === 'ENTRY READY' && (
+                <span className="text-green/90 font-semibold animate-handoff-slide">→ Risk</span>
+              )}
+              {hasCandidate && model.totalConditionsCount > 0 && (
+                <span className="text-dim font-normal">
+                  · {model.firedConditionsCount}/{model.totalConditionsCount} signals
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Compact In-Position SL -> Entry -> Live -> TP Runway + Ratio & Distance Graphic */}
-      {isInPos && runway && (
-        <div className="px-2.5 py-2 rounded-lg bg-bg/45 border border-border/40 flex flex-col gap-1.5 animate-handoff-slide">
-          <div className="flex items-center justify-between gap-2 text-[10px] font-mono tabular-nums flex-wrap">
-            <span className="text-dim">
-              SL <strong className={model.positionMeta?.isProtected ? 'text-green' : 'text-red'}>{fmtPrice(model.positionMeta?.slPrice)}</strong>
-              {Number(model.positionMeta?.slDistPct) > 0 && (
-                <span className="text-[9px] text-red/85 ml-1">(-{Number(model.positionMeta.slDistPct).toFixed(2)}%)</span>
-              )}
-              <span className="mx-1.5 text-border">·</span>
-              Entry <strong className="text-text">{fmtPrice(model.positionMeta?.entryPrice)}</strong>
-              <span className="mx-1.5 text-border">·</span>
-              Live{' '}
-              <strong
-                className={cn(
-                  'transition-colors duration-300',
-                  runwayChange ? runwayChange.toneClass : 'text-accent'
-                )}
-              >
-                {fmtPrice(model.markPrice)}
-              </strong>
-              {Number.isFinite(Number(model.positionMeta?.livePnlPct)) && (
-                <span className={cn('text-[9px] font-bold ml-1', Number(model.positionMeta.livePnlPct) >= 0 ? 'text-green' : 'text-red')}>
-                  ({Number(model.positionMeta.livePnlPct) >= 0 ? '+' : ''}{Number(model.positionMeta.livePnlPct).toFixed(2)}%)
-                </span>
-              )}
-              {model.positionMeta?.tpPrice > 0 && (
-                <>
-                  <span className="mx-1.5 text-border">·</span>
-                  TP <strong className="text-green">{fmtPrice(model.positionMeta?.tpPrice)}</strong>
-                  {Number(model.positionMeta?.tpDistPct) > 0 && (
-                    <span className="text-[9px] text-green/85 ml-1">(+{Number(model.positionMeta.tpDistPct).toFixed(2)}%)</span>
+      {/* In-Place Height-Interpolated Body (zero unmount/blanking & reserved min-height prevents CLS across mode switches) */}
+      <SmoothHeightContainer duration={0.24}>
+        <div className={cn('flex flex-col', compact ? 'gap-2 min-h-[120px]' : 'gap-3 min-h-[168px]')}>
+          {/* Compact In-Position SL -> Entry -> Live -> TP Runway + Ratio & Distance Graphic */}
+          {isInPos && runway && (
+            <div className="px-2.5 py-2 rounded-lg bg-bg/45 border border-border/40 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2 text-[10px] font-mono tabular-nums flex-wrap">
+                <span className="text-dim">
+                  SL <strong className={model.positionMeta?.isProtected ? 'text-green' : 'text-red'}>{fmtPrice(model.positionMeta?.slPrice)}</strong>
+                  {Number(model.positionMeta?.slDistPct) > 0 && (
+                    <span className="text-[9px] text-red/85 ml-1">(-{Number(model.positionMeta.slDistPct).toFixed(2)}%)</span>
                   )}
-                </>
-              )}
-            </span>
-            <span
-              className={cn(
-                'font-bold transition-colors duration-300',
-                (Number(model.positionMeta?.currentR) || 0) >= 0 ? 'text-green' : 'text-red'
-              )}
-            >
-              {(Number(model.positionMeta?.currentR) || 0) >= 0 ? '+' : ''}{(Number(model.positionMeta?.currentR) || 0).toFixed(2)}R
-              {Number(model.positionMeta?.targetR) > 0 ? ` / ${Number(model.positionMeta.targetR).toFixed(1)}R` : ''}
-              {model.positionMeta?.trailingActive ? ' · Trailing' : model.positionMeta?.isProtected ? ' · Protected' : ''}
-            </span>
-          </div>
-          <div className="relative h-2 w-full rounded-full bg-surface/80 border border-border/40 overflow-hidden">
-            {/* SL -> Entry base fill & live position indicator via GPU transform */}
-            <div
-              className="absolute inset-y-0 left-0 w-full bg-green/25 origin-left transition-transform duration-300 ease-out will-change-transform"
-              style={{ transform: `scaleX(${Math.max(0, Math.min(1, runway.livePct / 100))})` }}
-            />
-            <div
-              className="absolute top-0 bottom-0 w-0.5 bg-red/80"
-              style={{ left: `${runway.slPct}%` }}
-              title="Stop Loss"
-            />
-            <div
-              className="absolute top-0 bottom-0 w-0.5 bg-dim/80"
-              style={{ left: `${runway.entryPct}%` }}
-              title="Entry Price"
-            />
-            {runway.tpPct !== null && (
-              <div
-                className="absolute top-0 bottom-0 w-0.5 bg-green"
-                style={{ left: `${runway.tpPct}%` }}
-                title="Take Profit"
-              />
-            )}
-            <div
-              className={cn(
-                'absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border border-bg shadow-xs transition-transform duration-300 ease-out will-change-transform',
-                (model.positionMeta?.currentR || 0) >= 0 ? 'bg-green' : 'bg-amber'
-              )}
-              style={{ left: `calc(${runway.livePct}% - 5px)` }}
-              title={`Live Price (${fmtPrice(model.markPrice)})`}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Ultra-Compact 1-Line Entry & Exit Snapshot + Proportional SL ↔ Entry ↔ Exit Ratio Bar */}
-      {opp?.isEntrySnapshot && opp?.exitSnapshot && (() => {
-        const ex = opp.exitSnapshot;
-        const slDist = Math.max(0.05, Math.abs(Number(ex.slDistPct || opp.sl_dist_pct || 1.0)));
-        const pnlPctVal = Number(ex.pnlPct || 0);
-        const absPnlPct = Math.max(0.05, Math.abs(pnlPctVal));
-        const exitRrVal = Number(ex.exitRr || 0);
-        const targetRrVal = Math.max(0.5, Number(ex.targetRr || 2.0));
-        const totalSpan = slDist + Math.max(absPnlPct, slDist * targetRrVal * 0.5);
-        const riskW = Math.max(22, Math.min(58, Math.round((slDist / totalSpan) * 100)));
-        const rewardW = 100 - riskW;
-        const exitFillPct = Math.max(8, Math.min(100, Math.round((absPnlPct / Math.max(0.05, slDist * targetRrVal)) * 100)));
-
-        return (
-          <div className="px-2.5 py-1.5 rounded-lg bg-bg/55 border border-border/45 flex items-center justify-between gap-2 flex-wrap font-mono text-[9.5px] tabular-nums">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-[8.5px] font-black uppercase px-1.5 py-0.2 rounded bg-accent/12 border border-accent/30 text-accent">
-                Exit Snapshot
-              </span>
-              <strong className="text-text uppercase truncate">
-                {String(ex.exitSignalType || ex.exitReason || 'EXIT').replace(/_/g, ' ')}
-              </strong>
-              <span className="text-dim hidden sm:inline">
-                · SL <strong className="text-red">{fmtPrice(ex.initialSlPrice || ex.finalSlPrice)}</strong> → Entry <strong className="text-text">{fmtPrice(ex.entryPrice)}</strong> → {ex.tradeStatus === 'OPEN' ? 'Live' : 'Exit'} <strong className={pnlPctVal >= 0 ? 'text-green' : 'text-red'}>{fmtPrice(ex.exitPrice)}</strong>
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 ml-auto">
-              {/* Inline Proportional SL <-> Entry <-> Exit Bar */}
-              <div className="w-36 h-3.5 rounded bg-surface/85 border border-border/45 overflow-hidden flex items-center">
-                <div
-                  className="h-full bg-red/30 border-r border-text/80 flex items-center justify-start pl-1"
-                  style={{ width: `${riskW}%` }}
+                  <span className="mx-1.5 text-border">·</span>
+                  Entry <strong className="text-text">{fmtPrice(model.positionMeta?.entryPrice)}</strong>
+                  <span className="mx-1.5 text-border">·</span>
+                  Live{' '}
+                  <strong
+                    className={cn(
+                      'transition-colors duration-300',
+                      runwayChange ? runwayChange.toneClass : 'text-accent'
+                    )}
+                  >
+                    {fmtPrice(model.markPrice)}
+                  </strong>
+                  {Number.isFinite(Number(model.positionMeta?.livePnlPct)) && (
+                    <span className={cn('text-[9px] font-bold ml-1 transition-colors duration-200', Number(model.positionMeta.livePnlPct) >= 0 ? 'text-green' : 'text-red')}>
+                      ({Number(model.positionMeta.livePnlPct) >= 0 ? '+' : ''}{Number(model.positionMeta.livePnlPct).toFixed(2)}%)
+                    </span>
+                  )}
+                  {model.positionMeta?.tpPrice > 0 && (
+                    <>
+                      <span className="mx-1.5 text-border">·</span>
+                      TP <strong className="text-green">{fmtPrice(model.positionMeta?.tpPrice)}</strong>
+                      {Number(model.positionMeta?.tpDistPct) > 0 && (
+                        <span className="text-[9px] text-green/85 ml-1">(+{Number(model.positionMeta.tpDistPct).toFixed(2)}%)</span>
+                      )}
+                    </>
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    'font-bold transition-colors duration-300',
+                    (Number(model.positionMeta?.currentR) || 0) >= 0 ? 'text-green' : 'text-red'
+                  )}
                 >
-                  <span className="text-[7.5px] font-bold text-red truncate">-{slDist.toFixed(1)}%</span>
-                </div>
-                <div
-                  className="relative h-full bg-surface/60 flex items-center justify-end pr-1 overflow-hidden"
-                  style={{ width: `${rewardW}%` }}
-                >
-                  <div
-                    className={cn('absolute inset-y-0 left-0', pnlPctVal >= 0 ? 'bg-green/35' : 'bg-red/35')}
-                    style={{ width: `${exitFillPct}%` }}
-                  />
-                  <span className={cn('relative z-10 text-[7.5px] font-bold truncate', pnlPctVal >= 0 ? 'text-green' : 'text-red')}>
-                    {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(1)}% ({exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(1)}R)
-                  </span>
-                </div>
+                  {(Number(model.positionMeta?.currentR) || 0) >= 0 ? '+' : ''}{(Number(model.positionMeta?.currentR) || 0).toFixed(2)}R
+                  {Number(model.positionMeta?.targetR) > 0 ? ` / ${Number(model.positionMeta.targetR).toFixed(1)}R` : ''}
+                  {model.positionMeta?.trailingActive ? ' · Trailing' : model.positionMeta?.isProtected ? ' · Protected' : ''}
+                </span>
               </div>
-
-              <span className={cn('px-1.5 py-0.2 rounded border font-bold text-[9px]', exitRrVal >= 0 ? 'bg-green/10 border-green/30 text-green' : 'bg-red/10 border-red/30 text-red')}>
-                {exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(2)}R / {targetRrVal.toFixed(1)}R
-              </span>
+              <div className="relative h-2 w-full rounded-full bg-surface/80 border border-border/40 overflow-hidden">
+                {/* SL -> Entry base fill & live position indicator via GPU transform */}
+                <div
+                  className="absolute inset-y-0 left-0 w-full bg-green/25 origin-left transition-transform duration-300 ease-out will-change-transform"
+                  style={{ transform: `scaleX(${Math.max(0, Math.min(1, runway.livePct / 100))})` }}
+                />
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-red/80 transition-[left] duration-300 ease-out"
+                  style={{ left: `${runway.slPct}%` }}
+                  title="Stop Loss"
+                />
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-dim/80 transition-[left] duration-300 ease-out"
+                  style={{ left: `${runway.entryPct}%` }}
+                  title="Entry Price"
+                />
+                {runway.tpPct !== null && (
+                  <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-green transition-[left] duration-300 ease-out"
+                    style={{ left: `${runway.tpPct}%` }}
+                    title="Take Profit"
+                  />
+                )}
+                <div
+                  className={cn(
+                    'absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border border-bg shadow-xs transition-[left,background-color] duration-300 ease-out',
+                    (model.positionMeta?.currentR || 0) >= 0 ? 'bg-green' : 'bg-amber'
+                  )}
+                  style={{ left: `calc(${runway.livePct}% - 5px)` }}
+                  title={`Live Price (${fmtPrice(model.markPrice)})`}
+                />
+              </div>
             </div>
-          </div>
-        );
-      })()}
-
-      {/* Condition Cards + Composite Summary Grid */}
-      {model.conditions.length === 0 ? (
-        <div className="text-[11px] font-mono text-dim py-2 text-center">
-          No {isInPos ? 'exit' : 'entry'} signal conditions configured — relying on {isInPos ? 'SL / TP levels' : 'scanner gate'}.
-        </div>
-      ) : (
-        <div
-          className={cn(
-            'grid auto-rows-fr items-stretch gap-2.5',
-            compact
-              ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
-              : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4'
           )}
-        >
-          {model.conditions.map((c) => {
-            const cZone = c.dialZone || 'watching';
-            const isLadder = c.visualization === 'ladder' && c.ladder;
-            const changeInfo = changedValueMap[c.key] || null;
-            const liveToneClass = cZone === 'watching'
-              ? (c.isScannerGate && c.liveValue !== null ? (c.liveValue >= 0 ? 'text-green' : 'text-red') : 'text-text')
-              : (ZONE_TEXT_CLASS[cZone] || 'text-text');
-            const hasDeltaReadout = Boolean(c.deltaValueText || c.deltaPctText);
+
+          {/* Ultra-Compact 1-Line Entry & Exit/Live Snapshot + Proportional SL ↔ Entry ↔ Exit Ratio Bar */}
+          {showExitSnapshotBar && (() => {
+            const ex = effectiveOpp.exitSnapshot;
+            const isLiveOpen = ex.tradeStatus === 'OPEN';
+            const slDist = Math.max(0.05, Math.abs(Number(ex.slDistPct || effectiveOpp.sl_dist_pct || 1.0)));
+            const pnlPctVal = Number(ex.pnlPct || 0);
+            const absPnlPct = Math.max(0.05, Math.abs(pnlPctVal));
+            const exitRrVal = Number(ex.exitRr || 0);
+            const targetRrVal = Math.max(0.5, Number(ex.targetRr || 2.0));
+            const totalSpan = slDist + Math.max(absPnlPct, slDist * targetRrVal * 0.5);
+            const riskW = Math.max(22, Math.min(58, Math.round((slDist / totalSpan) * 100)));
+            const rewardW = 100 - riskW;
+            const exitFillPct = Math.max(8, Math.min(100, Math.round((absPnlPct / Math.max(0.05, slDist * targetRrVal)) * 100)));
 
             return (
-              <div
-                key={c.key}
-                className={cn(
-                  'relative overflow-hidden rounded-xl border border-border/55 bg-gradient-to-b from-surface/40 via-bg/45 to-bg/65 p-2.5 flex flex-col justify-between h-full gap-1.5 shadow-xs transition-colors duration-200 hover:border-border/80',
-                  changeInfo?.stateChanged && 'animate-event-arrive',
-                  isLadder && (compact ? 'sm:col-span-2' : 'sm:col-span-2')
-                )}
-              >
-                {/* Subtle Top Status Spine */}
-                <div
-                  className="absolute top-0 left-0 right-0 h-[2px] opacity-85"
-                  style={{ backgroundColor: ZONE_COLOR_MAP[cZone] || ZONE_COLOR_MAP.watching }}
-                />
+              <div className="px-2.5 py-1.5 rounded-lg bg-bg/55 border border-border/45 flex items-center justify-between gap-2 flex-wrap font-mono text-[9.5px] tabular-nums">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className={cn(
+                    'text-[8.5px] font-black uppercase px-1.5 py-0.2 rounded border',
+                    isLiveOpen
+                      ? 'bg-green/12 border-green/35 text-green'
+                      : 'bg-accent/12 border-accent/30 text-accent'
+                  )}>
+                    {isLiveOpen ? 'In-Pos Snapshot' : 'Exit Snapshot'}
+                  </span>
+                  <strong className="text-text uppercase truncate">
+                    {isLiveOpen
+                      ? 'LIVE POSITION'
+                      : String(ex.exitSignalType || ex.exitReason || 'EXIT').replace(/_/g, ' ')}
+                  </strong>
+                  <span className="text-dim hidden sm:inline">
+                    · SL <strong className="text-red">{fmtPrice(ex.initialSlPrice || ex.finalSlPrice)}</strong> → Entry <strong className="text-text">{fmtPrice(ex.entryPrice)}</strong> → {isLiveOpen ? 'Live' : 'Exit'} <strong className={pnlPctVal >= 0 ? 'text-green' : 'text-red'}>{fmtPrice(ex.exitPrice)}</strong>
+                  </span>
+                </div>
 
-                {/* Card Top Header */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        className={cn(
-                          'text-[8.5px] font-black font-mono uppercase tracking-wider px-1.2 py-0.2 rounded border',
-                          c.isScannerGate
-                            ? 'bg-amber/10 text-amber border-amber/30'
-                            : 'bg-surface/70 text-dim border-border/50'
-                        )}
-                      >
-                        {c.connector}
-                      </span>
-                      <span className="text-[11.5px] font-bold text-text tracking-tight">
-                        {c.label}
-                      </span>
-                      <span className="text-[9.5px] font-mono text-dim">
-                        · <strong className="text-text/80">{c.timeframe}</strong>
-                      </span>
+                <div className="flex items-center gap-2 ml-auto">
+                  {/* Inline Proportional SL <-> Entry <-> Exit Bar */}
+                  <div className="w-36 h-3.5 rounded bg-surface/85 border border-border/45 overflow-hidden flex items-center">
+                    <div
+                      className="h-full bg-red/30 border-r border-text/80 flex items-center justify-start pl-1 transition-[width] duration-300 ease-out"
+                      style={{ width: `${riskW}%` }}
+                    >
+                      <span className="text-[7.5px] font-bold text-red truncate">-{slDist.toFixed(1)}%</span>
                     </div>
-                    <div className="text-[9px] font-mono text-dim mt-0.5 leading-tight flex items-center gap-1.5 flex-wrap">
-                      {c.paramsText && c.paramsText !== 'Standard' && (
-                        <span className="truncate">{c.paramsText} ·</span>
-                      )}
-                      <ConditionFreshness evaluatedAtMs={c.evaluatedAtMs} changeInfo={changeInfo} />
+                    <div
+                      className="relative h-full bg-surface/60 flex items-center justify-end pr-1 overflow-hidden transition-[width] duration-300 ease-out"
+                      style={{ width: `${rewardW}%` }}
+                    >
+                      <div
+                        className={cn('absolute inset-y-0 left-0 transition-[width,background-color] duration-300 ease-out', pnlPctVal >= 0 ? 'bg-green/35' : 'bg-red/35')}
+                        style={{ width: `${exitFillPct}%` }}
+                      />
+                      <span className={cn('relative z-10 text-[7.5px] font-bold truncate', pnlPctVal >= 0 ? 'text-green' : 'text-red')}>
+                        {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(1)}% ({exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(1)}R)
+                      </span>
                     </div>
                   </div>
 
-                  {/* Pill Status Indicator */}
-                  <span
-                    className={cn(
-                      'inline-flex items-center gap-1 text-[9px] font-mono font-bold shrink-0 px-1.5 py-0.5 rounded-full bg-surface/70 border border-border/50',
-                      ZONE_TEXT_CLASS[cZone] || 'text-dim'
-                    )}
-                  >
-                    <span className={cn('w-1.5 h-1.5 rounded-full', ZONE_DOT_CLASS[cZone] || 'bg-dim')} />
-                    {formatCleanCardStatus(cZone, c.stateLabel)}
+                  <span className={cn('px-1.5 py-0.2 rounded border font-bold text-[9px]', exitRrVal >= 0 ? 'bg-green/10 border-green/30 text-green' : 'bg-red/10 border-red/30 text-red')}>
+                    {exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(2)}R / {targetRrVal.toFixed(1)}R
                   </span>
                 </div>
+              </div>
+            );
+          })()}
 
-                {/* Visualization Body: Spatial Level Ladder for HTF Breakouts, Semicircular Dial for Threshold Signals */}
-                {isLadder ? (
-                  <HtfBreakoutLadder ladder={c.ladder} compact={compact} changeInfo={changeInfo} />
-                ) : (
-                  <>
-                    <div className="flex justify-center items-center">
-                      <ConditionDial
-                        dialPct={c.dialPct}
-                        dialZone={cZone}
-                        dialOverText={c.dialOverText}
-                        size={compact ? 'sm' : 'md'}
-                        changeInfo={changeInfo}
-                      />
+          {/* Dedicated Closed Snapshot Exit Breakdown (when ruleFilter === 'exit' on a closed trade snapshot) */}
+          {isClosedExitSnapshotView ? (() => {
+            const ex = effectiveOpp.exitSnapshot;
+            const pnlPctVal = Number(ex.pnlPct || 0);
+            const pnlUsdtVal = Number(ex.pnlUsdt || 0);
+            const exitRrVal = Number(ex.exitRr || 0);
+            const maxRrVal = Number(ex.maxRr ?? exitRrVal);
+            const minRrVal = Number(ex.minRr ?? 0);
+            const targetRrVal = Number(ex.targetRr || 2.0);
+            const capturedExitSignals = ex.exitSignalsStatus && typeof ex.exitSignalsStatus === 'object'
+              ? Object.entries(ex.exitSignalsStatus)
+              : [];
+
+            return (
+              <div className="flex flex-col gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 font-mono">
+                  <div className="rounded-xl border border-border/55 bg-bg/50 p-2.5 flex flex-col justify-between gap-1.5">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-dim">Exit Trigger</div>
+                    <div className="text-xs font-bold text-text uppercase truncate" title={String(ex.exitSignalType || ex.exitReason || 'CLOSED')}>
+                      {String(ex.exitSignalType || ex.exitReason || 'CLOSED').replace(/_/g, ' ')}
                     </div>
+                    <div className="text-[10px] text-dim truncate" title={ex.exitSignalReason || ex.exitReason || ''}>
+                      {ex.exitSignalReason || `Status: ${ex.tradeStatus || 'CLOSED'}`}
+                    </div>
+                  </div>
 
-                    {/* Card Bottom: App-Like Bento Telemetry Strip for Live vs Target + Signed Distance */}
-                    <div className="flex flex-col gap-1.5 rounded-lg bg-surface/45 border border-border/35 px-2.5 py-1.5 font-mono text-[10.5px] tabular-nums">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-dim text-[9.5px] uppercase tracking-wider font-semibold">Live / Target</span>
-                        <div className="truncate flex items-center gap-1">
-                          <strong
-                            className={cn(
-                              'font-bold transition-colors duration-300',
-                              changeInfo?.changed ? changeInfo.toneClass : liveToneClass
-                            )}
-                          >
-                            {c.liveText}
-                          </strong>
-                          <span className="text-dim/60">/</span>
-                          <span className="text-accent font-semibold">{c.targetText}</span>
+                  <div className="rounded-xl border border-border/55 bg-bg/50 p-2.5 flex flex-col justify-between gap-1.5 tabular-nums">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-dim">Realized Outcome</div>
+                    <div className={cn('text-xs font-bold', pnlPctVal >= 0 ? 'text-green' : 'text-red')}>
+                      {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(2)}% ({pnlUsdtVal >= 0 ? '+' : ''}${pnlUsdtVal.toFixed(2)})
+                    </div>
+                    <div className="text-[10px] text-dim">
+                      Exit <strong className="text-text">{exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(2)}R</strong> · Peak <strong className="text-green">+{Math.max(0, maxRrVal).toFixed(2)}R</strong> · Min <strong className="text-red">{minRrVal.toFixed(2)}R</strong>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border/55 bg-bg/50 p-2.5 flex flex-col justify-between gap-1.5 tabular-nums">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-dim">Price Execution</div>
+                    <div className="text-xs font-bold text-text">
+                      {fmtPrice(ex.entryPrice)} → <span className={pnlPctVal >= 0 ? 'text-green' : 'text-red'}>{fmtPrice(ex.exitPrice)}</span>
+                    </div>
+                    <div className="text-[10px] text-dim">
+                      Init SL {fmtPrice(ex.initialSlPrice)} · Final SL {fmtPrice(ex.finalSlPrice)}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border/55 bg-bg/50 p-2.5 flex flex-col justify-between gap-1.5 tabular-nums">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-dim">Target &amp; Risk</div>
+                    <div className="text-xs font-bold text-text">
+                      {ex.tpPrice > 0 ? `TP ${fmtPrice(ex.tpPrice)}` : `Target ${targetRrVal.toFixed(1)}R`}
+                    </div>
+                    <div className="text-[10px] text-dim">
+                      SL Dist {Math.abs(Number(ex.slDistPct || 0)).toFixed(2)}% · Goal {targetRrVal.toFixed(1)}R
+                    </div>
+                  </div>
+                </div>
+
+                {capturedExitSignals.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 font-mono">
+                    {capturedExitSignals.map(([sigKey, st]) => {
+                      const fired = Boolean(st?.fired);
+                      return (
+                        <div key={sigKey} className={cn('rounded-lg border px-2.5 py-2 flex items-center justify-between gap-2 text-[10.5px]', fired ? 'border-green/40 bg-green/5' : 'border-border/45 bg-bg/40')}>
+                          <span className="font-semibold text-text truncate">{String(sigKey).replace(/_/g, ' ')}</span>
+                          <span className={cn('font-bold uppercase shrink-0', fired ? 'text-green' : 'text-dim')}>
+                            {fired ? 'FIRED' : 'IDLE'}
+                          </span>
                         </div>
+                      );
+                    })}
+                  </div>
+                ) : configuredExitRules.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 font-mono">
+                    {configuredExitRules.map((rule) => (
+                      <div key={rule.key} className="rounded-lg border border-border/45 bg-bg/35 px-2.5 py-2 flex items-center justify-between gap-2 text-[10.5px]">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-text truncate">{rule.label}</div>
+                          <div className="text-[9.5px] text-dim truncate">{rule.paramsText || rule.reasonText}</div>
+                        </div>
+                        <span className="text-[9.5px] font-bold uppercase text-dim shrink-0">
+                          {rule.status === 'firing' ? 'FIRED' : 'RULE'}
+                        </span>
                       </div>
-
-                      {hasDeltaReadout && (
-                        <div className="flex items-center justify-between gap-2 text-[9.5px] border-t border-border/25 pt-1">
-                          <span className="text-dim uppercase tracking-wider font-semibold text-[8.5px]">
-                            {(Number(c.dialPct) || 0) >= 100 ? 'Past target' : 'To go'}
-                          </span>
-                          <span
-                            className={cn(
-                              'font-bold truncate transition-colors duration-300',
-                              changeInfo?.changed ? changeInfo.toneClass : (ZONE_TEXT_CLASS[cZone] || 'text-dim')
-                            )}
-                          >
-                            {c.deltaValueText}
-                            {c.deltaPctText && c.deltaPctText !== c.deltaValueText ? ` (${c.deltaPctText})` : ''}
-                          </span>
-                        </div>
-                      )}
-
-                      {c.macdFilter && (
-                        <MacdFilterStrip macdFilter={c.macdFilter} changeInfo={changeInfo} />
-                      )}
-                    </div>
-                  </>
+                    ))}
+                  </div>
                 )}
               </div>
             );
-          })}
+          })() : isExitPreviewMode ? (
+            /* Configured Exit Rules Preview (when ruleFilter === 'exit' on a searching candidate with no open trade yet) */
+            <div className="flex flex-col gap-2">
+              {configuredExitRules.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 font-mono">
+                  {configuredExitRules.map((rule) => (
+                    <div
+                      key={rule.key}
+                      className="rounded-xl border border-border/55 bg-bg/45 p-2.5 flex flex-col justify-between gap-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-text truncate">{rule.label}</span>
+                        <span className="text-[9.5px] font-bold uppercase text-accent shrink-0">ARMED</span>
+                      </div>
+                      <div className="text-[10.5px] text-text/85 truncate" title={rule.paramsText}>
+                        {rule.paramsText || 'Configured'}
+                      </div>
+                      {rule.reasonText && (
+                        <div className="text-[10px] text-dim leading-snug line-clamp-2">
+                          {rule.reasonText}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[11px] font-mono text-dim py-2 text-center">
+                  No custom exit signals configured — positions will exit via Stop Loss / Take Profit levels.
+                </div>
+              )}
+              <div className="text-[10px] font-mono text-dim pt-1 border-t border-border/35 flex items-center justify-between gap-2 flex-wrap">
+                <span>Live exit dials activate automatically when a position opens on {hasCandidate ? model.symbol : 'a candidate'}.</span>
+                <span className="text-accent/90">Previewing configured exit rules</span>
+              </div>
+            </div>
+          ) : effectiveOpp?.isEntrySnapshot && effectiveOpp?.isMetadataOnlySnapshot && model.conditions.length === 0 ? (
+            /* Fallback Entry Metadata Card for In-Pos / Closed trades that lack deep signalResult telemetry */
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 font-mono tabular-nums">
+              <div className="rounded-xl border border-border/55 bg-bg/50 p-2.5 flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase text-dim">Entry Price</span>
+                <span className="text-xs font-bold text-text">{fmtPrice(effectiveOpp.price || effectiveOpp.exitSnapshot?.entryPrice)}</span>
+                <span className="text-[10px] text-dim">{effectiveOpp.dir?.toUpperCase() || 'LONG'} entry</span>
+              </div>
+              <div className="rounded-xl border border-border/55 bg-bg/50 p-2.5 flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase text-dim">Initial Stop Loss</span>
+                <span className="text-xs font-bold text-red">{fmtPrice(effectiveOpp.exitSnapshot?.initialSlPrice)}</span>
+                <span className="text-[10px] text-dim">Dist -{Math.abs(Number(effectiveOpp.sl_dist_pct || 0)).toFixed(2)}%</span>
+              </div>
+              <div className="rounded-xl border border-border/55 bg-bg/50 p-2.5 flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase text-dim">Entry Source</span>
+                <span className="text-xs font-bold text-text truncate">{effectiveOpp.entryReason || 'Strategy Execution'}</span>
+                <span className="text-[10px] text-dim">Status: {effectiveOpp.snapshotTradeStatus || 'OPEN'}</span>
+              </div>
+              <div className="rounded-xl border border-border/55 bg-bg/50 p-2.5 flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase text-dim">Target R:R</span>
+                <span className="text-xs font-bold text-accent">{Number(effectiveOpp.exitSnapshot?.targetRr || 2.0).toFixed(1)}R</span>
+                <span className="text-[10px] text-dim">Telemetry captured on new fills</span>
+              </div>
+            </div>
+          ) : isSyncing && !effectiveOpp?.isEntrySnapshot ? (
+            <ConditionCardsSkeleton
+              compact={compact}
+              count={Math.max(2, Math.min(4, model.conditions.length || 4))}
+            />
+          ) : model.conditions.length === 0 ? (
+            <div className="text-[11px] font-mono text-dim py-2 text-center">
+              No {isInPos ? 'exit' : 'entry'} signal conditions configured — relying on {isInPos ? 'SL / TP levels' : 'scanner gate'}.
+            </div>
+          ) : (
+            <div
+              className={cn(
+                'grid auto-rows-fr items-stretch gap-2.5',
+                compact
+                  ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+                  : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4'
+              )}
+            >
+              {model.conditions.map((c) => {
+                const cZone = c.dialZone || 'watching';
+                const isLadder = c.visualization === 'ladder' && c.ladder;
+                const changeInfo = changedValueMap[c.key] || null;
+                const liveToneClass = cZone === 'watching'
+                  ? (c.isScannerGate && c.liveValue !== null ? (c.liveValue >= 0 ? 'text-green' : 'text-red') : 'text-text')
+                  : (ZONE_TEXT_CLASS[cZone] || 'text-text');
+                const hasDeltaReadout = Boolean(c.deltaValueText || c.deltaPctText);
 
-          {/* Composite Gate Card */}
-          {model.conditions.length > 1 && (
-            <div className="relative overflow-hidden rounded-xl border border-border/65 bg-gradient-to-b from-surface/70 via-surface/45 to-bg/70 p-3 flex flex-col justify-between gap-2.5 shadow-xs">
-              <div
-                className="absolute top-0 left-0 right-0 h-[2px] opacity-85"
-                style={{ backgroundColor: ZONE_COLOR_MAP[compositeDial.dialZone] || ZONE_COLOR_MAP.watching }}
-              />
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-text tracking-tight">
-                    Composite · {model.logicLabel}
+                return (
+                  <div
+                    key={c.key}
+                    className={cn(
+                      'relative overflow-hidden rounded-xl border border-border/55 bg-gradient-to-b from-surface/40 via-bg/45 to-bg/65 p-2.5 flex flex-col justify-between h-full gap-1.5 shadow-xs transition-colors duration-200 hover:border-border/80',
+                      changeInfo?.stateChanged && 'animate-event-arrive',
+                      isLadder && (compact ? 'sm:col-span-2' : 'sm:col-span-2')
+                    )}
+                  >
+                    {/* Subtle Top Status Spine */}
+                    <div
+                      className="absolute top-0 left-0 right-0 h-[2px] opacity-85 transition-colors duration-300"
+                      style={{ backgroundColor: ZONE_COLOR_MAP[cZone] || ZONE_COLOR_MAP.watching }}
+                    />
+
+                    {/* Card Top Header */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className={cn(
+                              'text-[8.5px] font-black font-mono uppercase tracking-wider px-1.2 py-0.2 rounded border',
+                              c.isScannerGate
+                                ? 'bg-amber/10 text-amber border-amber/30'
+                                : 'bg-surface/70 text-dim border-border/50'
+                            )}
+                          >
+                            {c.connector}
+                          </span>
+                          <span className="text-[11.5px] font-bold text-text tracking-tight">
+                            {c.label}
+                          </span>
+                          <span className="text-[9.5px] font-mono text-dim">
+                            · <strong className="text-text/80">{c.timeframe}</strong>
+                          </span>
+                        </div>
+                        <div className="text-[9px] font-mono text-dim mt-0.5 leading-tight flex items-center gap-1.5 flex-wrap">
+                          {c.paramsText && c.paramsText !== 'Standard' && (
+                            <span className="truncate">{c.paramsText} ·</span>
+                          )}
+                          <ConditionFreshness evaluatedAtMs={c.evaluatedAtMs} changeInfo={changeInfo} />
+                        </div>
+                      </div>
+
+                      {/* Pill Status Indicator */}
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1 text-[9px] font-mono font-bold shrink-0 px-1.5 py-0.5 rounded-full bg-surface/70 border border-border/50 transition-colors duration-200',
+                          ZONE_TEXT_CLASS[cZone] || 'text-dim'
+                        )}
+                      >
+                        <span className={cn('w-1.5 h-1.5 rounded-full transition-colors duration-200', ZONE_DOT_CLASS[cZone] || 'bg-dim')} />
+                        {formatCleanCardStatus(cZone, c.stateLabel)}
+                      </span>
+                    </div>
+
+                    {/* Visualization Body: Spatial Level Ladder for HTF Breakouts, Semicircular Dial for Threshold Signals */}
+                    {isLadder ? (
+                      <HtfBreakoutLadder ladder={c.ladder} compact={compact} changeInfo={changeInfo} />
+                    ) : (
+                      <>
+                        <div className="flex justify-center items-center">
+                          <ConditionDial
+                            dialPct={c.dialPct}
+                            dialZone={cZone}
+                            dialOverText={c.dialOverText}
+                            size={compact ? 'sm' : 'md'}
+                            changeInfo={changeInfo}
+                          />
+                        </div>
+
+                        {/* Card Bottom: App-Like Bento Telemetry Strip for Live vs Target + Signed Distance */}
+                        <div className="flex flex-col gap-1.5 rounded-lg bg-surface/45 border border-border/35 px-2.5 py-1.5 font-mono text-[10.5px] tabular-nums">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-dim text-[9.5px] uppercase tracking-wider font-semibold">Live / Target</span>
+                            <div className="truncate flex items-center gap-1">
+                              <strong
+                                className={cn(
+                                  'font-bold transition-colors duration-300',
+                                  changeInfo?.changed ? changeInfo.toneClass : liveToneClass
+                                )}
+                              >
+                                {c.liveText}
+                              </strong>
+                              <span className="text-dim/60">/</span>
+                              <span className="text-accent font-semibold">{c.targetText}</span>
+                            </div>
+                          </div>
+
+                          {hasDeltaReadout && (
+                            <div className="flex items-center justify-between gap-2 text-[9.5px] border-t border-border/25 pt-1">
+                              <span className="text-dim uppercase tracking-wider font-semibold text-[8.5px]">
+                                {(Number(c.dialPct) || 0) >= 100 ? 'Past target' : 'To go'}
+                              </span>
+                              <span
+                                className={cn(
+                                  'font-bold truncate transition-colors duration-300',
+                                  changeInfo?.changed ? changeInfo.toneClass : (ZONE_TEXT_CLASS[cZone] || 'text-dim')
+                                )}
+                              >
+                                {c.deltaValueText}
+                                {c.deltaPctText && c.deltaPctText !== c.deltaValueText ? ` (${c.deltaPctText})` : ''}
+                              </span>
+                            </div>
+                          )}
+
+                          {c.macdFilter && (
+                            <MacdFilterStrip macdFilter={c.macdFilter} changeInfo={changeInfo} />
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
-                  <div className="text-[10px] font-mono text-dim mt-0.5 leading-snug">
-                    <span className={cn('font-bold', model.firedConditionsCount > 0 ? 'text-green' : 'text-text')}>
-                      {model.firedConditionsCount}/{model.totalConditionsCount}
-                    </span>{' '}
-                    signals hit
-                    {model.logicLabel === 'ALL' ? ' (weakest)' : model.logicLabel === 'ANY' ? ' (strongest)' : ''}
+                );
+              })}
+
+              {/* Composite Gate Card */}
+              {model.conditions.length > 1 && (
+                <div className="relative overflow-hidden rounded-xl border border-border/65 bg-gradient-to-b from-surface/70 via-surface/45 to-bg/70 p-3 flex flex-col justify-between gap-2.5 shadow-xs">
+                  <div
+                    className="absolute top-0 left-0 right-0 h-[2px] opacity-85 transition-colors duration-300"
+                    style={{ backgroundColor: ZONE_COLOR_MAP[compositeDial.dialZone] || ZONE_COLOR_MAP.watching }}
+                  />
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-text tracking-tight">
+                        Composite · {model.logicLabel}
+                      </div>
+                      <div className="text-[10px] font-mono text-dim mt-0.5 leading-snug">
+                        <span className={cn('font-bold', model.firedConditionsCount > 0 ? 'text-green' : 'text-text')}>
+                          {model.firedConditionsCount}/{model.totalConditionsCount}
+                        </span>{' '}
+                        signals hit
+                        {model.logicLabel === 'ALL' ? ' (weakest)' : model.logicLabel === 'ANY' ? ' (strongest)' : ''}
+                      </div>
+                    </div>
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1.5 text-[9.5px] font-mono font-bold shrink-0 px-2 py-0.5 rounded-full bg-bg/60 border border-border/50 transition-colors duration-200',
+                        ZONE_TEXT_CLASS[compositeDial.dialZone] || 'text-dim'
+                      )}
+                    >
+                      <span className={cn('w-1.5 h-1.5 rounded-full transition-colors duration-200', ZONE_DOT_CLASS[compositeDial.dialZone] || 'bg-dim')} />
+                      {formatCleanCardStatus(compositeDial.dialZone, model.firedConditionsCount === model.totalConditionsCount && model.totalConditionsCount > 0 ? 'Ready' : 'Watching')}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-center items-center my-0.5">
+                    <ConditionDial
+                      dialPct={model.compositeDialPct}
+                      dialZone={compositeDial.dialZone}
+                      dialOverText={compositeDial.dialOverText}
+                      size={compact ? 'sm' : 'md'}
+                    />
+                  </div>
+
+                  <div className="flex items-baseline justify-between gap-2 rounded-lg bg-bg/50 border border-border/35 px-2.5 py-1.5 font-mono text-[10px] text-dim tabular-nums">
+                    <span className="uppercase tracking-wider text-[8.5px] font-semibold">Action</span>
+                    <span className="text-text font-bold truncate" title={model.actionSummary}>
+                      {model.actionSummary}
+                    </span>
                   </div>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Footer Strip: Anti-Whipsaw & Execution Gate */}
+          {!showingExitView && model.antiWhipsaw && !model.antiWhipsaw.disabled && (
+            <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-border/40 text-[10px] font-mono flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
                 <span
                   className={cn(
-                    'inline-flex items-center gap-1.5 text-[9.5px] font-mono font-bold shrink-0 px-2 py-0.5 rounded-full bg-bg/60 border border-border/50',
-                    ZONE_TEXT_CLASS[compositeDial.dialZone] || 'text-dim'
+                    'w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-200',
+                    model.antiWhipsaw.locked ? 'bg-amber' : 'bg-green'
+                  )}
+                />
+                <span className="text-dim font-bold uppercase">Anti-Whipsaw:</span>
+                <span
+                  className={cn(
+                    'font-bold truncate transition-colors duration-200',
+                    model.antiWhipsaw.locked ? 'text-amber' : 'text-text/90'
                   )}
                 >
-                  <span className={cn('w-1.5 h-1.5 rounded-full', ZONE_DOT_CLASS[compositeDial.dialZone] || 'bg-dim')} />
-                  {formatCleanCardStatus(compositeDial.dialZone, model.firedConditionsCount === model.totalConditionsCount && model.totalConditionsCount > 0 ? 'Ready' : 'Watching')}
+                  {model.antiWhipsaw.summary}
                 </span>
               </div>
-
-              <div className="flex justify-center items-center my-0.5">
-                <ConditionDial
-                  dialPct={model.compositeDialPct}
-                  dialZone={compositeDial.dialZone}
-                  dialOverText={compositeDial.dialOverText}
-                  size={compact ? 'sm' : 'md'}
-                />
-              </div>
-
-              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-bg/50 border border-border/35 px-2.5 py-1.5 font-mono text-[10px] text-dim tabular-nums">
-                <span className="uppercase tracking-wider text-[8.5px] font-semibold">Action</span>
-                <span className="text-text font-bold truncate" title={model.actionSummary}>
-                  {model.actionSummary}
-                </span>
-              </div>
+              <span className="text-dim tabular-nums">
+                {model.actionSummary}
+              </span>
             </div>
           )}
         </div>
-      )}
-
-      {/* Footer Strip: Anti-Whipsaw & Execution Gate */}
-      {!isInPos && model.antiWhipsaw && !model.antiWhipsaw.disabled && (
-        <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-border/40 text-[10px] font-mono flex-wrap">
-          <div className="flex items-center gap-2 min-w-0">
-            <span
-              className={cn(
-                'w-1.5 h-1.5 rounded-full shrink-0',
-                model.antiWhipsaw.locked ? 'bg-amber' : 'bg-green'
-              )}
-            />
-            <span className="text-dim font-bold uppercase">Anti-Whipsaw:</span>
-            <span
-              className={cn(
-                'font-bold truncate',
-                model.antiWhipsaw.locked ? 'text-amber' : 'text-text/90'
-              )}
-            >
-              {model.antiWhipsaw.summary}
-            </span>
-          </div>
-          <span className="text-dim tabular-nums">
-            {model.actionSummary}
-          </span>
-        </div>
-      )}
+      </SmoothHeightContainer>
     </div>
   );
 });

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { settingsAPI, healthAPI, setAdminApiKey } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn, ViewHeader, Tooltip } from '../components/ui/primitives'
+import { SmoothCollapse, SmoothSwap } from '../components/ui/SmoothMotion'
 import {
   Settings as SettingsIcon,
   ShieldAlert,
@@ -474,6 +475,7 @@ export function SettingsView() {
           </motion.div>
         )}
 
+        <SmoothSwap contentKey={activeCategory} duration={0.14} yOffset={3}>
         <div className="flex flex-col gap-3">
           {/* Section 1: Dashboard Visual Theme */}
           {isSectionVisible('theme') && (
@@ -494,8 +496,8 @@ export function SettingsView() {
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('theme') && "rotate-180")} />
               </button>
-              {openSections.has('theme') && (
-                <div id="theme-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-5 animate-in fade-in duration-200">
+              <SmoothCollapse isOpen={openSections.has('theme')} id="theme-content">
+                <div className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-5">
                   <div className="flex flex-col gap-3">
                     <p className="text-xs text-dim font-medium">Choose a color palette for your trading cockpit and analytics views.</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -629,7 +631,7 @@ export function SettingsView() {
                     </div>
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </section>
           )}
 
@@ -653,8 +655,8 @@ export function SettingsView() {
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('security') && "rotate-180")} />
               </button>
-              {openSections.has('security') && (
-                <div id="security-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-3 animate-in fade-in duration-200">
+              <SmoothCollapse isOpen={openSections.has('security')} id="security-content">
+                <div className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-3">
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="adminApiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Admin API Key</label>
                     <p className="text-xs text-dim mb-1">Required for dashboard authentication in production deployments.</p>
@@ -697,7 +699,7 @@ export function SettingsView() {
                     </div>
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </section>
           )}
 
@@ -721,8 +723,8 @@ export function SettingsView() {
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('exchange_live') && "rotate-180")} />
               </button>
-              {openSections.has('exchange_live') && (
-                <div id="exchange_live-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
+              <SmoothCollapse isOpen={openSections.has('exchange_live')} id="exchange_live-content">
+                <div className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4">
                   <div className="flex items-center gap-3 p-3.5 bg-background/50 border border-border rounded-xl">
                     <div className="w-9 h-9 rounded-lg bg-green/10 flex items-center justify-center shrink-0">
                       <Key size={16} className="text-green" />
@@ -808,7 +810,7 @@ export function SettingsView() {
                     </div>
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </section>
           )}
 
@@ -832,8 +834,8 @@ export function SettingsView() {
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('exchange_testnet') && "rotate-180")} />
               </button>
-              {openSections.has('exchange_testnet') && (
-                <div id="exchange_testnet-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
+              <SmoothCollapse isOpen={openSections.has('exchange_testnet')} id="exchange_testnet-content">
+                <div className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4">
                   <div className="flex items-center gap-3 p-3.5 bg-background/50 border border-border rounded-xl">
                     <div className="w-9 h-9 rounded-lg bg-purple/10 flex items-center justify-center shrink-0">
                       <Key size={16} className="text-purple" />
@@ -919,7 +921,7 @@ export function SettingsView() {
                     </div>
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </section>
           )}
 
@@ -944,8 +946,8 @@ export function SettingsView() {
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('credentials') && "rotate-180")} />
               </button>
-              {openSections.has('credentials') && (
-                <div id="credentials-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200 bg-surface/50">
+              <SmoothCollapse isOpen={openSections.has('credentials')} id="credentials-content">
+                <div className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4 bg-surface/50">
                   {(apiKey || testnetApiKey) && (
                     <div className="flex flex-col gap-3">
                       <div className="flex items-center gap-2">
@@ -1050,7 +1052,7 @@ export function SettingsView() {
                     </Tooltip>
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </section>
           )}
 
@@ -1077,8 +1079,8 @@ export function SettingsView() {
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('startup_checklist') && "rotate-180")} />
               </button>
-              {openSections.has('startup_checklist') && (
-                <div id="startup_checklist-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
+              <SmoothCollapse isOpen={openSections.has('startup_checklist')} id="startup_checklist-content">
+                <div className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4">
                   <div className="flex items-center justify-between gap-4 flex-wrap pb-3 border-b border-border/40">
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-tight text-text">Full Stack Startup & Environment Readiness</h3>
@@ -1129,7 +1131,7 @@ export function SettingsView() {
                     })}
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </section>
           )}
 
@@ -1152,8 +1154,8 @@ export function SettingsView() {
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('performance') && "rotate-180")} />
               </button>
-              {openSections.has('performance') && (
-                <div id="performance-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-5 animate-in fade-in duration-200">
+              <SmoothCollapse isOpen={openSections.has('performance')} id="performance-content">
+                <div className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-5">
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="flex flex-col gap-1.5">
                       <div className="flex items-center gap-1.5">
@@ -1390,7 +1392,7 @@ export function SettingsView() {
                     </div>
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </section>
           )}
 
@@ -1414,8 +1416,8 @@ export function SettingsView() {
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('scanner_bandwidth') && "rotate-180")} />
               </button>
-              {openSections.has('scanner_bandwidth') && (
-                <div id="scanner_bandwidth-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
+              <SmoothCollapse isOpen={openSections.has('scanner_bandwidth')} id="scanner_bandwidth-content">
+                <div className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4">
                   <div className="flex items-center justify-between p-4 bg-background rounded-xl border border-border/60 hover:border-accent/30 transition-colors">
                     <label htmlFor="global_scanner_enabled" className="cursor-pointer select-none flex-grow mr-4">
                       <div className="text-sm font-bold">Global Market Scanner</div>
@@ -1440,7 +1442,7 @@ export function SettingsView() {
                     </button>
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </section>
           )}
 
@@ -1463,8 +1465,8 @@ export function SettingsView() {
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('streaming') && "rotate-180")} />
               </button>
-              {openSections.has('streaming') && (
-                <div id="streaming-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
+              <SmoothCollapse isOpen={openSections.has('streaming')} id="streaming-content">
+                <div className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4">
                   <div className="flex items-center justify-between p-4 bg-background rounded-xl border border-accent/25 transition-colors">
                     <div className="flex items-center gap-3.5 flex-grow mr-3">
                       <div className="w-10 h-10 rounded-xl bg-amber/10 flex items-center justify-center shrink-0">
@@ -1587,7 +1589,7 @@ export function SettingsView() {
                     </div>
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </section>
           )}
 
@@ -1610,8 +1612,8 @@ export function SettingsView() {
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('maintenance') && "rotate-180")} />
               </button>
-              {openSections.has('maintenance') && (
-                <div id="maintenance-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
+              <SmoothCollapse isOpen={openSections.has('maintenance')} id="maintenance-content">
+                <div className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3.5">
                       <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center shrink-0">
@@ -1632,7 +1634,7 @@ export function SettingsView() {
                     </Btn>
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </section>
           )}
 
@@ -1663,6 +1665,7 @@ export function SettingsView() {
             </div>
           </section>
         </div>
+        </SmoothSwap>
         <BottomNav />
       </div>
     </div>

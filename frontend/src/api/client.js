@@ -360,6 +360,9 @@ export const createSessionAPI = (apiInstance = api) => ({
   }, { timeout: 60000 }),
   stop: () => apiInstance.post('/session/stop'),
   status: (config) => apiInstance.get('/session/status', config),
+  getSymbols: (includeNonUsdt = false) => apiInstance.get('/session/symbols', {
+    params: includeNonUsdt ? { includeNonUsdt: '1' } : undefined,
+  }),
   list: (limit, withCounts = true) => apiInstance.get('/session/list', {
     params: {
       ...(limit ? { limit } : {}),

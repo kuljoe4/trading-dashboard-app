@@ -3,6 +3,8 @@ import { shallow } from 'zustand/shallow'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { SectionLabel, StatCard, cn, ViewHeader, Btn, Tooltip } from '../components/ui/primitives'
+import { SmoothCollapse } from '../components/ui/SmoothMotion'
+import { ActiveTradesSkeleton } from '../components/ui/Skeletons'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
@@ -276,8 +278,8 @@ const TradesView = () => {
               </div>
 
               {/* Collapsible Ultra-Dense Filter Chip Groups */}
-              {filtersExpanded && (
-                <div className="pt-2 border-t border-border/20 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+              <SmoothCollapse isOpen={filtersExpanded}>
+                <div className="pt-2 border-t border-border/20 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-2">
                   {/* Strategy Filter */}
                   {availableStrategies.length > 1 && (
                     <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl max-w-full overflow-x-auto no-scrollbar">
@@ -352,7 +354,7 @@ const TradesView = () => {
                     ))}
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
             </div>
 
             <div className="flex items-center justify-between px-0.5">
@@ -362,6 +364,9 @@ const TradesView = () => {
             </div>
 
         {(!activeTrades || activeTrades.length === 0) ? (
+          showResumingFeedback ? (
+            <ActiveTradesSkeleton count={2} />
+          ) : (
           <div className="bg-surface/20 border border-border border-dashed rounded-3xl p-20 flex flex-col items-center justify-center text-center">
             <div className="w-16 h-16 rounded-full bg-surface border border-border flex items-center justify-center mb-6 text-dim/20">
               <Zap size={32} />
@@ -379,6 +384,7 @@ const TradesView = () => {
               Open Live Scanner
             </Btn>
           </div>
+          )
         ) : filteredTrades.length === 0 ? (
           <div className="bg-surface/20 border border-border border-dashed rounded-3xl p-12 flex flex-col items-center justify-center text-center">
             <h3 className="text-base font-bold mb-1">No Matching Active Positions</h3>
@@ -394,15 +400,15 @@ const TradesView = () => {
             </Btn>
           </div>
         ) : (
-          <AnimatePresence mode="popLayout">
-            <div className="grid gap-4 grid-cols-1">
+          <div className="grid gap-4 grid-cols-1">
+            <AnimatePresence mode="popLayout" initial={false}>
               {filteredTrades.map((trade, idx) => (
                 <motion.div
                   key={trade.id || trade.symbol}
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ delay: idx * 0.05 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={{ duration: 0.2, delay: Math.min(idx * 0.03, 0.15), ease: [0.22, 1, 0.36, 1] }}
                 >
                   <ActiveTradeCard
                     trade={trade}
@@ -415,8 +421,8 @@ const TradesView = () => {
                   />
                 </motion.div>
               ))}
-            </div>
-          </AnimatePresence>
+            </AnimatePresence>
+          </div>
         )}
           </div>
         );

@@ -18,6 +18,8 @@ import {
   CopyButton, cn, ViewHeader, Tooltip
 } from '../components/ui/primitives'
 import { CandidateConditionsGauge } from '../components/ui/CandidateConditionsGauge'
+import { SmoothCollapse, SmoothHeightContainer, SmoothSwap } from '../components/ui/SmoothMotion'
+import { ChartPanelSkeleton, CalendarGridSkeleton } from '../components/ui/Skeletons'
 import { calculateOpportunityProximity } from '../lib/formatters'
 import { calculatePerformanceMetrics } from '../lib/analytics'
 import { ScannerPreview } from '../components/ScannerPreview'
@@ -99,15 +101,18 @@ const LiveRelativeTime = React.memo(({ ts, nowMs }) => {
 LiveRelativeTime.displayName = 'LiveRelativeTime';
 
 const entrySnapshotOpportunity = (trade) => {
-  const snapshot = trade?.entry_signal_snapshot;
-  if (!snapshot?.signalResult) return null;
-  const entryPrice = Number(trade.entry_price || snapshot.candidate_price || 0);
+  if (!trade || !trade.symbol) return null;
+  const snapshot = trade.entry_signal_snapshot || null;
+  const hasFullSignalResult = Boolean(snapshot?.signalResult);
+  const entryPrice = Number(trade.entry_price || snapshot?.candidate_price || 0);
+  if (!hasFullSignalResult && entryPrice <= 0 && trade.status !== 'OPEN') return null;
+
   const initialSl = Number(trade.initial_sl || trade.sl_price || 0);
   const computedSlDistPct = entryPrice > 0 && initialSl > 0
     ? (Math.abs(entryPrice - initialSl) / entryPrice) * 100
-    : Number(snapshot.sl_dist_pct || 0);
+    : Number(snapshot?.sl_dist_pct || 0);
   const exitPrice = Number(trade.exit_price || trade.current_price || trade.mark_price || 0);
-  const isLong = String(snapshot.direction || trade.direction || 'LONG').toUpperCase() !== 'SHORT';
+  const isLong = String(snapshot?.direction || trade.direction || 'LONG').toUpperCase() !== 'SHORT';
   const realizedOrLivePnlPct = Number.isFinite(Number(trade.pnl_pct))
     ? Number(trade.pnl_pct)
     : (entryPrice > 0 && exitPrice > 0
@@ -119,21 +124,23 @@ const entrySnapshotOpportunity = (trade) => {
 
   return {
     symbol: trade.symbol,
-    pct: Number(snapshot.candidate_momentum || 0),
-    momentum: Number(snapshot.candidate_momentum || 0),
-    price: Number(snapshot.candidate_price || trade.entry_price || 0),
-    close: Number(snapshot.candidate_price || trade.entry_price || 0),
-    dir: String(snapshot.direction || trade.direction || 'LONG').toLowerCase(),
-    direction: String(snapshot.direction || trade.direction || 'LONG').toLowerCase(),
-    score: Number(snapshot.candidate_score || 0),
-    signalResult: snapshot.signalResult,
-    breakout_rank: snapshot.breakout_rank,
-    capRespected: snapshot.cap_respected,
-    snapshotConfig: snapshot.config,
-    snapshotCapturedAt: snapshot.captured_at_ms,
+    pct: Number(snapshot?.candidate_momentum || 0),
+    momentum: Number(snapshot?.candidate_momentum || 0),
+    price: Number(snapshot?.candidate_price || trade.entry_price || 0),
+    close: Number(snapshot?.candidate_price || trade.entry_price || 0),
+    dir: String(snapshot?.direction || trade.direction || 'LONG').toLowerCase(),
+    direction: String(snapshot?.direction || trade.direction || 'LONG').toLowerCase(),
+    score: Number(snapshot?.candidate_score || 0),
+    signalResult: snapshot?.signalResult || { allFired: true, firedSignals: [], details: {} },
+    isMetadataOnlySnapshot: !hasFullSignalResult,
+    entryReason: trade.entry_reason || snapshot?.entry_reason || '',
+    breakout_rank: snapshot?.breakout_rank,
+    capRespected: snapshot?.cap_respected,
+    snapshotConfig: snapshot?.config,
+    snapshotCapturedAt: snapshot?.captured_at_ms || trade.created_at || trade.entry_ts,
     sl_dist_pct: computedSlDistPct,
     isEntrySnapshot: true,
-    snapshotTradeStatus: trade.status,
+    snapshotTradeStatus: trade.status || 'OPEN',
     snapshotTradeId: trade.id,
     exitSnapshot: {
       tradeStatus: trade.status || 'CLOSED',
@@ -148,18 +155,18 @@ const entrySnapshotOpportunity = (trade) => {
       exitRr,
       maxRr: Number(trade.max_rr_achieved ?? trade.max_rr ?? exitRr),
       minRr: Number(trade.min_rr_achieved ?? 0),
-      targetRr: Number(trade.tp_ratio || snapshot.config?.tp_ratio || 2.0),
+      targetRr: Number(trade.tp_ratio || snapshot?.config?.tp_ratio || 2.0),
       exitReason: trade.exit_reason || trade.exit_signal_type || (trade.status === 'OPEN' ? 'ACTIVE_MONITORING' : 'CLOSED'),
       exitSignalType: trade.exit_signal_type || trade.exit_reason || '',
       exitSignalReason: trade.exit_signal_reason || '',
       exitSignalsStatus: trade.exit_signals_status || null,
-      entryTs: trade.created_at || trade.entry_ts || snapshot.captured_at_ms,
+      entryTs: trade.created_at || trade.entry_ts || snapshot?.captured_at_ms,
       exitTs: trade.exit_ts || trade.closed_at || null,
     },
   };
 };
 
-const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
+const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOpenScanner }) => {
   const {
     config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing,
     isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused,
@@ -192,6 +199,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   }), shallow)
   const [selectedTradeId, setSelectedTradeId] = useState(null)
   const [selectedFocusSymbol, setSelectedFocusSymbol] = useState(null)
+  const [inspectScope, setInspectScope] = useState('live') // 'live' | 'snapshots'
+  const [snapshotStatusFilter, setSnapshotStatusFilter] = useState('all') // 'all' | 'open' | 'closed'
   const [showPnl, setShowPnl] = useState(true)
   const [showHitRate, setShowHitRate] = useState(true)
   const [showPf, setShowPf] = useState(false)
@@ -210,6 +219,14 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [expandedReasonIds, setExpandedReasonIds] = useState({})
   const [visibleReasonsLimit, setVisibleReasonsLimit] = useState(25)
   const [decisionLogNowMs, setDecisionLogNowMs] = useState(() => Date.now())
+  const inspectLiveRef = useRef(null)
+
+  const scrollToInspectLive = useCallback(() => {
+    const el = inspectLiveRef.current;
+    if (!el || typeof el.scrollIntoView !== 'function') return;
+    const prefersReduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    el.scrollIntoView({ behavior: prefersReduced ? 'auto' : 'smooth', block: 'nearest' });
+  }, [])
 
   useEffect(() => {
     if (typeof useTradingStore.getState().fetchLogs === 'function') {
@@ -370,12 +387,22 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
   const focusedOpp = useMemo(() => {
     if (selectedFocusSymbol) {
-      if (selectedFocusSymbol.startsWith('trade:')) {
-        const tradeId = selectedFocusSymbol.slice(6);
+      if (selectedFocusSymbol.startsWith('snapshot:') || selectedFocusSymbol.startsWith('trade:')) {
+        const tradeId = selectedFocusSymbol.startsWith('snapshot:')
+          ? selectedFocusSymbol.slice(9)
+          : selectedFocusSymbol.slice(6);
         const selectedSnapshotTrade = [...strategyActiveTrades, ...strategyTrades]
           .find(t => String(t.id) === tradeId);
         const snapshotOpp = entrySnapshotOpportunity(selectedSnapshotTrade);
         if (snapshotOpp) return snapshotOpp;
+        if (selectedSnapshotTrade) {
+          return {
+            symbol: selectedSnapshotTrade.symbol,
+            pct: 0,
+            dir: String(selectedSnapshotTrade.direction || 'LONG').toLowerCase(),
+            close: Number(selectedSnapshotTrade.current_price || selectedSnapshotTrade.entry_price || 0),
+          };
+        }
       } else {
         const found = proximityLeaderboard.find(r => r.symbol === selectedFocusSymbol)
           || strategyScannerResults.find(r => r.symbol === selectedFocusSymbol);
@@ -415,15 +442,19 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const isClosedHistorySnapshot = Boolean(
     bestOpp?.isEntrySnapshot && bestOpp?.snapshotTradeStatus && bestOpp.snapshotTradeStatus !== 'OPEN'
   );
+  const isExplicitSnapshotFocus = Boolean(selectedFocusSymbol?.startsWith('snapshot:'));
+  const isInspectingSnapshot = isExplicitSnapshotFocus || isClosedHistorySnapshot;
   const focusedTradeForGauge = useMemo(() => {
-    if (isClosedHistorySnapshot || !bestOpp?.symbol || bestOpp.symbol === '---') return null;
+    // When inspecting an explicit Entry Snapshot (even for an open/In-Pos trade) or closed history snapshot,
+    // render the frozen Entry Conditions Snapshot instead of forcing Live Exit Monitor.
+    if (isInspectingSnapshot || !bestOpp?.symbol || bestOpp.symbol === '---') return null;
     if (selectedFocusSymbol?.startsWith('trade:')) {
       const tid = selectedFocusSymbol.slice(6);
       const byId = strategyActiveTrades.find(t => String(t.id) === tid);
       if (byId) return byId;
     }
     return strategyActiveTrades.find(t => t.symbol === bestOpp.symbol) || null;
-  }, [isClosedHistorySnapshot, bestOpp?.symbol, selectedFocusSymbol, strategyActiveTrades]);
+  }, [isInspectingSnapshot, bestOpp?.symbol, selectedFocusSymbol, strategyActiveTrades]);
 
   const scanMet = bestOpp.symbol !== '---' && Math.abs(bestOpp.pct || 0) >= (strategyConfig.scan_pct_threshold ?? 2.0);
   const signalResult = bestOpp.signalResult || { allFired: false, firedSignals: [] };
@@ -569,9 +600,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       stageNumber: currentLifecycleStage.stageNumber,
       statusLabel: currentLifecycleStage.statusLabel,
     });
+    if (activeTab === 'pipeline') {
+      scrollToInspectLive();
+    }
     const timer = setTimeout(() => setStageTransition(null), 1800);
     return () => clearTimeout(timer);
-  }, [focusedOpp?.symbol, currentLifecycleStage.stageNumber, currentLifecycleStage.statusLabel]);
+  }, [focusedOpp?.symbol, currentLifecycleStage.stageNumber, currentLifecycleStage.statusLabel, activeTab, scrollToInspectLive]);
 
   // Evaluation Timeframe Debug Table Data Construction (kept before journeyMilestones for TDZ test invariant)
   const timeframeDebugItems = useMemo(() => {
@@ -1450,8 +1484,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     }
   };
 
-  // Live Watchlist & Static Candidate Chips (never shadowed by historical closed trade snapshots)
-  const { liveCandidateChips, closedSnapshotChips } = useMemo(() => {
+  // Separated Live Candidate Chips vs Trade Entry Snapshots (including In-Position open trade snapshots)
+  const { liveCandidateChips, openSnapshotChips, closedSnapshotChips, allSnapshotChips } = useMemo(() => {
     const seenLive = new Set();
     const live = [];
     const nowCheck = lastAuthoritativeUpdateTs || stableFallbackTs || Date.now();
@@ -1515,21 +1549,46 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       }
     }
 
-    const snapshots = [];
-    for (const t of strategyTrades) {
-      if (snapshots.length >= 4) break;
-      if (!t.entry_signal_snapshot?.signalResult) continue;
-      const isWin = Number(t.pnl || 0) >= 0;
-      snapshots.push({
+    // In-Position trade entry snapshots (never restricted to closed trades — all open positions can be inspected)
+    const openSnaps = [];
+    for (const t of strategyActiveTrades) {
+      if (!t?.symbol) continue;
+      const pnlVal = Number(t.pnl || 0);
+      openSnaps.push({
         symbol: t.symbol,
-        focusKey: `trade:${t.id}`,
+        tradeId: String(t.id),
+        focusKey: `snapshot:${t.id}`,
+        status: 'open',
+        tag: pnlVal !== 0 ? `In Pos · ${fmtUSD(pnlVal)}` : 'In Pos',
+        tone: pnlVal >= 0 ? 'text-green' : 'text-red',
+        title: `In-Position entry snapshot captured when ${t.symbol} (${t.direction || 'LONG'}) opened`
+      });
+    }
+
+    // Closed historical trade entry snapshots
+    const closedSnaps = [];
+    for (const t of strategyTrades) {
+      if (closedSnaps.length >= 12) break;
+      if (!t?.symbol) continue;
+      if (!t.entry_signal_snapshot?.signalResult && !(Number(t.entry_price) > 0)) continue;
+      const isWin = Number(t.pnl || 0) >= 0;
+      closedSnaps.push({
+        symbol: t.symbol,
+        tradeId: String(t.id),
+        focusKey: `snapshot:${t.id}`,
+        status: 'closed',
         tag: `${isWin ? 'Win' : 'Loss'} ${fmtUSD(t.pnl || 0)}`,
         tone: isWin ? 'text-green' : 'text-red',
         title: `Historical closed trade entry snapshot (${t.exit_reason || t.status || 'CLOSED'})`
       });
     }
 
-    return { liveCandidateChips: live, closedSnapshotChips: snapshots };
+    return {
+      liveCandidateChips: live,
+      openSnapshotChips: openSnaps,
+      closedSnapshotChips: closedSnaps,
+      allSnapshotChips: [...openSnaps, ...closedSnaps],
+    };
   }, [
     strategyActiveTrades,
     strategyTrades,
@@ -1541,6 +1600,104 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     lastAuthoritativeUpdateTs,
     stableFallbackTs
   ]);
+
+  const visibleSnapshotChips = useMemo(() => {
+    if (snapshotStatusFilter === 'open') return openSnapshotChips;
+    if (snapshotStatusFilter === 'closed') return closedSnapshotChips;
+    return allSnapshotChips;
+  }, [snapshotStatusFilter, openSnapshotChips, closedSnapshotChips, allSnapshotChips]);
+
+  const handleSelectInspectScope = useCallback((nextScope) => {
+    setInspectScope(nextScope);
+    if (nextScope === 'snapshots') {
+      const targetList = snapshotStatusFilter === 'open'
+        ? openSnapshotChips
+        : snapshotStatusFilter === 'closed'
+          ? closedSnapshotChips
+          : allSnapshotChips;
+      const alreadyOnVisibleSnapshot = targetList.some(c => c.focusKey === selectedFocusSymbol);
+      if (!alreadyOnVisibleSnapshot && targetList.length > 0) {
+        setSelectedFocusSymbol(targetList[0].focusKey);
+      }
+    } else {
+      if (selectedFocusSymbol?.startsWith('snapshot:')) {
+        const snapTradeId = selectedFocusSymbol.slice(9);
+        const matchingActive = strategyActiveTrades.find(t => String(t.id) === snapTradeId);
+        if (matchingActive) {
+          const liveChip = liveCandidateChips.find(c => c.symbol === matchingActive.symbol);
+          setSelectedFocusSymbol(liveChip ? liveChip.focusKey : matchingActive.symbol);
+        } else {
+          setSelectedFocusSymbol(null);
+        }
+      }
+    }
+    scrollToInspectLive();
+  }, [snapshotStatusFilter, openSnapshotChips, closedSnapshotChips, allSnapshotChips, selectedFocusSymbol, strategyActiveTrades, liveCandidateChips, scrollToInspectLive]);
+
+  const handleSelectSnapshotStatusFilter = useCallback((nextStatus) => {
+    setSnapshotStatusFilter(nextStatus);
+    const nextList = nextStatus === 'open'
+      ? openSnapshotChips
+      : nextStatus === 'closed'
+        ? closedSnapshotChips
+        : allSnapshotChips;
+    const stillVisible = nextList.some(c => c.focusKey === selectedFocusSymbol);
+    if (!stillVisible && nextList.length > 0) {
+      setSelectedFocusSymbol(nextList[0].focusKey);
+    }
+    scrollToInspectLive();
+  }, [openSnapshotChips, closedSnapshotChips, allSnapshotChips, selectedFocusSymbol, scrollToInspectLive]);
+
+  const matchingOpenTradeForSymbol = useMemo(() => {
+    if (!bestOpp?.symbol || bestOpp.symbol === '---') return null;
+    if (selectedFocusSymbol?.startsWith('snapshot:')) {
+      const tid = selectedFocusSymbol.slice(9);
+      const byId = strategyActiveTrades.find(t => String(t.id) === tid);
+      if (byId) return byId;
+    }
+    return strategyActiveTrades.find(t => t.symbol === bestOpp.symbol) || null;
+  }, [bestOpp?.symbol, selectedFocusSymbol, strategyActiveTrades]);
+
+  const gaugeModeSwitchAction = useMemo(() => {
+    if (!matchingOpenTradeForSymbol) return null;
+
+    if (focusedTradeForGauge) {
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            setInspectScope('snapshots');
+            setSelectedFocusSymbol(`snapshot:${matchingOpenTradeForSymbol.id}`);
+            scrollToInspectLive();
+          }}
+          className="px-2 py-0.5 rounded-md border border-accent/40 bg-accent/10 hover:bg-accent/20 text-[10px] font-mono font-semibold text-accent transition-colors cursor-pointer whitespace-nowrap"
+          title="Inspect the captured Entry Conditions Snapshot for this open position"
+        >
+          Entry Snapshot
+        </button>
+      );
+    }
+
+    if (isExplicitSnapshotFocus && String(bestOpp?.snapshotTradeId) === String(matchingOpenTradeForSymbol.id)) {
+      const liveChip = liveCandidateChips.find(c => c.symbol === matchingOpenTradeForSymbol.symbol);
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            setInspectScope('live');
+            setSelectedFocusSymbol(liveChip ? liveChip.focusKey : matchingOpenTradeForSymbol.symbol);
+            scrollToInspectLive();
+          }}
+          className="px-2 py-0.5 rounded-md border border-green/40 bg-green/10 hover:bg-green/20 text-[10px] font-mono font-semibold text-green transition-colors cursor-pointer whitespace-nowrap"
+          title="Return to live Exit Conditions monitoring for this open position"
+        >
+          Live Exit Monitor →
+        </button>
+      );
+    }
+
+    return null;
+  }, [matchingOpenTradeForSymbol, focusedTradeForGauge, isExplicitSnapshotFocus, bestOpp?.snapshotTradeId, liveCandidateChips, scrollToInspectLive]);
 
   const riskPerTradePct = Number(strategyConfig.risk_pct_per_trade ?? 1.0);
   const riskPerTradeUsdt = (startingBal * riskPerTradePct) / 100;
@@ -1669,6 +1826,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               <button
                 type="button"
                 onClick={onEdit}
+                onMouseEnter={onEditMouseEnter}
+                onFocus={onEditMouseEnter}
                 className="px-2 sm:px-3 py-1.5 min-h-[38px] sm:min-h-[34px] bg-surface border border-border text-text/90 hover:text-accent hover:border-accent/40 rounded-xl text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap"
                 aria-label={isVariant ? "Edit strategy variant configuration" : "Edit base strategy configuration"}
               >
@@ -1779,25 +1938,23 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         </p>
       </div>
 
-      {/* Promoted Active Positions Section (Always visible when in position) */}
-      {activeTradeCount > 0 && (
-        <div className="mb-3 sm:mb-4 animate-in fade-in duration-300 text-left">
-          <SectionLabel>Active Positions ({activeTradeCount})</SectionLabel>
-          <div className="grid grid-cols-1 md:grid-cols-2 auto-rows-fr items-stretch gap-2.5 sm:gap-3">
-            {strategyActiveTrades.map(trade => (
-              <ActiveTradeCard
-                key={trade.id || trade.symbol}
-                trade={trade}
-                config={strategyConfig}
-                onClick={() => setSelectedTradeId(trade.id || trade.symbol)}
-                onMouseEnter={preloadTradeDetailModal}
-                isResuming={isResuming}
-                showResumingFeedback={showResumingFeedback}
-              />
-            ))}
-          </div>
+      {/* Promoted Active Positions Section (Smoothly expands/collapses when positions open/close) */}
+      <SmoothCollapse isOpen={activeTradeCount > 0} innerClassName="mb-3 sm:mb-4 text-left">
+        <SectionLabel>Active Positions ({activeTradeCount})</SectionLabel>
+        <div className="grid grid-cols-1 md:grid-cols-2 auto-rows-fr items-stretch gap-2.5 sm:gap-3">
+          {strategyActiveTrades.map(trade => (
+            <ActiveTradeCard
+              key={trade.id || trade.symbol}
+              trade={trade}
+              config={strategyConfig}
+              onClick={() => setSelectedTradeId(trade.id || trade.symbol)}
+              onMouseEnter={preloadTradeDetailModal}
+              isResuming={isResuming}
+              showResumingFeedback={showResumingFeedback}
+            />
+          ))}
         </div>
-      )}
+      </SmoothCollapse>
 
       {/* Segmented Navigation Tabs (Zero horizontal overflow even on 320px screens) */}
       <div className="grid grid-cols-3 gap-1 p-1 bg-surface/50 border border-border/50 rounded-xl mb-3 sm:mb-4 text-left" role="tablist" aria-label="Strategy Navigation">
@@ -1855,175 +2012,274 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         </button>
       </div>
 
+      {/* Smooth Tab Container (Rules & Diagnostics | Decision Log | Performance & Charts) */}
+      <SmoothSwap contentKey={activeTab} duration={0.16} yOffset={4} className="min-h-[420px]">
       {/* TAB 1: Rules & Diagnostics */}
       {activeTab === 'pipeline' && (
-        <div className="space-y-3 sm:space-y-4 animate-in fade-in duration-200 text-left">
-          {/* Single-elevation Diagnostic Surface */}
-          <div className="border border-border/50 bg-surface/30 rounded-2xl overflow-hidden">
+        <div className="space-y-3 sm:space-y-4 text-left">
+          {/* Single-elevation Diagnostic Surface (scroll target for smooth candidate/stage transitions) */}
+          <div ref={inspectLiveRef} className="border border-border/50 bg-surface/30 rounded-2xl overflow-hidden scroll-mt-16">
 
-            {/* Row 1: Compact Candidate Switcher + Buffer Warmup Status */}
-            <div className="px-3 py-2.5 sm:px-3.5 bg-surface/50 border-b border-border/30 flex flex-col lg:flex-row lg:items-center justify-between gap-2">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-dim whitespace-nowrap shrink-0">Inspect Candidate:</span>
-                  {isStaticWatchlist && staticSymbols.length > 8 && (
+            {/* Row 1: Separated Live / Snapshots Scope Filter + Buffer Warmup Status */}
+            <div className="px-3 py-2.5 sm:px-3.5 bg-surface/50 border-b border-border/30 flex flex-col gap-2">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2 min-h-[32px]">
+                {/* Left: Segmented Live vs Snapshots Filter + Sub-filter for Snapshots */}
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  <div
+                    role="tablist"
+                    aria-label="Inspect filter scope"
+                    className="inline-flex items-center gap-0.5 p-0.5 bg-background/70 border border-border/50 rounded-lg shrink-0"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={inspectScope === 'live'}
+                      onClick={() => handleSelectInspectScope('live')}
+                      className={cn(
+                        "min-h-[30px] sm:min-h-[26px] px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        inspectScope === 'live'
+                          ? "bg-surface text-text border border-border/60 shadow-xs"
+                          : "text-dim hover:text-text"
+                      )}
+                    >
+                      <span>Live</span>
+                      <span className="text-[10px] text-dim tabular-nums">({liveCandidateChips.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={inspectScope === 'snapshots'}
+                      onClick={() => handleSelectInspectScope('snapshots')}
+                      className={cn(
+                        "min-h-[30px] sm:min-h-[26px] px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        inspectScope === 'snapshots'
+                          ? "bg-accent/15 text-accent border border-accent/40 shadow-xs"
+                          : "text-dim hover:text-text"
+                      )}
+                    >
+                      <span>Snapshots</span>
+                      <span className="text-[10px] opacity-80 tabular-nums">({allSnapshotChips.length})</span>
+                    </button>
+                  </div>
+
+                  {/* Secondary Snapshot Sub-Filter: All | In Pos | Closed */}
+                  {inspectScope === 'snapshots' && allSnapshotChips.length > 0 && (
+                    <div
+                      role="group"
+                      aria-label="Filter snapshots by trade status"
+                      className="inline-flex items-center gap-0.5 p-0.5 bg-background/50 border border-border/40 rounded-lg shrink-0 animate-in fade-in duration-150"
+                    >
+                      {[
+                        { id: 'all', label: 'All', count: allSnapshotChips.length },
+                        { id: 'open', label: 'In Pos', count: openSnapshotChips.length },
+                        { id: 'closed', label: 'Closed', count: closedSnapshotChips.length },
+                      ].map(opt => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          aria-pressed={snapshotStatusFilter === opt.id}
+                          onClick={() => handleSelectSnapshotStatusFilter(opt.id)}
+                          className={cn(
+                            "min-h-[28px] sm:min-h-[24px] px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                            snapshotStatusFilter === opt.id
+                              ? (opt.id === 'open'
+                                  ? "bg-green/15 text-green border border-green/35"
+                                  : "bg-surface text-text border border-border/60")
+                              : "text-dim hover:text-text"
+                          )}
+                        >
+                          <span>{opt.label}</span>
+                          <span className="opacity-75 tabular-nums">{opt.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {inspectScope === 'live' && isStaticWatchlist && staticSymbols.length > 8 && (
                     <button
                       type="button"
                       onClick={() => setShowAllStaticSymbols(!showAllStaticSymbols)}
-                      className="sm:hidden text-[11px] font-mono text-accent hover:underline cursor-pointer"
+                      className="sm:hidden text-[11px] font-mono text-accent hover:underline cursor-pointer ml-auto"
                     >
                       {showAllStaticSymbols ? 'Less' : `+${staticSymbols.length - 8} more`}
                     </button>
                   )}
                 </div>
-                {liveCandidateChips.length > 0 ? (
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:flex-wrap pb-0.5 sm:pb-0">
-                    {liveCandidateChips.map(c => {
-                      const isSelected = selectedFocusSymbol
-                        ? selectedFocusSymbol === c.focusKey
-                        : bestOpp.symbol === c.symbol && !isClosedHistorySnapshot;
-                      return (
-                        <button
-                          key={c.focusKey || c.symbol}
-                          type="button"
-                          title={c.title}
-                          onClick={() => setSelectedFocusSymbol(c.focusKey || c.symbol)}
-                          className={cn(
-                            "min-h-[34px] sm:min-h-0 px-2.5 sm:px-2 py-1 rounded-lg sm:rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 border shrink-0",
-                            isSelected
-                              ? "bg-accent/15 border-accent/50 text-accent font-semibold"
-                              : "bg-background/40 border-border/40 text-text/80 hover:border-border hover:text-text"
-                          )}
-                        >
-                          <span>{c.symbol.replace('USDT', '')}<span className="hidden sm:inline text-dim/70">USDT</span></span>
-                          <span className={cn("text-[10px] tabular-nums", isSelected ? "text-accent" : c.tone)}>{c.tag}</span>
-                        </button>
-                      );
-                    })}
-                    {isStaticWatchlist && staticSymbols.length > 8 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowAllStaticSymbols(!showAllStaticSymbols)}
-                        className="hidden sm:inline-flex px-2 py-1 text-[11px] font-mono text-accent hover:underline cursor-pointer shrink-0"
-                      >
-                        {showAllStaticSymbols ? 'Less' : `+${staticSymbols.length - 8} more`}
-                      </button>
+
+                {/* Right: Warmup Summary & Sync */}
+                <div className="flex items-center justify-between lg:justify-end gap-3 text-[11px] font-mono text-dim shrink-0 pt-1.5 lg:pt-0 border-t border-border/20 lg:border-t-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowWarmupDebug(prev => !(prev === null ? anyWarming : prev))}
+                    className={cn(
+                      "min-h-[34px] sm:min-h-0 flex items-center gap-1.5 cursor-pointer hover:text-text transition-colors whitespace-nowrap",
+                      anyWarming ? "text-amber font-semibold" : "text-dim"
+                    )}
+                    aria-expanded={isWarmupOpen}
+                  >
+                    <Clock size={12} className={anyWarming ? "text-amber" : "text-accent"} />
+                    <span>
+                      {bestOpp.symbol === '---'
+                        ? `Buffers: ${timeframeDebugItems.length} TFs · Standby`
+                        : `Buffers: ${timeframeDebugItems.filter(i => !i.isWarming).length}/${timeframeDebugItems.length} Ready`}
+                    </span>
+                    <ChevronDown size={12} className={cn("transition-transform duration-150", isWarmupOpen && "rotate-180")} />
+                  </button>
+                  <span className="text-border hidden lg:inline" aria-hidden="true">|</span>
+                  <button
+                    type="button"
+                    disabled={isBatchSyncing || bestOpp.symbol === '---'}
+                    onClick={handleBatchSyncTimeframes}
+                    className={cn(
+                      "min-h-[34px] sm:min-h-0 text-accent hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap",
+                      isBatchSyncing && "opacity-60 cursor-wait"
+                    )}
+                    aria-label="Batch sync all evaluation timeframes"
+                  >
+                    <RefreshCw size={11} className={cn(isBatchSyncing && "animate-spin")} />
+                    <span>{isBatchSyncing ? 'Syncing...' : 'Sync Klines'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* In-Place Height-Interpolated Candidate / Snapshot Chip Strip (no unmount flash or height jump on switch) */}
+              <SmoothHeightContainer duration={0.2}>
+                <div className="min-h-[34px] sm:min-h-[28px] flex items-center">
+                {inspectScope === 'live' ? (
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 min-w-0 w-full">
+                    <span className="text-[11px] font-semibold text-dim whitespace-nowrap shrink-0">Inspect Live:</span>
+                    {liveCandidateChips.length > 0 ? (
+                      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:flex-wrap pb-0.5 sm:pb-0">
+                        {liveCandidateChips.map(c => {
+                          const isSelected = selectedFocusSymbol
+                            ? selectedFocusSymbol === c.focusKey
+                            : bestOpp.symbol === c.symbol && !isInspectingSnapshot;
+                          return (
+                            <button
+                              key={c.focusKey || c.symbol}
+                              type="button"
+                              title={c.title}
+                              onClick={() => {
+                                setSelectedFocusSymbol(c.focusKey || c.symbol);
+                                scrollToInspectLive();
+                              }}
+                              className={cn(
+                                "min-h-[34px] sm:min-h-0 px-2.5 sm:px-2 py-1 rounded-lg sm:rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 border shrink-0",
+                                isSelected
+                                  ? "bg-accent/15 border-accent/50 text-accent font-semibold"
+                                  : "bg-background/40 border-border/40 text-text/80 hover:border-border hover:text-text"
+                              )}
+                            >
+                              <span>{c.symbol.replace('USDT', '')}<span className="hidden sm:inline text-dim/70">USDT</span></span>
+                              <span className={cn("text-[10px] tabular-nums", isSelected ? "text-accent" : c.tone)}>{c.tag}</span>
+                            </button>
+                          );
+                        })}
+                        {isStaticWatchlist && staticSymbols.length > 8 && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAllStaticSymbols(!showAllStaticSymbols)}
+                            className="hidden sm:inline-flex px-2 py-1 text-[11px] font-mono text-accent hover:underline cursor-pointer shrink-0"
+                          >
+                            {showAllStaticSymbols ? 'Less' : `+${staticSymbols.length - 8} more`}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs font-mono text-dim">
+                        {isStaticWatchlist ? `${staticSymbols.length} static targets · awaiting scan tick` : `Top ${strategyConfig.watchlist_size || 15} by ${strategyConfig.discovery_mode || 'volume'} · awaiting candidate`}
+                      </span>
                     )}
                   </div>
                 ) : (
-                  <span className="text-xs font-mono text-dim">
-                    {isStaticWatchlist ? `${staticSymbols.length} static targets · awaiting scan tick` : `Top ${strategyConfig.watchlist_size || 15} by ${strategyConfig.discovery_mode || 'volume'} · awaiting candidate`}
-                  </span>
-                )}
-              </div>
-
-              {/* Right: Warmup Summary & Sync */}
-              <div className="flex items-center justify-between lg:justify-end gap-3 text-[11px] font-mono text-dim shrink-0 pt-1.5 lg:pt-0 border-t border-border/20 lg:border-t-0">
-                <button
-                  type="button"
-                  onClick={() => setShowWarmupDebug(prev => !(prev === null ? anyWarming : prev))}
-                  className={cn(
-                    "min-h-[34px] sm:min-h-0 flex items-center gap-1.5 cursor-pointer hover:text-text transition-colors whitespace-nowrap",
-                    anyWarming ? "text-amber font-semibold" : "text-dim"
-                  )}
-                  aria-expanded={isWarmupOpen}
-                >
-                  <Clock size={12} className={anyWarming ? "text-amber" : "text-accent"} />
-                  <span>
-                    {bestOpp.symbol === '---'
-                      ? `Buffers: ${timeframeDebugItems.length} TFs · Standby`
-                      : `Buffers: ${timeframeDebugItems.filter(i => !i.isWarming).length}/${timeframeDebugItems.length} Ready`}
-                  </span>
-                  <ChevronDown size={12} className={cn("transition-transform duration-150", isWarmupOpen && "rotate-180")} />
-                </button>
-                <span className="text-border hidden lg:inline" aria-hidden="true">|</span>
-                <button
-                  type="button"
-                  disabled={isBatchSyncing || bestOpp.symbol === '---'}
-                  onClick={handleBatchSyncTimeframes}
-                  className={cn(
-                    "min-h-[34px] sm:min-h-0 text-accent hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap",
-                    isBatchSyncing && "opacity-60 cursor-wait"
-                  )}
-                  aria-label="Batch sync all evaluation timeframes"
-                >
-                  <RefreshCw size={11} className={cn(isBatchSyncing && "animate-spin")} />
-                  <span>{isBatchSyncing ? 'Syncing...' : 'Sync Klines'}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Secondary Row: Historical Trade Entry Snapshots (separate from Live Scanner Watchlist) + Recent Skip Summary */}
-            {(closedSnapshotChips.length > 0 || recentSkipItems.length > 0) && (
-              <div className="px-3 py-2 sm:px-3.5 bg-background/25 border-b border-border/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono">
-                {closedSnapshotChips.length > 0 && (
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:flex-wrap min-w-0">
-                    <span className="text-dim/90 font-semibold whitespace-nowrap shrink-0">History Snapshots:</span>
-                    {closedSnapshotChips.map(c => {
-                      const isSelected = selectedFocusSymbol === c.focusKey;
-                      return (
-                        <button
-                          key={c.focusKey}
-                          type="button"
-                          title={c.title}
-                          onClick={() => setSelectedFocusSymbol(c.focusKey)}
-                          className={cn(
-                            "min-h-[30px] sm:min-h-0 px-2 py-0.5 rounded-md transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 border shrink-0",
-                            isSelected
-                              ? "bg-accent/15 border-accent/50 text-accent font-semibold"
-                              : "bg-surface/40 border-border/40 text-dim hover:text-text hover:border-border"
-                          )}
-                        >
-                          <span>{c.symbol.replace('USDT', '')}</span>
-                          <span className={cn("text-[10px] tabular-nums", isSelected ? "text-accent" : c.tone)}>{c.tag}</span>
-                        </button>
-                      );
-                    })}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 min-w-0 w-full">
+                    <span className="text-[11px] font-semibold text-accent whitespace-nowrap shrink-0">Entry Snapshots:</span>
+                    {visibleSnapshotChips.length > 0 ? (
+                      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:flex-wrap pb-0.5 sm:pb-0">
+                        {visibleSnapshotChips.map(c => {
+                          const isSelected = selectedFocusSymbol === c.focusKey;
+                          return (
+                            <button
+                              key={c.focusKey}
+                              type="button"
+                              title={c.title}
+                              onClick={() => {
+                                setSelectedFocusSymbol(c.focusKey);
+                                scrollToInspectLive();
+                              }}
+                              className={cn(
+                                "min-h-[34px] sm:min-h-0 px-2.5 sm:px-2 py-1 rounded-lg sm:rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 border shrink-0",
+                                isSelected
+                                  ? (c.status === 'open'
+                                      ? "bg-green/15 border-green/50 text-green font-semibold"
+                                      : "bg-accent/15 border-accent/50 text-accent font-semibold")
+                                  : "bg-background/40 border-border/40 text-dim hover:text-text hover:border-border"
+                              )}
+                            >
+                              <span className="text-text/90">{c.symbol.replace('USDT', '')}<span className="hidden sm:inline text-dim/70">USDT</span></span>
+                              <span className={cn("text-[10px] tabular-nums", isSelected ? (c.status === 'open' ? "text-green" : "text-accent") : c.tone)}>{c.tag}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span className="text-xs font-mono text-dim">
+                        {snapshotStatusFilter === 'open'
+                          ? 'No active open positions to inspect yet.'
+                          : snapshotStatusFilter === 'closed'
+                            ? 'No closed trade snapshots recorded yet.'
+                            : 'No trade snapshots captured yet — open and closed trades appear here automatically.'}
+                      </span>
+                    )}
                   </div>
                 )}
+                </div>
+              </SmoothHeightContainer>
+            </div>
 
-                {recentSkipItems.length > 0 && (
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:ml-auto shrink-0">
-                    <span className="text-amber font-semibold whitespace-nowrap shrink-0 flex items-center gap-1">
-                      <Ban size={11} className="shrink-0" />
-                      Recent Skips:
-                    </span>
-                    {recentSkipItems.map(item => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          setActiveTab('decisions');
-                          setReasonsOutcome('rejected');
-                          setReasonsSymbol(item.symbol);
-                          setVisibleReasonsLimit(25);
-                        }}
-                        title={`${item.symbol}: ${item.shortReason} (click to open Decision Log)`}
-                        className="min-h-[30px] sm:min-h-0 px-2 py-0.5 rounded-md border border-amber/30 bg-amber/5 text-amber/90 hover:bg-amber/15 transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 shrink-0"
-                      >
-                        <span className="font-semibold">{item.symbol.replace('USDT', '')}</span>
-                        <span className="text-[10px] text-dim max-w-[140px] truncate">{item.shortReason}</span>
-                      </button>
-                    ))}
+            {/* Secondary Row: Recent Skip Summary (collapsed smoothly when empty) */}
+            <SmoothCollapse isOpen={recentSkipItems.length > 0}>
+              <div className="px-3 py-2 sm:px-3.5 bg-background/25 border-b border-border/30 flex items-center justify-between gap-2 text-[11px] font-mono">
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0">
+                  <span className="text-amber font-semibold whitespace-nowrap shrink-0 flex items-center gap-1">
+                    <Ban size={11} className="shrink-0" />
+                    Recent Skips:
+                  </span>
+                  {recentSkipItems.map(item => (
                     <button
+                      key={item.id}
                       type="button"
                       onClick={() => {
                         setActiveTab('decisions');
                         setReasonsOutcome('rejected');
-                        setReasonsSymbol('all');
+                        setReasonsSymbol(item.symbol);
                         setVisibleReasonsLimit(25);
                       }}
-                      className="text-[10px] text-accent hover:underline cursor-pointer whitespace-nowrap shrink-0 px-1"
+                      title={`${item.symbol}: ${item.shortReason} (click to open Decision Log)`}
+                      className="min-h-[30px] sm:min-h-0 px-2 py-0.5 rounded-md border border-amber/30 bg-amber/5 text-amber/90 hover:bg-amber/15 transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 shrink-0"
                     >
-                      All skips →
+                      <span className="font-semibold">{item.symbol.replace('USDT', '')}</span>
+                      <span className="text-[10px] text-dim max-w-[140px] truncate">{item.shortReason}</span>
                     </button>
-                  </div>
-                )}
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('decisions');
+                      setReasonsOutcome('rejected');
+                      setReasonsSymbol('all');
+                      setVisibleReasonsLimit(25);
+                    }}
+                    className="text-[10px] text-accent hover:underline cursor-pointer whitespace-nowrap shrink-0 px-1"
+                  >
+                    All skips →
+                  </button>
+                </div>
               </div>
-            )}
+            </SmoothCollapse>
 
-            {/* Expandable Warmup Strip (Auto-highlighted when warming, always collapsible by user) */}
-            {isWarmupOpen && (
+            {/* Expandable Warmup Strip (Auto-highlighted when warming, smoothly collapsible by user) */}
+            <SmoothCollapse isOpen={isWarmupOpen}>
               <div className="px-3 py-2.5 sm:px-3.5 bg-background/40 border-b border-border/30 grid grid-cols-1 sm:flex sm:flex-wrap sm:items-center gap-2 sm:gap-3 font-mono text-[11px]">
                 {timeframeDebugItems.map(item => {
                   const pct = item.isWarming && item.required > 0 && typeof item.candles === 'number'
@@ -2054,11 +2310,11 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   );
                 })}
               </div>
-            )}
+            </SmoothCollapse>
 
             {/* Row 2: Compact Interactive 6-Stage Lifecycle Stepper with GPU Progress Rail */}
             <div className="px-3 py-2.5 sm:px-3.5 bg-background/25 border-b border-border/30">
-              <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[16px]">
+              <div className="flex items-center justify-between gap-2 mb-1.5 h-4 overflow-hidden">
                 <div className="h-1 flex-1 bg-background/70 rounded-full overflow-hidden border border-border/25" aria-hidden="true">
                   <div
                     className={cn(
@@ -2108,58 +2364,67 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 })}
               </div>
 
-              {/* Inline Milestone Inspector Drawer */}
-              {activeJourneyMilestone && (() => {
-                const milestone = journeyMilestones.find(m => m.num === activeJourneyMilestone);
-                if (!milestone) return null;
+              {/* Inline Milestone Inspector Drawer (smooth expand/collapse) */}
+              {(() => {
+                const milestone = activeJourneyMilestone
+                  ? journeyMilestones.find(m => m.num === activeJourneyMilestone)
+                  : null;
                 return (
-                  <div className="mt-2.5 pt-2.5 border-t border-border/30 flex flex-col gap-2 animate-in fade-in duration-150">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="text-xs leading-snug">
-                        <span className="font-semibold text-text">{milestone.title}</span>
-                        <span className="text-dim mx-1.5 hidden sm:inline" aria-hidden="true">·</span>
-                        <span className="text-dim block sm:inline mt-0.5 sm:mt-0">{milestone.desc}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setActiveJourneyMilestone(null)}
-                        className="p-1.5 text-dim hover:text-text cursor-pointer rounded shrink-0"
-                        aria-label="Close milestone inspection"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 text-xs font-mono pt-1">
-                      {milestone.criteria.map((crit, idx) => (
-                        <div key={idx} className="min-w-0">
-                          <div className="text-[10px] text-dim truncate">{crit.label}</div>
-                          <div className="font-semibold text-text truncate" title={crit.value}>{crit.value}</div>
+                  <SmoothCollapse isOpen={Boolean(milestone)}>
+                    {milestone && (
+                      <div className="mt-2.5 pt-2.5 border-t border-border/30 flex flex-col gap-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-xs leading-snug">
+                            <span className="font-semibold text-text">{milestone.title}</span>
+                            <span className="text-dim mx-1.5 hidden sm:inline" aria-hidden="true">·</span>
+                            <span className="text-dim block sm:inline mt-0.5 sm:mt-0">{milestone.desc}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setActiveJourneyMilestone(null)}
+                            className="p-1.5 text-dim hover:text-text cursor-pointer rounded shrink-0"
+                            aria-label="Close milestone inspection"
+                          >
+                            <X size={14} />
+                          </button>
                         </div>
-                      ))}
-                    </div>
-                    {milestone.protocolNote && (
-                      <div className="pt-1">
-                        <button
-                          type="button"
-                          onClick={() => setShowComplianceNotes(!showComplianceNotes)}
-                          className="text-[11px] text-dim hover:text-accent cursor-pointer flex items-center gap-1 py-1"
-                        >
-                          <span>{showComplianceNotes ? 'Hide Execution Protocol Note' : 'Show Execution Protocol Note'}</span>
-                          <ChevronDown size={11} className={cn("transition-transform", showComplianceNotes && "rotate-180")} />
-                        </button>
-                        {showComplianceNotes && (
-                          <p className="text-[11px] text-dim mt-1">{milestone.protocolNote}</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 text-xs font-mono pt-1">
+                          {milestone.criteria.map((crit, idx) => (
+                            <div key={idx} className="min-w-0">
+                              <div className="text-[10px] text-dim truncate">{crit.label}</div>
+                              <div className="font-semibold text-text truncate" title={crit.value}>{crit.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {milestone.protocolNote && (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setShowComplianceNotes(!showComplianceNotes)}
+                              className="text-[11px] text-dim hover:text-accent cursor-pointer flex items-center gap-1 py-1"
+                            >
+                              <span>{showComplianceNotes ? 'Hide Execution Protocol Note' : 'Show Execution Protocol Note'}</span>
+                              <ChevronDown size={11} className={cn("transition-transform duration-150", showComplianceNotes && "rotate-180")} />
+                            </button>
+                            <SmoothCollapse isOpen={showComplianceNotes}>
+                              <p className="text-[11px] text-dim mt-1">{milestone.protocolNote}</p>
+                            </SmoothCollapse>
+                          </div>
                         )}
                       </div>
                     )}
-                  </div>
+                  </SmoothCollapse>
                 );
               })()}
             </div>
 
-            {/* Mobile-only Section Focus Bar (All / Entry / Exit / Risk) */}
-            <div className="xl:hidden px-3 py-2 bg-surface/35 border-b border-border/30">
-              <div className="grid grid-cols-4 gap-1 p-0.5 bg-background/60 border border-border/40 rounded-lg">
+            {/* Rule Focus Filter Bar (All / Entry / Exit / Risk — active across all viewports including Snapshots) */}
+            <div className="px-3 py-2 sm:px-3.5 bg-surface/35 border-b border-border/30 flex items-center justify-between gap-2 flex-wrap min-h-[44px] sm:min-h-[38px]">
+              <div
+                role="tablist"
+                aria-label="Filter rules section"
+                className="grid grid-cols-4 sm:inline-flex items-center gap-1 p-0.5 bg-background/60 border border-border/40 rounded-lg w-full sm:w-auto"
+              >
                 {[
                   { id: 'all', label: 'All Rules' },
                   { id: 'entry', label: `Entry (${rulesDiagnostics.entryRules.length})` },
@@ -2169,9 +2434,11 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   <button
                     key={sec.id}
                     type="button"
+                    role="tab"
+                    aria-selected={rulesMobileSection === sec.id}
                     onClick={() => setRulesMobileSection(sec.id)}
                     className={cn(
-                      "min-h-[34px] px-1 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer truncate",
+                      "min-h-[32px] sm:min-h-[26px] px-2 sm:px-2.5 py-1 sm:py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors cursor-pointer truncate focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                       rulesMobileSection === sec.id
                         ? "bg-surface text-text border border-border/60 shadow-xs"
                         : "text-dim hover:text-text"
@@ -2181,12 +2448,23 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   </button>
                 ))}
               </div>
+              {rulesMobileSection !== 'all' && (
+                <span className="hidden sm:inline text-[10.5px] font-mono text-dim">
+                  {rulesMobileSection === 'entry'
+                    ? (isInspectingSnapshot ? 'Snapshot · Entry conditions only' : 'Showing Entry conditions only')
+                    : rulesMobileSection === 'exit'
+                      ? (isInspectingSnapshot
+                          ? (matchingOpenTradeForSymbol ? 'In-Pos · Live Exit Monitor' : 'Snapshot · Closed Exit outcome & rules')
+                          : (focusedTradeForGauge ? 'In-Pos · Live Exit Monitor' : 'Armed Exit rules preview'))
+                      : 'Showing Risk, SL & Guard checks only'}
+                </span>
+              )}
             </div>
 
             {/* Live Capitalize.ai Entry/Exit & Anti-Whipsaw Target Meters */}
             <div className={cn(
               "px-3 py-2.5 sm:px-3.5 border-b border-border/30 bg-background/15",
-              rulesMobileSection === 'risk' && "hidden xl:block"
+              rulesMobileSection === 'risk' && "hidden"
             )}>
               <CandidateConditionsGauge
                 opp={bestOpp}
@@ -2197,13 +2475,19 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 gateState={effectiveGate}
                 gateReason={effectiveReason}
                 lastScanTs={lastScanTs}
+                headerAction={gaugeModeSwitchAction}
+                ruleFilter={rulesMobileSection}
+                entryOpp={matchingOpenTradeForSymbol ? (entrySnapshotOpportunity(matchingOpenTradeForSymbol) || bestOpp) : bestOpp}
+                linkedTrade={matchingOpenTradeForSymbol}
+                configuredExitRules={rulesDiagnostics.exitRules}
+                isSyncing={isBatchSyncing}
               />
             </div>
 
             {/* Unified Risk, Stop-Loss & Guard Meters (No duplicate Entry/Exit condition tables) */}
             <div className={cn(
               "p-3 sm:p-4 flex flex-col gap-2.5 min-w-0",
-              (rulesMobileSection === 'entry' || rulesMobileSection === 'exit') && "hidden xl:flex"
+              (rulesMobileSection === 'entry' || rulesMobileSection === 'exit') && "hidden"
             )}>
               <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-border/30">
                 <div className="flex items-center gap-2 text-xs font-mono min-w-0 flex-wrap">
@@ -2300,8 +2584,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 <ChevronDown size={13} className={cn("transition-transform duration-150", showScannerPreview && "rotate-180")} />
               </div>
             </button>
-            {showScannerPreview && (
-              <div className="border-t border-border/30 animate-in fade-in duration-150">
+            <SmoothCollapse isOpen={showScannerPreview}>
+              <div className="border-t border-border/30">
                 <ScannerPreview
                   embedded
                   scannerResults={strategyScannerResults}
@@ -2309,14 +2593,14 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   onOpen={() => onOpenScanner(s.strategy_label)}
                 />
               </div>
-            )}
+            </SmoothCollapse>
           </div>
         </div>
       )}
 
       {/* TAB 2: Decision Log (Causal Filtering & Trade Story) */}
       {activeTab === 'decisions' && (
-        <div className="space-y-2.5 sm:space-y-3 animate-in fade-in duration-200 text-left">
+        <div className="space-y-2.5 sm:space-y-3 text-left">
           {/* Faceted Filter Bar */}
           <div className="p-2.5 sm:p-3 bg-surface/40 border border-border/50 rounded-xl flex flex-col gap-2">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -2580,7 +2864,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                           <span>{isExpanded ? 'Hide parameters' : 'Parameters & values'}</span>
                           <ChevronDown size={11} className={cn("transition-transform", isExpanded && "rotate-180")} />
                         </button>
-                        {isExpanded && (
+                        <SmoothCollapse isOpen={isExpanded}>
                           <div className="mt-1.5 pt-1.5 border-t border-border/20 grid grid-cols-1 xs:grid-cols-2 sm:flex sm:flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-dim">
                             {Object.entries(item.details).map(([k, v]) => {
                               const formatted = formatDiagnosticDetailEntry(k, v);
@@ -2593,7 +2877,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                               );
                             })}
                           </div>
-                        )}
+                        </SmoothCollapse>
                       </div>
                     )}
                   </div>
@@ -2658,7 +2942,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
       {/* TAB 3: Performance & Charts */}
       {activeTab === 'performance' && (
-        <div className="space-y-3 sm:space-y-4 animate-in fade-in duration-200">
+        <div className="space-y-3 sm:space-y-4">
           {/* Quant Metrics Strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2 sm:gap-2.5">
             <StatCard
@@ -2766,11 +3050,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             </div>
 
             {(showPnl || showHitRate || showPf || showSharpe || showSortino) ? (
-              <Suspense fallback={
-                <div className="h-[210px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
-                  <Loader2 size={18} className="animate-spin text-accent" />
-                </div>
-              }>
+              <Suspense fallback={<ChartPanelSkeleton height={220} label="Loading strategy performance chart" />}>
                 <LazyStrategyPerformanceOverlayChart
                   trades={strategyTrades}
                   height={220}
@@ -2803,21 +3083,18 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 </div>
                 <ChevronDown size={14} className={cn("text-dim transition-transform duration-150", isCalendarOpen && "rotate-180")} />
               </button>
-              {isCalendarOpen && (
-                <div id="calendar-content" className="pt-2 overflow-x-auto animate-in fade-in duration-150">
-                  <Suspense fallback={
-                    <div className="h-[120px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
-                      <Loader2 size={16} className="animate-spin text-accent" />
-                    </div>
-                  }>
+              <SmoothCollapse isOpen={isCalendarOpen} id="calendar-content">
+                <div className="pt-2 overflow-x-auto">
+                  <Suspense fallback={<CalendarGridSkeleton />}>
                     <LazyStrategyCalendarPnL trades={strategyTrades} strategyFilter="ALL" />
                   </Suspense>
                 </div>
-              )}
+              </SmoothCollapse>
             </div>
           </div>
         </div>
       )}
+      </SmoothSwap>
 
       <Suspense fallback={null}>
         {selectedTrade && (

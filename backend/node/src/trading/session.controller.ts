@@ -351,6 +351,13 @@ export class SessionController {
     );
   }
 
+  @Get("symbols")
+  async getAvailableSymbols(@Query("includeNonUsdt") includeNonUsdt?: string) {
+    return this.sessionService.getAvailableSymbols(
+      includeNonUsdt === "1" || includeNonUsdt === "true",
+    );
+  }
+
   @Get("status")
   async getStatus() {
     return this.sessionService.getStatus(false);
@@ -373,7 +380,7 @@ export class SessionController {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         id,
       );
-    const isSymbol = /^[A-Z0-9]{3,20}$/.test(id);
+    const isSymbol = /^[A-Z0-9_-]{3,24}$/.test(id);
 
     if (!isUuid && !isSymbol) {
       throw new BadRequestException("Invalid trade ID or symbol format");
@@ -395,7 +402,7 @@ export class SessionController {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         id,
       );
-    const isSymbol = /^[A-Z0-9]{3,20}$/.test(id);
+    const isSymbol = /^[A-Z0-9_-]{3,24}$/.test(id);
 
     if (!isUuid && !isSymbol) {
       throw new BadRequestException("Invalid trade ID or symbol format");
@@ -466,7 +473,7 @@ export class SessionController {
   ) {
     // Basic input hardening: ensure symbol matches expected Binance format
     // SENTINEL: Enforce explicit string type assertion and maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse and HPP type confusion.
-    if (!symbol || typeof symbol !== "string" || symbol.length > 50 || !/^[A-Z0-9]{3,20}$/.test(symbol)) {
+    if (!symbol || typeof symbol !== "string" || symbol.length > 50 || !/^[A-Z0-9_-]{3,24}$/.test(symbol)) {
       throw new BadRequestException("Invalid symbol format");
     }
     const clientIp =

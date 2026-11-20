@@ -4,6 +4,7 @@ import { useTradingStore } from '../store/trading'
 import { getMarketRegimeInfo } from '../utils/marketRegime'
 import { calculateOpportunityProximity } from '../lib/formatters'
 import { SectionLabel, Tooltip, CopyButton, InPosBadge, Sparkline, cn } from './ui/primitives'
+import { ScannerPreviewRowsSkeleton } from './ui/Skeletons'
 import { Zap, Turtle, Flame, PauseCircle, RefreshCw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -56,21 +57,27 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen, embe
 
       <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-x-hidden">
         {top.length === 0 && placeholders.length === 5 ? (
-          <div className="h-full p-4 flex flex-col items-center justify-center text-center bg-surface/10 gap-2">
-            <div className="w-8 h-8 rounded-full bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
-              <Turtle size={16} />
+          !scannerPaused && !hibernating ? (
+            <div className="flex flex-col flex-1 justify-between">
+              <ScannerPreviewRowsSkeleton rows={4} />
+              <div className="px-3 py-1.5 border-t border-border/25 bg-surface/20 flex items-center justify-between text-[9.5px] font-mono text-dim">
+                <span className="truncate">{regimeInfo.guidance}</span>
+                <span className="text-accent/85 shrink-0 ml-2">Monitoring {config?.scan_interval || '1m'}</span>
+              </div>
             </div>
-            <div className="flex flex-col gap-0.5 max-w-sm">
-              <span className="text-[10.5px] font-black uppercase tracking-wider text-cyan-400">No Active Candidates</span>
-              <p className="text-[9.5px] font-medium text-dim leading-snug">
-                {regimeInfo.guidance}
-              </p>
+          ) : (
+            <div className="h-full p-4 flex flex-col items-center justify-center text-center bg-surface/10 gap-2">
+              <div className="w-8 h-8 rounded-full bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+                <Turtle size={16} />
+              </div>
+              <div className="flex flex-col gap-0.5 max-w-sm">
+                <span className="text-[10.5px] font-black uppercase tracking-wider text-cyan-400">No Active Candidates</span>
+                <p className="text-[9.5px] font-medium text-dim leading-snug">
+                  {regimeInfo.guidance}
+                </p>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-background/50 border border-border/40 rounded-lg text-[8.5px] font-mono text-dim font-bold uppercase tracking-wider">
-              <RefreshCw size={10} className="animate-spin text-accent shrink-0" />
-              <span>Monitoring {config?.scan_interval || '1m'} klines</span>
-            </div>
-          </div>
+          )
         ) : (
           <>
             {regimeInfo.regime === 'active' && (

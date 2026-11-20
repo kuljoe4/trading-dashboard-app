@@ -327,7 +327,7 @@ export class MomentumScannerService {
     isExplicitSymbol = false,
   ): { opp: Opportunity, candles: Candle[] } | null {
     // Enforce valid USDT quote asset pairing to prevent USDS-M non-USDT errors (-2019/-2010)
-    if (!symbol || typeof symbol !== 'string' || !/^[A-Z0-9]{3,20}USDT$/i.test(symbol)) {
+    if (!symbol || typeof symbol !== 'string' || !/^[A-Z0-9_-]{3,24}USDT$/i.test(symbol)) {
       return null;
     }
 

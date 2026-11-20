@@ -14,6 +14,7 @@ import { resolveStrategyConfig } from '../utils/strategyConfig.js'
 import { EntrySignalCard, ExitSignalCard } from './config/SignalCards'
 import { ActiveSummaryPanel } from './config/ActiveSummaryPanel'
 import { SmartStrategyNameControl, WatchlistScopeSelector } from './config/SmartNamingAndScope'
+import { SymbolCatalogPicker } from './SymbolCatalogPicker'
 import {
   STRATEGY_NAME_CHAR_LIMITS,
   generateSmartNameSuggestions,
@@ -936,198 +937,114 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
 })
 SavePresetInput.displayName = 'SavePresetInput'
 
-const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isOpen, setIsOpen] = useState(false);
-  const [rangeFilter, setRangeFilter] = useState('all'); // 'all' | 'pos' | 'neg' | 'high_mover' | 'extreme'
+const WatchlistDropdownInput = React.memo(({
+  value = [],
+  onChange,
+  currentStrategyLabel = null,
+  strategiesOverride = null,
+  maxLimit = 0,
+}) => {
   const scannerResults = useTradingStore(state => state.scannerResults || []);
-  const watchlistSearchInputRef = useRef(null);
+  const availableSymbols = useTradingStore(state => state.availableSymbols || []);
 
-  const filteredOptions = useMemo(() => {
-    const safeResults = Array.isArray(scannerResults) ? scannerResults : [];
-
-    // Sort all opportunities by 24h change pct descending
-    const sorted = [...safeResults].sort((a, b) => (b.pct || 0) - (a.pct || 0));
-
-    return sorted.filter(opp => {
-      if (!opp || !opp.symbol) return false;
-
-      const matchesSearch = opp.symbol.toLowerCase().includes(searchTerm.toLowerCase());
-      if (!matchesSearch) return false;
-
-      if (rangeFilter === 'usdt') {
-        return (opp.symbol || '').toUpperCase().endsWith('USDT');
-      }
-      if (rangeFilter === 'non_usdt') {
-        return !(opp.symbol || '').toUpperCase().endsWith('USDT');
-      }
-      if (rangeFilter === 'pos') {
-        return (opp.pct || 0) > 0;
-      }
-      if (rangeFilter === 'neg') {
-        return (opp.pct || 0) < 0;
-      }
-      if (rangeFilter === 'high_mover') {
-        return Math.abs(opp.pct || 0) >= 2.0;
-      }
-      if (rangeFilter === 'extreme') {
-        return Math.abs(opp.pct || 0) >= 5.0;
-      }
-
-      return true;
-    });
-  }, [scannerResults, searchTerm, rangeFilter]);
-
-  const handleSelect = (symbol) => {
-    const safeValue = Array.isArray(value) ? value : [];
-    if (symbol && !safeValue.includes(symbol)) {
-      onChange([...safeValue, symbol]);
+  const metaMap = useMemo(() => {
+    const map = new Map();
+    for (const s of availableSymbols) {
+      if (s?.symbol) map.set(s.symbol, s);
     }
-    setSearchTerm('');
-    setIsOpen(false);
+    for (const r of scannerResults) {
+      if (r?.symbol) map.set(r.symbol, { ...(map.get(r.symbol) || {}), ...r });
+    }
+    return map;
+  }, [availableSymbols, scannerResults]);
+
+  const safeValue = Array.isArray(value) ? value : [];
+
+  const handleAdd = (symbol) => {
+    const clean = String(symbol || '').trim().toUpperCase();
+    if (!clean) return;
+    const finalSym = clean.endsWith('USDT') ? clean : `${clean}USDT`;
+    if (safeValue.includes(finalSym)) return;
+    if (maxLimit > 0 && safeValue.length >= maxLimit) {
+      onChange([...safeValue.slice(0, Math.max(0, maxLimit - 1)), finalSym]);
+    } else {
+      onChange([...safeValue, finalSym]);
+    }
+  };
+
+  const handleAddBulk = (symbolsList) => {
+    const incoming = (symbolsList || [])
+      .map((s) => String(s || '').trim().toUpperCase())
+      .filter((s) => s && !safeValue.includes(s));
+    if (incoming.length === 0) return;
+    let next = [...safeValue, ...incoming];
+    if (maxLimit > 0 && next.length > maxLimit) {
+      next = next.slice(0, maxLimit);
+    }
+    onChange(next);
   };
 
   const handleRemove = (symbol) => {
-    const safeValue = Array.isArray(value) ? value : [];
-    onChange(safeValue.filter(s => s !== symbol));
+    onChange(safeValue.filter((s) => s !== symbol));
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col md:flex-row gap-3">
-        <div className="relative flex-1 group">
-          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
-          <input
-            ref={watchlistSearchInputRef}
-            type="text"
-            placeholder="Search symbol to add... (e.g. BTCUSDT)"
-            value={searchTerm}
-            onFocus={() => setIsOpen(true)}
-            onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
-            onKeyDown={(e) => { if (e.key === 'Escape') { setSearchTerm(''); setIsOpen(false); } }}
-            aria-label="Search symbols to add to watchlist"
-            className="w-full bg-surface border border-border rounded-lg pl-7 pr-7 py-1 min-h-[32px] text-xs font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
-          />
-          {searchTerm ? (
-            <Tooltip content="Clear Search">
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchTerm('');
-                  watchlistSearchInputRef.current?.focus();
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
-                aria-label="Clear Search symbol"
-              >
-                <XCircle size={13} />
-              </button>
-            </Tooltip>
-          ) : (
-            <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
-              /
-            </kbd>
-          )}
-        </div>
-
-        <div className="flex flex-wrap gap-1.5 items-center bg-background/40 p-1.5 rounded-xl border border-border/40">
-          <span className="text-[9px] font-black text-dim uppercase tracking-wider px-1.5">Filters:</span>
-          {[
-            { id: 'all', label: 'All' },
-            { id: 'usdt', label: 'USDT Pairs' },
-            { id: 'non_usdt', label: 'Non-USDT' },
-            { id: 'pos', label: 'Positive' },
-            { id: 'neg', label: 'Negative' },
-            { id: 'high_mover', label: 'Movers >2%' },
-            { id: 'extreme', label: 'Extreme >5%' }
-          ].map(f => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => { setRangeFilter(f.id); setIsOpen(true); }}
-              className={cn(
-                "px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                rangeFilter === f.id
-                  ? "bg-accent/15 border border-accent/30 text-accent font-black"
-                  : "bg-surface/50 border border-border/30 text-dim hover:text-text"
-              )}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="relative bg-surface border border-border rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto no-scrollbar"
-          >
-            {filteredOptions.length === 0 ? (
-              <div className="p-4 text-center text-xs text-dim">No matching symbols found</div>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-1 p-2">
-                {filteredOptions.map(opp => {
-                  const isSelected = value.includes(opp.symbol);
-                  const isPos = opp.pct >= 0;
-                  return (
-                    <button
-                      key={opp.symbol}
-                      type="button"
-                      disabled={isSelected}
-                      onClick={() => handleSelect(opp.symbol)}
-                      className={cn(
-                        "flex justify-between items-center px-3 py-2 rounded-lg text-xs font-mono border transition-all text-left focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                        isSelected
-                          ? "bg-white/5 border-border/30 text-dim/40 cursor-not-allowed"
-                          : "bg-background/20 border-border/30 hover:border-accent/40 hover:bg-white/5 text-text"
-                      )}
-                    >
-                      <span className="font-bold">{opp.symbol}</span>
-                      <span className={cn(
-                        "text-[10px] font-bold",
-                        isSelected ? "text-dim/30" : isPos ? "text-green" : "text-red"
-                      )}>
-                        {isPos ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="flex flex-wrap gap-2 mt-4">
-        {value.length === 0 ? (
-          <div className="p-3 border border-dashed border-border/40 rounded-xl w-full flex items-center justify-center">
+    <div className="flex flex-col gap-3">
+      {/* Pinned Symbols Strip */}
+      <div className="flex flex-wrap gap-1.5">
+        {safeValue.length === 0 ? (
+          <div className="p-2.5 border border-dashed border-border/50 rounded-lg w-full flex items-center justify-center">
             <CollapsibleHelpTitle
-              title="No static symbols"
-              titleClassName="text-[10px] text-dim/60 font-bold uppercase tracking-widest"
+              title="No static symbols pinned"
+              titleClassName="text-xs text-muted font-medium"
               helpText="Global discovery is used when no symbols are pinned to the static watchlist."
             />
           </div>
         ) : (
-          value.map((sym, i) => {
-            const opp = scannerResults.find(r => r?.symbol === sym);
-            const pctText = opp ? ` (${(opp.pct >= 0 ? '+' : '') + Number(opp.pct).toFixed(2)}%)` : '';
+          safeValue.map((sym) => {
+            const meta = metaMap.get(sym);
+            const pct = meta?.pct;
+            const hasLivePct = meta?.price > 0 && pct !== undefined && Number.isFinite(Number(pct));
+            const isPos = Number(pct || 0) >= 0;
             return (
-              <Chip
+              <div
                 key={sym}
-                active
-                activeClass="bg-accent/10 border-accent/40 text-accent font-bold"
-                aria-label={`Remove ${sym}`}
-                onClick={() => handleRemove(sym)}
+                className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg bg-accent/10 border border-accent/35 text-xs font-mono text-text"
               >
-                {sym}{pctText} <X size={10} className="inline ml-1" />
-              </Chip>
+                <span className="font-semibold text-accent">{sym.replace(/USDT$/, '')}</span>
+                {meta?.assetClass === 'tradfi' && (
+                  <span className="text-[9px] text-amber">TradFi</span>
+                )}
+                {hasLivePct && (
+                  <span className={cn('text-[10px] tabular-nums', isPos ? 'text-green' : 'text-red')}>
+                    {isPos ? '+' : ''}{Number(pct).toFixed(1)}%
+                  </span>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Remove ${sym}`}
+                  onClick={() => handleRemove(sym)}
+                  className="p-0.5 rounded text-muted hover:text-red transition-colors cursor-pointer"
+                >
+                  <X size={11} />
+                </button>
+              </div>
             );
           })
         )}
       </div>
+
+      {/* Unified Market Catalog & Copy-from-Strategy Picker */}
+      <SymbolCatalogPicker
+        selectedSymbols={safeValue}
+        onAddSymbol={handleAdd}
+        onAddBulkSymbols={handleAddBulk}
+        onRemoveSymbol={handleRemove}
+        currentStrategyLabel={currentStrategyLabel}
+        strategiesOverride={strategiesOverride}
+        maxLimit={maxLimit}
+        defaultExpanded={true}
+      />
     </div>
   );
 });
@@ -5778,125 +5695,136 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               id="scan_watchlist"
               icon={Plus}
               title="Static Watchlist & Scheduler"
-              subtitle="Strict routing, capacity limits & auto-rotation"
+              subtitle="Browse Binance Futures (Crypto & TradFi/Overnight), copy from strategies & set rotation cadence"
               isOpen={openSectionId === 'scan_watchlist'}
               onToggle={() => setOpenSectionId(openSectionId === 'scan_watchlist' ? null : 'scan_watchlist')}
             >
               <div className="flex flex-col gap-4">
-                {/* Watchlist Limit Control */}
-                <div className="flex flex-col gap-2 p-3 bg-surface/50 border border-border/40 rounded-xl">
-                  <div className="flex justify-between items-start gap-2">
-                    <CollapsibleHelpTitle
-                      title="Watchlist Limit (Strict Ceiling)"
-                      titleClassName="text-[10px] font-black text-text uppercase tracking-wider"
-                      helpText="If set to 1, strictly only 1 symbol stays on the list. Adding or rotating in a new candidate replaces the idle symbol."
-                    />
-                    <span className="text-[9px] font-mono font-bold text-accent shrink-0">
-                      {Number(cfg.watchlist_max_symbols) > 0 ? `${cfg.watchlist_max_symbols} Symbols Max` : 'Unlimited'}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { label: '1 (Solo)', val: 1 },
-                      { label: '2 Pairs', val: 2 },
-                      { label: '3 Pairs', val: 3 },
-                      { label: '5 Pairs', val: 5 },
-                      { label: '10 Pairs', val: 10 },
-                      { label: 'Unlimited', val: 0 },
-                    ].map(p => (
-                      <button
-                        key={p.val}
-                        type="button"
-                        onClick={() => {
-                          setField('watchlist_max_symbols', p.val);
-                          if (p.val > 0 && Array.isArray(cfg.symbols) && cfg.symbols.length > p.val) {
-                            setField('symbols', cfg.symbols.slice(0, p.val));
-                          }
-                        }}
-                        className={cn(
-                          "px-2.5 py-1 rounded-lg text-[9px] font-mono font-bold uppercase transition-all outline-none focus-visible:ring-1 focus-visible:ring-accent",
-                          Number(cfg.watchlist_max_symbols || 0) === p.val
-                            ? "bg-accent text-background font-black shadow-sm"
-                            : "bg-surface border border-border/40 text-dim hover:text-text"
-                        )}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Auto-Rotate Scheduler & Freeze Lock */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-surface/50 border border-border/40 rounded-xl">
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex justify-between items-start gap-2">
+                {/* Clean 2-Column Capacity & Rotation Scheduler Bar */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-3.5 border-b border-border/50">
+                  {/* Capacity Limit */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center gap-2">
                       <CollapsibleHelpTitle
-                        title="Auto-Rotate Scheduler"
-                        titleClassName="text-[10px] font-black text-text uppercase tracking-wider"
-                        helpText="Promotes top favorable dynamic scanner opportunities into watchlist at regular intervals."
+                        title="Watchlist Limit (Strict Ceiling)"
+                        titleClassName="text-xs font-semibold text-text"
+                        helpText="Strict cap on pinned pairs. Limit 1 enables Solo Mode where selecting a new pair swaps the active one."
                       />
-                      <button
-                        type="button"
-                        onClick={() => setField('watchlist_auto_rotate', !cfg.watchlist_auto_rotate)}
-                        className={cn(
-                          "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-colors shrink-0",
-                          cfg.watchlist_auto_rotate ? "bg-green/15 border-green/40 text-green" : "bg-surface border-border text-dim"
-                        )}
-                      >
-                        {cfg.watchlist_auto_rotate ? 'Enabled' : 'Disabled'}
-                      </button>
+                      <span className="text-[11px] font-mono text-accent tabular-nums">
+                        {Number(cfg.watchlist_max_symbols) > 0 ? `Max ${cfg.watchlist_max_symbols}` : 'Unlimited'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {[
+                        { label: '1 (Solo)', val: 1 },
+                        { label: '2', val: 2 },
+                        { label: '3', val: 3 },
+                        { label: '5', val: 5 },
+                        { label: '10', val: 10 },
+                        { label: 'Unlimited', val: 0 },
+                      ].map(p => (
+                        <button
+                          key={p.val}
+                          type="button"
+                          onClick={() => {
+                            setField('watchlist_max_symbols', p.val);
+                            if (p.val > 0 && Array.isArray(cfg.symbols) && cfg.symbols.length > p.val) {
+                              setField('symbols', cfg.symbols.slice(0, p.val));
+                            }
+                          }}
+                          className={cn(
+                            "px-2.5 py-1 rounded-md text-[11px] font-mono border transition-colors cursor-pointer",
+                            Number(cfg.watchlist_max_symbols || 0) === p.val
+                              ? "bg-accent text-background font-semibold border-accent"
+                              : "bg-background/50 border-border/60 text-muted hover:text-text"
+                          )}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Rotation Scheduler & Freeze Lock */}
+                  <div className="flex flex-col gap-2 md:border-l md:border-border/40 md:pl-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <CollapsibleHelpTitle
+                        title="Rotation Scheduler"
+                        titleClassName="text-xs font-semibold text-text"
+                        helpText="Periodically promotes top favorable opportunities into this watchlist unless frozen."
+                      />
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setField('watchlist_auto_rotate', !cfg.watchlist_auto_rotate)}
+                          className={cn(
+                            "px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors cursor-pointer",
+                            cfg.watchlist_auto_rotate
+                              ? "bg-green/15 border-green/35 text-green"
+                              : "bg-background/50 border-border/60 text-muted hover:text-text"
+                          )}
+                        >
+                          {cfg.watchlist_auto_rotate ? 'Auto-Rotate On' : 'Auto-Rotate Off'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setField('watchlist_locked', !cfg.watchlist_locked)}
+                          className={cn(
+                            "px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors flex items-center gap-1 cursor-pointer",
+                            cfg.watchlist_locked
+                              ? "bg-amber/15 border-amber/35 text-amber"
+                              : "bg-background/50 border-border/60 text-muted hover:text-text"
+                          )}
+                        >
+                          <Lock size={10} />
+                          <span>{cfg.watchlist_locked ? 'Frozen' : 'Freeze'}</span>
+                        </button>
+                      </div>
                     </div>
 
-                    {cfg.watchlist_auto_rotate && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {[5, 15, 30, 60, 240].map(mins => (
+                    {cfg.watchlist_auto_rotate && !cfg.watchlist_locked && (
+                      <div className="flex flex-wrap gap-1">
+                        {[5, 15, 30, 60, 240, 1440].map(mins => (
                           <button
                             key={mins}
                             type="button"
                             onClick={() => setField('watchlist_rotate_interval_min', mins)}
                             className={cn(
-                              "px-2 py-0.5 rounded text-[8.5px] font-mono font-bold border",
+                              "px-2 py-0.5 rounded-md text-[11px] font-mono border transition-colors cursor-pointer",
                               (Number(cfg.watchlist_rotate_interval_min) || 15) === mins
-                                ? "bg-green/20 border-green/40 text-green font-black"
-                                : "bg-surface border-border/40 text-dim"
+                                ? "bg-green/15 border-green/40 text-green font-semibold"
+                                : "bg-background/50 border-border/60 text-muted hover:text-text"
                             )}
                           >
-                            {mins >= 60 ? `${mins / 60}h` : `${mins}m`}
+                            {mins >= 1440 ? '1d' : mins >= 60 ? `${mins / 60}h` : `${mins}m`}
                           </button>
                         ))}
                       </div>
                     )}
                   </div>
-
-                  <div className="flex flex-col gap-1.5 border-t md:border-t-0 md:border-l border-border/30 pt-2 md:pt-0 md:pl-3">
-                    <div className="flex justify-between items-start gap-2">
-                      <CollapsibleHelpTitle
-                        title="Lock Watchlist (Freeze)"
-                        titleClassName="text-[10px] font-black text-text uppercase tracking-wider"
-                        helpText='"No to change" mode: Freezes the list and disables automated rotation.'
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setField('watchlist_locked', !cfg.watchlist_locked)}
-                        className={cn(
-                          "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-colors shrink-0",
-                          cfg.watchlist_locked ? "bg-amber/15 border-amber/40 text-amber" : "bg-surface border-border text-dim"
-                        )}
-                      >
-                        {cfg.watchlist_locked ? 'Locked (Frozen)' : 'Unlocked'}
-                      </button>
-                    </div>
-                  </div>
                 </div>
 
-                <WatchlistDropdownInput value={cfg.symbols || []} onChange={(val) => setField('symbols', val)} />
-                <div className="pt-4 border-t border-border/40 flex flex-col gap-2">
+                {/* Unified Catalog + Copy-From-Strategy Picker */}
+                <WatchlistDropdownInput
+                  value={cfg.symbols || []}
+                  onChange={(val) => setField('symbols', val)}
+                  currentStrategyLabel={cfg.strategy_label}
+                  strategiesOverride={{
+                    baseConfig: baseConfig || cfg,
+                    variants: Array.isArray(rootDraft?.strategy_variants)
+                      ? rootDraft.strategy_variants
+                      : (Array.isArray(cfg.strategy_variants) ? cfg.strategy_variants : (baseConfig?.strategy_variants || [])),
+                  }}
+                  maxLimit={Number(cfg.watchlist_max_symbols || 0)}
+                />
+
+                <div className="pt-3 border-t border-border/40 flex flex-col gap-1.5">
                   <CollapsibleHelpTitle
-                    title="Comma-Separated List"
-                    titleClassName="text-[10px] font-black text-dim uppercase tracking-wider"
-                    helpText="Advanced direct comma-separated symbol editor for bulk editing static watchlist symbols."
+                    title="Bulk Paste (Comma-Separated)"
+                    titleClassName="text-[11px] font-medium text-muted"
+                    helpText="Paste a comma-separated list of USDT perpetual symbols (e.g. BTCUSDT, SOLUSDT, XAUUSDT)."
                   />
-                  <ListInput placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols} onChange={(val) => setField('symbols', val)} />
+                  <ListInput placeholder="BTCUSDT, ETHUSDT, SOLUSDT, XAUUSDT..." value={cfg.symbols} onChange={(val) => setField('symbols', val)} />
                 </div>
               </div>
             </CollapsibleSection>
@@ -7227,22 +7155,164 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3">
-                 <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 px-1"><Clock size={12} /> Daily Execution Windows (UTC)</div>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                   {(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).map((w, i) => (
-                     <div key={i} className="flex gap-2 p-2.5 bg-surface/50 border border-border rounded-xl items-center shadow-sm">
-                       <input type="text" value={w?.start || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], start: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 min-h-[32px] text-xs font-mono text-center focus:border-accent outline-none" />
-                       <span className="text-dim/40 font-mono text-[10px]">to</span>
-                       <input type="text" value={w?.end || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], end: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 min-h-[32px] text-xs font-mono text-center focus:border-accent outline-none" />
-                       <Tooltip content="Remove Window">
-                        <button type="button" onClick={() => setField('trading_windows', (Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).filter((_, idx) => idx !== i))} aria-label="Remove Window" className="p-1.5 text-dim hover:text-red transition-colors"><Trash2 size={14} /></button>
-                       </Tooltip>
-                     </div>
-                   ))}
-                   <button type="button" onClick={() => setField('trading_windows', [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []), { start: '09:00', end: '17:00' }])} className="w-full py-2 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={13} /> Add Window</button>
-                 </div>
-               </div>
+              {/* Clean Daily Execution Windows Scheduler (UTC) */}
+              {(() => {
+                const safeWindows = Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [];
+                const parseToMin = (t) => {
+                  const m = String(t || '').match(/^(\d{1,2}):(\d{2})$/);
+                  if (!m) return null;
+                  return Math.min(1440, Math.max(0, parseInt(m[1], 10) * 60 + parseInt(m[2], 10)));
+                };
+                const segments = [];
+                safeWindows.forEach((w) => {
+                  const s = parseToMin(w?.start);
+                  const e = parseToMin(w?.end);
+                  if (s === null || e === null || s === e) return;
+                  if (e > s) {
+                    segments.push({ left: (s / 1440) * 100, width: ((e - s) / 1440) * 100 });
+                  } else {
+                    // Overnight wrap-around window (e.g. 20:00 -> 04:00 UTC)
+                    segments.push({ left: (s / 1440) * 100, width: ((1440 - s) / 1440) * 100 });
+                    segments.push({ left: 0, width: (e / 1440) * 100 });
+                  }
+                });
+
+                const SESSION_PRESETS = [
+                  { label: 'Asia', start: '00:00', end: '08:00' },
+                  { label: 'London', start: '07:00', end: '16:00' },
+                  { label: 'New York', start: '13:30', end: '20:00' },
+                  { label: 'US Overnight', start: '20:00', end: '04:00' },
+                ];
+
+                return (
+                  <div className="flex flex-col gap-3 pt-3 border-t border-border/50">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Clock size={13} className="text-accent" />
+                        <span className="text-xs font-semibold text-text">Daily Execution Windows (UTC)</span>
+                        <span className="text-[11px] font-mono text-muted">
+                          {safeWindows.length === 0 ? '24/7 Active' : `${safeWindows.length} window${safeWindows.length === 1 ? '' : 's'}`}
+                        </span>
+                      </div>
+
+                      {/* 1-Click Session Presets */}
+                      <div className="flex flex-wrap items-center gap-1">
+                        {SESSION_PRESETS.map((preset) => (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => {
+                              const exists = safeWindows.some((w) => w?.start === preset.start && w?.end === preset.end);
+                              if (!exists) {
+                                setField('trading_windows', [...safeWindows, { start: preset.start, end: preset.end }]);
+                              }
+                            }}
+                            className="px-2 py-0.5 rounded-md border border-border/60 bg-background/50 text-[11px] font-medium text-muted hover:text-text hover:border-accent/40 transition-colors cursor-pointer"
+                            title={`Add ${preset.label} session (${preset.start}–${preset.end} UTC)`}
+                          >
+                            + {preset.label}
+                          </button>
+                        ))}
+                        {safeWindows.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setField('trading_windows', [])}
+                            className="px-2 py-0.5 rounded-md border border-border/60 bg-background/50 text-[11px] font-medium text-muted hover:text-red hover:border-red/35 transition-colors cursor-pointer"
+                          >
+                            24/7 Clear
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Visual 24-Hour UTC Timeline */}
+                    <div className="space-y-1">
+                      <div className="relative h-2.5 w-full rounded-full bg-background/80 border border-border/60 overflow-hidden">
+                        {safeWindows.length === 0 ? (
+                          <div className="h-full w-full bg-green/35" />
+                        ) : (
+                          segments.map((seg, idx) => (
+                            <div
+                              key={idx}
+                              className="absolute top-0 bottom-0 bg-accent/70"
+                              style={{ left: `${seg.left}%`, width: `${seg.width}%` }}
+                            />
+                          ))
+                        )}
+                      </div>
+                      <div className="flex justify-between text-[10px] font-mono text-muted/70 tabular-nums px-0.5">
+                        <span>00:00</span>
+                        <span>06:00</span>
+                        <span>12:00</span>
+                        <span>18:00</span>
+                        <span>24:00 UTC</span>
+                      </div>
+                    </div>
+
+                    {/* Window Rows */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {safeWindows.map((w, i) => {
+                        const s = parseToMin(w?.start);
+                        const e = parseToMin(w?.end);
+                        let durLabel = '';
+                        if (s !== null && e !== null) {
+                          const mins = e >= s ? (e - s) : (1440 - s + e);
+                          const hrs = Math.floor(mins / 60);
+                          const rem = mins % 60;
+                          durLabel = rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
+                        }
+                        return (
+                          <div key={i} className="flex items-center gap-2 px-2.5 py-2 bg-background/50 border border-border/70 rounded-lg">
+                            <input
+                              type="time"
+                              value={w?.start || ''}
+                              aria-label={`Window ${i + 1} start UTC`}
+                              onChange={(e) => {
+                                const wins = [...safeWindows];
+                                wins[i] = { ...wins[i], start: e.target.value };
+                                setField('trading_windows', wins);
+                              }}
+                              className="flex-1 min-w-0 bg-surface border border-border/70 rounded-md px-2 py-1 text-xs font-mono text-center text-text focus:border-accent focus-visible:outline-none tabular-nums"
+                            />
+                            <span className="text-muted text-xs shrink-0">→</span>
+                            <input
+                              type="time"
+                              value={w?.end || ''}
+                              aria-label={`Window ${i + 1} end UTC`}
+                              onChange={(e) => {
+                                const wins = [...safeWindows];
+                                wins[i] = { ...wins[i], end: e.target.value };
+                                setField('trading_windows', wins);
+                              }}
+                              className="flex-1 min-w-0 bg-surface border border-border/70 rounded-md px-2 py-1 text-xs font-mono text-center text-text focus:border-accent focus-visible:outline-none tabular-nums"
+                            />
+                            {durLabel && (
+                              <span className="text-[10px] font-mono text-muted shrink-0 tabular-nums">{durLabel}</span>
+                            )}
+                            <Tooltip content="Remove Window">
+                              <button
+                                type="button"
+                                onClick={() => setField('trading_windows', safeWindows.filter((_, idx) => idx !== i))}
+                                aria-label="Remove Window"
+                                className="p-1 text-muted hover:text-red transition-colors cursor-pointer shrink-0"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </Tooltip>
+                          </div>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setField('trading_windows', [...safeWindows, { start: '09:00', end: '17:00' }])}
+                        className="w-full py-2 border border-dashed border-border/70 rounded-lg text-xs font-medium text-muted hover:text-accent hover:border-accent/45 hover:bg-accent/5 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Plus size={13} /> Add Custom Window
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
             </CollapsibleSection>
             ),
             })}

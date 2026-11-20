@@ -47,14 +47,14 @@ describe('Candidate Classification, Skip Reasons, PnL Integrity & Pipeline Motio
     );
   });
 
-  test('StrategyDetailView cleanly separates liveCandidateChips from closedSnapshotChips and surfaces Recent Skips', () => {
+  test('StrategyDetailView cleanly separates liveCandidateChips from open/closed snapshot chips and surfaces Recent Skips', () => {
     assert.ok(
-      detailSource.includes('liveCandidateChips') && detailSource.includes('closedSnapshotChips'),
-      'StrategyDetailView must separate live candidate watchlist chips from closed history snapshots'
+      detailSource.includes('liveCandidateChips') && detailSource.includes('openSnapshotChips') && detailSource.includes('closedSnapshotChips'),
+      'StrategyDetailView must separate live candidate watchlist chips from open and closed entry snapshots'
     );
     assert.ok(
-      detailSource.includes('History Snapshots:'),
-      'Closed trade snapshots must render in their own History Snapshots row'
+      detailSource.includes("inspectScope === 'snapshots'") && detailSource.includes('Entry Snapshots:'),
+      'Trade snapshots must render in their own separated Snapshots filter view with Entry Snapshots row'
     );
     assert.ok(
       detailSource.includes('Recent Skips:') && detailSource.includes('recentSkipItems'),

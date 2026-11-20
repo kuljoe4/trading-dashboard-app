@@ -9,6 +9,7 @@ import { AuthOverlay } from './components/AuthOverlay';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { GlobalToaster } from './components/ui/primitives';
 import { PersistentAlertBanner } from './components/PersistentAlertBanner';
+import { SmoothSwap } from './components/ui/SmoothMotion';
 import { lazyWithRetry } from './lib/lazy';
 import './index.css';
 
@@ -21,15 +22,42 @@ const TradeDetailView = lazyWithRetry(() => import('./views/TradeDetailView'));
 const LoadingView = () => {
   const sidebarCollapsed = useTradingStore((s) => s.sidebarCollapsed);
   return (
-    <div className={`min-h-screen bg-background transition-all duration-300 ${sidebarCollapsed ? 'lg:pl-[80px]' : 'lg:pl-[260px]'}`}>
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="Loading workspace"
+      className={`min-h-screen bg-background transition-all duration-300 ${sidebarCollapsed ? 'lg:pl-[80px]' : 'lg:pl-[260px]'}`}
+    >
       <div className="max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 space-y-3">
-        <div className="h-[62px] rounded-2xl bg-surface/50 border border-border/30 animate-pulse" />
+        <div className="h-[62px] rounded-2xl bg-surface/50 border border-border/30 px-4 flex items-center justify-between skeleton-shimmer">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-surface/80" />
+            <div className="space-y-1.5">
+              <div className="w-40 h-3.5 rounded bg-surface/80" />
+              <div className="w-24 h-2.5 rounded bg-surface/60" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-20 h-7 rounded-lg bg-surface/75 hidden sm:block" />
+            <div className="w-20 h-7 rounded-lg bg-surface/75" />
+          </div>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-[56px] rounded-xl bg-surface/50 border border-border/30 animate-pulse" />
+            <div key={i} className="h-[62px] rounded-xl bg-surface/50 border border-border/30 p-3 flex flex-col justify-between skeleton-shimmer">
+              <div className="w-16 h-2.5 rounded bg-surface/70" />
+              <div className="w-24 h-4 rounded bg-surface/85" />
+            </div>
           ))}
         </div>
-        <div className="h-[180px] rounded-xl bg-surface/40 border border-border/30 animate-pulse" />
+        <div className="h-[190px] rounded-2xl bg-surface/40 border border-border/30 p-4 space-y-3 skeleton-shimmer">
+          <div className="w-36 h-3.5 rounded bg-surface/75" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-[115px] rounded-xl bg-surface/60 border border-border/25" />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -346,6 +374,12 @@ const App = () => {
     }
   };
 
+  const routeGroupKey = view.startsWith('strategy/')
+    ? 'cockpit'
+    : view.startsWith('trade/')
+      ? `trade:${view}`
+      : view;
+
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={0}>
       <AuthOverlay />
@@ -354,7 +388,9 @@ const App = () => {
       <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
         <PersistentAlertBanner />
         <Suspense fallback={<LoadingView />}>
-          {renderView()}
+          <SmoothSwap contentKey={routeGroupKey} duration={0.14} yOffset={3}>
+            {renderView()}
+          </SmoothSwap>
         </Suspense>
       </div>
     </TooltipProvider>

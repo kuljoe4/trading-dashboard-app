@@ -240,6 +240,108 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       mainSource.includes('warmRoutes'),
       'main.jsx LoadingView must mirror sidebar shell geometry and idle-preload lazy routes'
     );
+
+    const indexCssSource = fs.readFileSync(path.join(__dirname, '../index.css'), 'utf-8');
+    const symbolPickerSource = fs.readFileSync(path.join(__dirname, '../components/SymbolCatalogPicker.jsx'), 'utf-8');
+    const gaugeSource = fs.readFileSync(path.join(__dirname, '../components/ui/CandidateConditionsGauge.jsx'), 'utf-8');
+
+    assert.ok(
+      indexCssSource.includes('scrollbar-gutter: stable;'),
+      'index.css must set scrollbar-gutter: stable on html to prevent horizontal CLS on scrollbar appearance'
+    );
+
+    assert.ok(
+      dashboardViewSource.includes('const DashboardTopBannerDock = React.memo(') &&
+      dashboardViewSource.includes('fixed left-1/2 -translate-x-1/2') &&
+      dashboardViewSource.includes('pointer-events-none flex flex-col gap-1.5'),
+      'DashboardView BanBanner, Agreement banner, and GateBanner must render in a fixed out-of-flow top overlay dock for 0 CLS'
+    );
+
+    assert.ok(
+      symbolPickerSource.includes("compact ? 'h-52' : 'h-64'") &&
+      symbolPickerSource.includes("compact ? 'h-[246px]' : 'h-[294px]'"),
+      'SymbolCatalogPicker must reserve fixed scroll container heights to prevent CLS during async symbol loading and tab switches'
+    );
+
+    assert.ok(
+      gaugeSource.includes('[contain:layout_style]') &&
+      gaugeSource.includes("compact ? 'gap-2 min-h-[120px]' : 'gap-3 min-h-[168px]'"),
+      'CandidateConditionsGauge must enforce layout containment and reserved min-height to eliminate CLS across mode/filter transitions'
+    );
+  });
+
+  test('Geometry-matched zero-CLS skeletons are used across view transitions, Suspense mounts, and live sync events', () => {
+    const skeletonsSource = fs.readFileSync(path.join(__dirname, '../components/ui/Skeletons.jsx'), 'utf-8');
+    const indexCssSource = fs.readFileSync(path.join(__dirname, '../index.css'), 'utf-8');
+    const strategyDetailSource = fs.readFileSync(path.join(__dirname, '../views/StrategyDetailView.jsx'), 'utf-8');
+    const gaugeSource = fs.readFileSync(path.join(__dirname, '../components/ui/CandidateConditionsGauge.jsx'), 'utf-8');
+    const scannerOverlaySource = fs.readFileSync(path.join(__dirname, '../components/ScannerOverlay.jsx'), 'utf-8');
+    const scannerPreviewSource = fs.readFileSync(path.join(__dirname, '../components/ScannerPreview.jsx'), 'utf-8');
+    const tradesViewSource = fs.readFileSync(path.join(__dirname, '../views/TradesView.jsx'), 'utf-8');
+    const tradeDetailSource = fs.readFileSync(path.join(__dirname, '../views/TradeDetailView.jsx'), 'utf-8');
+    const historyViewSource = fs.readFileSync(path.join(__dirname, '../views/HistoryView.jsx'), 'utf-8');
+
+    for (const exportName of [
+      'SkeletonBlock',
+      'StrategyDetailSkeleton',
+      'ConditionCardsSkeleton',
+      'ScannerRowsSkeleton',
+      'ScannerPreviewRowsSkeleton',
+      'DecisionLogSkeleton',
+      'ChartPanelSkeleton',
+      'CalendarGridSkeleton',
+      'TradeDetailSkeleton',
+      'ActiveTradesSkeleton',
+      'HistorySessionsSkeleton',
+    ]) {
+      assert.ok(
+        skeletonsSource.includes(`export const ${exportName}`),
+        `Skeletons.jsx must export ${exportName}`
+      );
+    }
+
+    assert.ok(
+      indexCssSource.includes('@keyframes skeleton-shimmer') &&
+      indexCssSource.includes('.skeleton-shimmer::after') &&
+      indexCssSource.includes('html[data-low-glare="true"] .skeleton-shimmer::after'),
+      'index.css must provide GPU-composited .skeleton-shimmer with low-glare and reduced-motion disablement'
+    );
+
+    assert.ok(
+      dashboardViewSource.includes('<Suspense fallback={<StrategyDetailSkeleton />}>') &&
+      dashboardViewSource.includes('<Suspense fallback={<DecisionLogSkeleton />}>') &&
+      dashboardViewSource.includes('<Suspense fallback={<ScannerRowsSkeleton'),
+      'DashboardView Suspense slots must use geometry-matched skeletons'
+    );
+
+    assert.ok(
+      strategyDetailSource.includes('<Suspense fallback={<ChartPanelSkeleton') &&
+      strategyDetailSource.includes('<Suspense fallback={<CalendarGridSkeleton />}>') &&
+      strategyDetailSource.includes('isSyncing={isBatchSyncing}'),
+      'StrategyDetailView must render ChartPanelSkeleton, CalendarGridSkeleton, and wire isBatchSyncing to CandidateConditionsGauge'
+    );
+
+    assert.ok(
+      gaugeSource.includes('<ConditionCardsSkeleton') &&
+      gaugeSource.includes('isSyncing && !effectiveOpp?.isEntrySnapshot'),
+      'CandidateConditionsGauge must render ConditionCardsSkeleton in-place during kline sync'
+    );
+
+    assert.ok(
+      scannerOverlaySource.includes('<ScannerRowsSkeleton') &&
+      scannerPreviewSource.includes('<ScannerPreviewRowsSkeleton'),
+      'ScannerOverlay and ScannerPreview must render row skeletons while scanning/warming up'
+    );
+
+    assert.ok(
+      tradesViewSource.includes('<ActiveTradesSkeleton') &&
+      tradeDetailSource.includes('<TradeDetailSkeleton />') &&
+      historyViewSource.includes('<ChartPanelSkeleton') &&
+      historyViewSource.includes('<HistorySessionsSkeleton'),
+      'TradesView, TradeDetailView, and HistoryView must render zero-CLS skeletons during resume and initial REST hydration'
+    );
   });
 });
+
+
 

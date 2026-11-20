@@ -10,6 +10,7 @@ import { X, Shield, ChevronDown, ChevronUp, Activity, Clock, RefreshCw, PauseCir
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 import { WatchlistManager } from './WatchlistManager'
+import { ScannerRowsSkeleton } from './ui/Skeletons'
 
 export const StrategySelectorDropdown = React.memo(({
   allStrategies = [],
@@ -840,7 +841,11 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
   const [sortBy, setSortBy] = useState('score') // 'score' | 'score_asc' | 'pct_desc' | 'pct_asc' | 'vol_desc' | 'vol_asc' | 'symbol_asc' | 'symbol_desc' | 'proximity' | 'proximity_asc'
   const [rangeFilter, setRangeFilter] = useState('all') // 'all' | 'pos' | 'neg' | 'movers' | 'extreme'
 
-  const [isWatchlistCollapsed, setIsWatchlistCollapsed] = useState(true);
+  const [isWatchlistCollapsed, setIsWatchlistCollapsed] = useState(() => {
+    const hasExplicitSymbols = Array.isArray(strategyConfig?.symbols) && strategyConfig.symbols.length > 0;
+    const isGlobalOff = strategyConfig?.global_scanner_enabled === false;
+    return !(isGlobalOff && !hasExplicitSymbols);
+  });
 
   const handleToggleSort = React.useCallback((columnKey) => {
     setSortBy(prev => {
@@ -1210,47 +1215,70 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       {/* ==================== SCROLLABLE BODY (NON-STICKY WATCHLIST BAR + CANDIDATE ROWS) ==================== */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden touch-pan-y no-scrollbar min-h-0 pb-6 overscroll-contain relative z-0 w-full max-w-full min-w-0" data-vaul-no-drag>
         {/* Non-Sticky Target Strategy & Watchlist Summary Strip (scrolls away cleanly on mobile) */}
-        <div className="border-b border-border/50 bg-background/20 w-full max-w-full min-w-0">
-          <div className="flex items-center justify-between px-2.5 sm:px-3.5 py-1 min-h-[30px] gap-2 w-full max-w-full min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-              <Target size={11} className="text-accent shrink-0" />
-              <span className="text-[10px] font-black uppercase tracking-tight text-dim truncate max-w-[120px] sm:max-w-[200px]">
+        <div className="border-b border-border/50 bg-background/25 w-full max-w-full min-w-0">
+          <div className="flex items-center justify-between px-2.5 sm:px-3.5 py-1.5 min-h-[34px] gap-2 w-full max-w-full min-w-0">
+            <div className="flex items-center gap-2 min-w-0 overflow-hidden flex-1">
+              <Target size={12} className="text-accent shrink-0" />
+              <span className="text-[11px] font-semibold text-text truncate max-w-[130px] sm:max-w-[200px]">
                 {effectiveStrategyLabel || config?.strategy_label || 'Base Strategy'}
               </span>
               {strategyConfig.watchlist_max_symbols === 1 && strategyConfig.symbols?.length === 1 ? (
-                <span className="px-1.5 py-0.2 rounded bg-accent/15 border border-accent/30 text-accent font-mono text-[8.5px] font-bold shrink-0">
-                  Solo: {strategyConfig.symbols[0]}
+                <span className="px-1.5 py-0.5 rounded bg-accent/12 border border-accent/30 text-accent font-mono text-[10px] font-medium shrink-0">
+                  Solo: {strategyConfig.symbols[0].replace(/USDT$/, '')}
                 </span>
               ) : (
-                <span className="px-1.5 py-0.2 rounded bg-surface border border-border/60 text-dim font-mono text-[8.5px] font-bold shrink-0">
-                  Watchlist: <strong className="text-text">{strategyConfig.symbols?.length || 0}</strong>{strategyConfig.watchlist_max_symbols ? `/${strategyConfig.watchlist_max_symbols}` : ''}
+                <span className="text-[11px] font-mono text-muted shrink-0 tabular-nums">
+                  Static: <strong className="text-text">{strategyConfig.symbols?.length || 0}</strong>{strategyConfig.watchlist_max_symbols ? `/${strategyConfig.watchlist_max_symbols}` : ''}
                 </span>
+              )}
+              {isWatchlistCollapsed && Array.isArray(strategyConfig.symbols) && strategyConfig.symbols.length > 0 && (
+                <div className="hidden sm:flex items-center gap-1 min-w-0 overflow-hidden">
+                  {strategyConfig.symbols.slice(0, 4).map((sym) => (
+                    <span
+                      key={sym}
+                      className="px-1.5 py-0.5 rounded bg-surface border border-border/60 text-[10px] font-mono text-text shrink-0"
+                    >
+                      {sym.replace(/USDT$/, '')}
+                    </span>
+                  ))}
+                  {strategyConfig.symbols.length > 4 && (
+                    <span className="text-[10px] font-mono text-muted shrink-0">
+                      +{strategyConfig.symbols.length - 4}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
 
             <button
               type="button"
               onClick={() => setIsWatchlistCollapsed(!isWatchlistCollapsed)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface border border-border text-[8.5px] font-bold font-mono text-dim hover:text-text hover:border-accent/40 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-accent cursor-pointer shrink-0"
+              className={cn(
+                "flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer shrink-0",
+                !isWatchlistCollapsed
+                  ? "bg-accent/15 border-accent/40 text-accent"
+                  : "bg-surface border-border text-text hover:border-accent/40 hover:text-accent"
+              )}
               aria-label={isWatchlistCollapsed ? "Expand Watchlist Manager" : "Collapse Watchlist Manager"}
             >
-              <span>{isWatchlistCollapsed ? 'Watchlist' : 'Collapse'}</span>
-              {isWatchlistCollapsed ? <ChevronDown size={11} className="text-accent" /> : <ChevronUp size={11} />}
+              <span>{isWatchlistCollapsed ? 'Add / Manage Watchlist' : 'Hide Watchlist'}</span>
+              {isWatchlistCollapsed ? <ChevronDown size={12} className="text-accent" /> : <ChevronUp size={12} />}
             </button>
           </div>
 
-          <AnimatePresence>
+          <AnimatePresence initial={false}>
             {!isWatchlistCollapsed && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden border-t border-border/40 p-2 sm:p-2.5 bg-surface/50"
+                transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                className="overflow-hidden border-t border-border/40 p-2.5 sm:p-3 bg-surface/40"
               >
                 <WatchlistManager
                   activeStrategyLabel={effectiveStrategyLabel}
                   onSelectStrategy={setActiveStrategyTab}
+                  defaultPickerOpen={true}
                 />
               </motion.div>
             )}
@@ -1261,25 +1289,75 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
 
         {strategyScannerResults.length === 0 ? (
           isStrategyGated ? (
-            <div className="h-full min-h-[320px] flex flex-col items-center justify-center text-center p-6 gap-2.5 animate-in fade-in duration-300">
-              <div className="w-10 h-10 rounded-xl bg-amber/10 border border-amber/30 flex items-center justify-center text-amber shadow-xs">
-                <PauseCircle size={20} className="animate-pulse" />
+            <div className="h-full min-h-[280px] flex flex-col items-center justify-center text-center p-6 gap-2.5 animate-in fade-in duration-300">
+              <div className="w-10 h-10 rounded-xl bg-amber/10 border border-amber/30 flex items-center justify-center text-amber">
+                <PauseCircle size={20} />
               </div>
-              <div className="text-[12px] font-black uppercase tracking-wider text-amber">
+              <div className="text-xs font-semibold text-amber">
                 Scanning Paused for {effectiveStrategyLabel}
               </div>
-              <p className="text-[10.5px] text-dim max-w-md font-mono">
+              <p className="text-[11px] text-muted max-w-md">
                 {currentGateState === 'max_trades'
-                  ? 'Maximum open trades reached for this strategy. Candidate evaluation will resume once a trade closes.'
-                  : currentGateReason || 'Risk gating is active for this strategy. Scanning will resume once conditions normalize.'}
+                  ? 'Maximum open trades reached for this strategy. Candidate evaluation resumes once a trade closes.'
+                  : currentGateReason || 'Risk gating is active for this strategy. Scanning resumes once conditions normalize.'}
               </p>
+              {isWatchlistCollapsed && (
+                <button
+                  type="button"
+                  onClick={() => setIsWatchlistCollapsed(false)}
+                  className="mt-1 px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/35 text-accent text-xs font-medium hover:bg-accent/25 transition-colors cursor-pointer"
+                >
+                  Open Watchlist & Market Catalog
+                </button>
+              )}
+            </div>
+          ) : isPureStatic ? (
+            <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-muted gap-2.5 py-12 px-4 text-center">
+              <div className="w-10 h-10 rounded-xl bg-surface border border-border flex items-center justify-center text-accent/70">
+                <Layers size={18} />
+              </div>
+              <div className="text-xs font-medium text-text/85">
+                Static watchlist mode — add pairs directly from the market catalog.
+              </div>
+              <p className="text-[11px] text-muted max-w-sm">
+                Browse all Binance Futures pairs or copy a curated watchlist from another strategy right away.
+              </p>
+              {isWatchlistCollapsed && (
+                <button
+                  type="button"
+                  onClick={() => setIsWatchlistCollapsed(false)}
+                  className="mt-1 px-3.5 py-1.5 rounded-lg bg-accent/15 border border-accent/35 text-accent text-xs font-medium hover:bg-accent/25 transition-colors cursor-pointer"
+                >
+                  Browse Market Catalog &amp; Copy From Strategy
+                </button>
+              )}
             </div>
           ) : (
-            <div className="h-full min-h-[320px] flex flex-col items-center justify-center text-dim gap-2.5 py-16">
-              <RefreshCw size={20} className="animate-spin opacity-20" />
-              <div className="text-[12px] font-bold uppercase tracking-widest opacity-40 italic">
-                {isVariant ? `Scanning candidates for ${effectiveStrategyLabel}...` : 'Initializing scanner...'}
+            <div className="flex flex-col flex-1 min-h-[260px]">
+              <div className="px-4 py-2.5 border-b border-border/30 bg-surface/25 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-text/85">
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse motion-reduce:animate-none shrink-0" />
+                  <span>
+                    {isVariant
+                      ? `Scanning live candidates for ${effectiveStrategyLabel}...`
+                      : 'Synchronizing live market candidates...'}
+                  </span>
+                </div>
+                {isWatchlistCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => setIsWatchlistCollapsed(false)}
+                    className="px-2.5 py-1 rounded-md bg-accent/15 border border-accent/30 text-accent text-[11px] font-medium hover:bg-accent/25 transition-colors cursor-pointer"
+                  >
+                    Browse Catalog / Copy Strategy
+                  </button>
+                )}
               </div>
+              <ScannerRowsSkeleton
+                rows={6}
+                showHeader={false}
+                label={isVariant ? `Scanning candidates for ${effectiveStrategyLabel}` : 'Synchronizing scanner results'}
+              />
             </div>
           )
         ) : filteredResults.length === 0 ? (

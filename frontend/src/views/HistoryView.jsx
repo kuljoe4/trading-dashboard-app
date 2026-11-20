@@ -7,6 +7,8 @@ import { sessionAPI } from '../api/client'
 import { useTradingStore, normalizeTrade } from '../store/trading'
 import { resolveAdaptiveHistoryTradeLimit, resolveAdaptiveSessionLimit, filterHistorySessions, getNextAdaptiveTradeStep } from '../utils/periodicPerformance'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader, Btn } from '../components/ui/primitives'
+import { SmoothHeightContainer, SmoothSwap } from '../components/ui/SmoothMotion'
+import { ChartPanelSkeleton, HistorySessionsSkeleton } from '../components/ui/Skeletons'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { lazyWithRetry } from '../lib/lazy'
@@ -15,16 +17,9 @@ import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock
 
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 
-// Shimmer Skeleton Loader for individual charts to prevent layout shift and blank-out bubbling
+// Zero-CLS Shimmer Skeleton Loader for analytics charts (no spinner jump)
 export const ChartSkeleton = ({ height = 180 }) => (
-  <div
-    style={{ height }}
-    className="w-full bg-surface/30 rounded-xl border border-border/10 flex flex-col items-center justify-center relative overflow-hidden shadow-inner"
-  >
-    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent -translate-x-full animate-pulse-slow pointer-events-none" />
-    <Loader2 size={18} className="text-accent/50 animate-spin mb-2" />
-    <span className="text-[9px] text-dim/50 font-black uppercase tracking-widest animate-pulse">Loading Analytics Module...</span>
-  </div>
+  <ChartPanelSkeleton height={height} label="Loading analytics chart" />
 );
 
 // Accessible Session Details Modal using Radix Dialog
@@ -2584,10 +2579,11 @@ export const HistoryView = () => {
           </div>
         </ViewHeader>
 
+        <SmoothSwap contentKey={activeViewTab} duration={0.16} yOffset={4}>
         {activeViewTab === 'backtest' ? (
           <BacktestPanel onApplyConfig={handleApplyBacktestConfig} />
         ) : (
-          <>
+          <div>
 
         {/* Mobile-First Non-Sticky Filter Toolbar */}
         <div id="history-filter-toolbar" className="bg-surface/40 border border-border/50 rounded-2xl p-3 mb-5 flex flex-col gap-3 w-full">
@@ -2670,149 +2666,150 @@ export const HistoryView = () => {
             </div>
           </div>
 
-          {/* Unboxed Quiet Summary Strip when Collapsed */}
-          {!filtersExpanded && (
-            <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-dim tabular-nums pt-1 border-t border-border/15 flex-wrap">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span>Range: <strong className="text-text font-semibold">{timeRange}</strong></span>
-                <span aria-hidden="true" className="opacity-40">·</span>
-                <span>
-                  Trades: <strong className="text-accent font-semibold">
-                    {tradeLimit === 'AUTO'
-                      ? `Auto (${resolvedTradeLimitInfo.isKnown ? resolvedTradeLimitInfo.actualCount : resolvedTradeLimitInfo.limit})`
-                      : tradeLimit}
-                  </strong>
-                </span>
-                <span aria-hidden="true" className="opacity-40">·</span>
-                <span>
-                  Sessions: <strong className="text-accent font-semibold">
-                    {sessionLimit === 'AUTO'
-                      ? `Auto (${resolvedSessionLimitInfo.isKnown ? resolvedSessionLimitInfo.modeCount : sessionList.length})`
-                      : sessionLimit}
-                  </strong>
-                </span>
-                <span aria-hidden="true" className="opacity-40">·</span>
-                <span>Sort: <strong className="text-text font-semibold">{sortBy === 'time' ? 'Recent' : sortBy === 'pnl' ? 'Best P&L' : 'Win Rate'}</strong></span>
-                {hiddenEmptyCount > 0 && (
-                  <>
+          <SmoothHeightContainer duration={0.22}>
+            <SmoothSwap contentKey={filtersExpanded ? 'expanded' : 'collapsed'} duration={0.14} yOffset={2}>
+              {/* Unboxed Quiet Summary Strip when Collapsed */}
+              {!filtersExpanded ? (
+                <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-dim tabular-nums pt-1 border-t border-border/15 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span>Range: <strong className="text-text font-semibold">{timeRange}</strong></span>
                     <span aria-hidden="true" className="opacity-40">·</span>
-                    <button
-                      type="button"
-                      onClick={handleToggleHideEmptySessions}
-                      className="text-amber hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
-                    >
-                      {hiddenEmptyCount} empty hidden (show)
-                    </button>
-                  </>
-                )}
-                {!hideEmptySessions && (
-                  <>
+                    <span>
+                      Trades: <strong className="text-accent font-semibold">
+                        {tradeLimit === 'AUTO'
+                          ? `Auto (${resolvedTradeLimitInfo.isKnown ? resolvedTradeLimitInfo.actualCount : resolvedTradeLimitInfo.limit})`
+                          : tradeLimit}
+                      </strong>
+                    </span>
                     <span aria-hidden="true" className="opacity-40">·</span>
-                    <button
-                      type="button"
-                      onClick={handleToggleHideEmptySessions}
-                      className="text-accent hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
-                    >
-                      Showing empty (hide)
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+                    <span>
+                      Sessions: <strong className="text-accent font-semibold">
+                        {sessionLimit === 'AUTO'
+                          ? `Auto (${resolvedSessionLimitInfo.isKnown ? resolvedSessionLimitInfo.modeCount : sessionList.length})`
+                          : sessionLimit}
+                      </strong>
+                    </span>
+                    <span aria-hidden="true" className="opacity-40">·</span>
+                    <span>Sort: <strong className="text-text font-semibold">{sortBy === 'time' ? 'Recent' : sortBy === 'pnl' ? 'Best P&L' : 'Win Rate'}</strong></span>
+                    {hiddenEmptyCount > 0 && (
+                      <>
+                        <span aria-hidden="true" className="opacity-40">·</span>
+                        <button
+                          type="button"
+                          onClick={handleToggleHideEmptySessions}
+                          className="text-amber hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
+                        >
+                          {hiddenEmptyCount} empty hidden (show)
+                        </button>
+                      </>
+                    )}
+                    {!hideEmptySessions && (
+                      <>
+                        <span aria-hidden="true" className="opacity-40">·</span>
+                        <button
+                          type="button"
+                          onClick={handleToggleHideEmptySessions}
+                          className="text-accent hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
+                        >
+                          Showing empty (hide)
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="pt-2.5 border-t border-border/20 grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                   {/* Time Range Filter */}
+                   <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
+                      <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Range</span>
+                      {['24H', '7D', '30D', 'ALL'].map(r => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => handleTimeRangeChange(r)}
+                          aria-pressed={timeRange === r}
+                          aria-label={`Filter history to ${r} time range`}
+                          className={cn(
+                            "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                            timeRange === r ? "bg-accent text-white" : "text-dim hover:text-text"
+                          )}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                   </div>
 
-          {/* Collapsible Controls Panel (Range, Adaptive Trade Limit, Adaptive Session Limit, Sort) */}
-          {filtersExpanded && (
-            <div className="pt-2.5 border-t border-border/20 grid grid-cols-1 md:grid-cols-2 gap-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
-               {/* Time Range Filter */}
-               <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
-                  <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Range</span>
-                  {['24H', '7D', '30D', 'ALL'].map(r => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => handleTimeRangeChange(r)}
-                      aria-pressed={timeRange === r}
-                      aria-label={`Filter history to ${r} time range`}
-                      className={cn(
-                        "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                        timeRange === r ? "bg-accent text-white" : "text-dim hover:text-text"
-                      )}
-                    >
-                      {r}
-                    </button>
-                  ))}
-               </div>
+                   {/* Sort controls */}
+                   <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
+                      <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Sort</span>
+                      {[
+                        { id: 'time', label: 'Recent' },
+                        { id: 'pnl', label: 'Best P&L' },
+                        { id: 'winrate', label: 'Win Rate' }
+                      ].map(opt => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => handleSortByChange(opt.id)}
+                          aria-pressed={sortBy === opt.id}
+                          aria-label={`Sort sessions by ${opt.label}`}
+                          className={cn(
+                            "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                            sortBy === opt.id ? "bg-accent text-white" : "text-dim hover:text-text"
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                   </div>
 
-               {/* Sort controls */}
-               <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
-                  <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Sort</span>
-                  {[
-                    { id: 'time', label: 'Recent' },
-                    { id: 'pnl', label: 'Best P&L' },
-                    { id: 'winrate', label: 'Win Rate' }
-                  ].map(opt => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => handleSortByChange(opt.id)}
-                      aria-pressed={sortBy === opt.id}
-                      aria-label={`Sort sessions by ${opt.label}`}
-                      className={cn(
-                        "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                        sortBy === opt.id ? "bg-accent text-white" : "text-dim hover:text-text"
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-               </div>
+                   {/* Adaptive Trade Limit Selector */}
+                   <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
+                      <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Trades</span>
+                      {['AUTO', 50, 250, 1000, 'ALL'].map(l => (
+                        <button
+                          key={String(l)}
+                          type="button"
+                          onClick={() => handleTradeLimitChange(l)}
+                          aria-pressed={tradeLimit === l}
+                          aria-label={l === 'AUTO' ? 'Use adaptive trade history limit' : `Set trade history limit to ${l}`}
+                          className={cn(
+                            "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                            tradeLimit === l ? "bg-accent text-white" : "text-dim hover:text-text"
+                          )}
+                        >
+                          {l === 'AUTO'
+                            ? (resolvedTradeLimitInfo.isKnown ? `Auto (${resolvedTradeLimitInfo.actualCount})` : 'Auto')
+                            : l}
+                        </button>
+                      ))}
+                   </div>
 
-               {/* Adaptive Trade Limit Selector */}
-               <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
-                  <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Trades</span>
-                  {['AUTO', 50, 250, 1000, 'ALL'].map(l => (
-                    <button
-                      key={String(l)}
-                      type="button"
-                      onClick={() => handleTradeLimitChange(l)}
-                      aria-pressed={tradeLimit === l}
-                      aria-label={l === 'AUTO' ? 'Use adaptive trade history limit' : `Set trade history limit to ${l}`}
-                      className={cn(
-                        "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                        tradeLimit === l ? "bg-accent text-white" : "text-dim hover:text-text"
-                      )}
-                    >
-                      {l === 'AUTO'
-                        ? (resolvedTradeLimitInfo.isKnown ? `Auto (${resolvedTradeLimitInfo.actualCount})` : 'Auto')
-                        : l}
-                    </button>
-                  ))}
-               </div>
-
-               {/* Adaptive Session Limit Selector */}
-               <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
-                  <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Sessions</span>
-                  {['AUTO', 20, 50, 100, 'ALL'].map(sl => (
-                    <button
-                      key={String(sl)}
-                      type="button"
-                      onClick={() => handleSessionLimitChange(sl)}
-                      aria-pressed={sessionLimit === sl}
-                      aria-label={sl === 'AUTO' ? 'Use adaptive session history limit' : `Set session history limit to ${sl}`}
-                      className={cn(
-                        "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                        sessionLimit === sl ? "bg-accent text-white" : "text-dim hover:text-text"
-                      )}
-                    >
-                      {sl === 'AUTO'
-                        ? (resolvedSessionLimitInfo.isKnown ? `Auto (${resolvedSessionLimitInfo.modeCount})` : 'Auto')
-                        : sl}
-                    </button>
-                  ))}
-               </div>
-            </div>
-          )}
+                   {/* Adaptive Session Limit Selector */}
+                   <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
+                      <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Sessions</span>
+                      {['AUTO', 20, 50, 100, 'ALL'].map(sl => (
+                        <button
+                          key={String(sl)}
+                          type="button"
+                          onClick={() => handleSessionLimitChange(sl)}
+                          aria-pressed={sessionLimit === sl}
+                          aria-label={sl === 'AUTO' ? 'Use adaptive session history limit' : `Set session history limit to ${sl}`}
+                          className={cn(
+                            "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                            sessionLimit === sl ? "bg-accent text-white" : "text-dim hover:text-text"
+                          )}
+                        >
+                          {sl === 'AUTO'
+                            ? (resolvedSessionLimitInfo.isKnown ? `Auto (${resolvedSessionLimitInfo.modeCount})` : 'Auto')
+                            : sl}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+              )}
+            </SmoothSwap>
+          </SmoothHeightContainer>
         </div>
 
         {/* Modern Collapsible Analytics & Optimization Section */}
@@ -2900,12 +2897,13 @@ export const HistoryView = () => {
             </div>
           </div>
 
-          <AnimatePresence>
+          <AnimatePresence initial={false}>
             {analyticsExpanded && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
                 className="overflow-hidden bg-surface/5 border-x border-b border-border/50 rounded-b-2xl p-4 md:p-6 flex flex-col gap-6 md:gap-8"
               >
                 {/* 1. Stat Cards Grid (First 6) */}
@@ -3371,12 +3369,16 @@ export const HistoryView = () => {
           </div>
 
           {allSessionsWithTrades.length === 0 && orphans.length === 0 ? (
+            loading || isSyncing ? (
+              <HistorySessionsSkeleton count={3} />
+            ) : (
             <div className="bg-surface/20 border border-border border-dashed rounded-2xl p-12 sm:p-20 text-center">
               <div className="text-sm font-bold text-dim uppercase tracking-widest flex flex-col items-center gap-4">
                 <ArrowLeftRight size={40} className="opacity-10" />
                 No trade records found in this database.
               </div>
             </div>
+            )
           ) : (
             <div className="flex flex-col gap-3">
               <AnimatePresence mode="popLayout">
@@ -3553,8 +3555,9 @@ export const HistoryView = () => {
             </div>
           )}
         </div>
-        </>
+        </div>
         )}
+        </SmoothSwap>
         <BottomNav />
       </div>
       {selectedTrade && (

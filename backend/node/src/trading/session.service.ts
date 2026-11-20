@@ -4051,4 +4051,16 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     });
     return output;
   }
+
+  async getAvailableSymbols(includeNonUsdt = false) {
+    const symbols = await this.marketFeed.getAvailableSymbols({ includeNonUsdt });
+    const tradFiCount = symbols.filter((s) => s.assetClass === 'tradfi').length;
+    return {
+      symbols,
+      total: symbols.length,
+      tradfi_count: tradFiCount,
+      crypto_count: symbols.length - tradFiCount,
+      cached_at: Date.now(),
+    };
+  }
 }

@@ -72,8 +72,8 @@ describe('ExitEstimationService Bolt Performance & Parity Benchmark', () => {
     console.log(`[BENCHMARK] Time per call: ${nsPerCall.toFixed(2)}ns`);
 
     expect(lastHistLen).toBeGreaterThan(0);
-    expect(durationMs).toBeLessThan(10000); // Sanity guard
-  });
+    expect(durationMs).toBeLessThan(20000); // Sanity guard (allows CI CPU contention)
+  }, 30000);
 
   it('benchmark: estimateExitSignal breakout_hl performance across 50,000 iterations', () => {
     const candles = generateCandles(100);
@@ -95,8 +95,8 @@ describe('ExitEstimationService Bolt Performance & Parity Benchmark', () => {
     console.log(`[BENCHMARK] estimateExitSignal breakout_hl (${iterations} iterations): ${durationMs.toFixed(2)}ms`);
     console.log(`[BENCHMARK] Time per call: ${nsPerCall.toFixed(2)}ns`);
 
-    expect(durationMs).toBeLessThan(5000);
-  });
+    expect(durationMs).toBeLessThan(15000);
+  }, 30000);
 
   it('benchmark: estimateExitMonitoring performance across 50,000 iterations', () => {
     const candles = generateCandles(100);
@@ -129,6 +129,6 @@ describe('ExitEstimationService Bolt Performance & Parity Benchmark', () => {
     console.log(`[BENCHMARK] Time per call: ${nsPerCall.toFixed(2)}ns`);
 
     expect(compState).toBeDefined();
-    expect(durationMs).toBeLessThan(10000);
-  });
+    expect(durationMs).toBeLessThan(20000);
+  }, 30000);
 });

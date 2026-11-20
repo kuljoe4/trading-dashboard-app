@@ -59,6 +59,8 @@ export class SessionStateService {
   public strategyGateStates: Map<string, { gateState: string | null; gateReason: string | null; isAdaptiveTightened?: boolean }> = new Map();
   public hibernating = false;
   public agreementRequired = false;
+  public tradfiAgreementRequired = false;
+  public tradfiAgreementRequiredSince: number | null = null;
   public isAdaptiveTightened = false;
   public last_scan_ts = 0;
   public next_scan_ts = 0;
@@ -139,6 +141,8 @@ export class SessionStateService {
     this.strategyGateStates.clear();
     this.hibernating = false;
     this.agreementRequired = false;
+    this.tradfiAgreementRequired = false;
+    this.tradfiAgreementRequiredSince = null;
     this.isAdaptiveTightened = false;
     this.paused = !!config?.paused;
     // SRE: Preserve the existing weight limit and any active IP ban/cooldown during reset (AGENTS.md §8)

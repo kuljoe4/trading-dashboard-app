@@ -898,8 +898,18 @@ export class OrderManagerService {
       return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Circuit breaker is open' };
     }
 
+    const isTradFi = (filters as any)?.assetClass === 'tradfi';
     if (this.sessionState.agreementRequired) {
       return { status: ExecutionStatus.ORDER_REJECTED, error: 'Exchange agreement required. Please check Binance.' };
+    }
+    if (isTradFi && this.sessionState.tradfiAgreementRequired) {
+      const since = this.sessionState.tradfiAgreementRequiredSince || 0;
+      const PROBE_INTERVAL_MS = 15 * 60 * 1000;
+      if (Date.now() - since < PROBE_INTERVAL_MS) {
+        return { status: ExecutionStatus.ORDER_REJECTED, error: 'TradFi-Perps agreement required on Binance for stock/ETF futures.' };
+      }
+      // Allow a single probe attempt after cooldown in case user signed the agreement on Binance
+      this.sessionState.tradfiAgreementRequiredSince = Date.now();
     }
 
     // Zero-CPU Rate Limiter Guard
@@ -1328,6 +1338,10 @@ export class OrderManagerService {
           const msg = `Binance order placed: ${symbol} ${direction} @ ${Number(trade.entry_price)} qty=${qty} order_id=${entryReceipt.orderId} est_fee=${trade.realized_fee} SL=${slPrice}`;
           this.logger.log(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
+          if (isTradFi && this.sessionState.tradfiAgreementRequired) {
+            this.sessionState.tradfiAgreementRequired = false;
+            this.sessionState.tradfiAgreementRequiredSince = null;
+          }
 
           // Issue #3: Check for agreement requirement in responses (though usually it comes as an error)
           if (entryReceipt.msg && entryReceipt.msg.includes('agreement')) {
@@ -1436,8 +1450,13 @@ export class OrderManagerService {
           }
 
           let agreementMsg = `[${symbol}] Binance entry failed: ${errMsg}`;
-          if (errMsg.includes('agreement') || errMsg.includes('TradFi-Perps')) {
-            agreementMsg = `CRITICAL: Binance agreement required. Please sign TradFi-Perps on Binance website. (${errMsg})`;
+          const isTradFiAgreementErr = errMsg.includes('TradFi-Perps') || (errMsg.includes('agreement') && isTradFi);
+          if (isTradFiAgreementErr) {
+            agreementMsg = `TradFi-Perps agreement required on Binance to trade ${symbol} (stock/ETF futures). Crypto perpetuals remain unaffected. (${errMsg})`;
+            this.sessionState.tradfiAgreementRequired = true;
+            this.sessionState.tradfiAgreementRequiredSince = Date.now();
+          } else if (errMsg.includes('agreement')) {
+            agreementMsg = `CRITICAL: Binance agreement required. Please check Binance website. (${errMsg})`;
             this.sessionState.agreementRequired = true;
           } else if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient') || errMsg.includes('-2019') || errMsg.includes('-2010')) {
             agreementMsg = `CRITICAL: Insufficient funds on Binance USDS-M account to open ${symbol} (Error -2019/-2010).`;
@@ -2039,10 +2058,17 @@ export class OrderManagerService {
             msg: `CRITICAL: Insufficient funds for SL placement on ${trade.symbol}. Unwind may be required.`,
             level: 'error'
          });
-      } else if (errMsg.includes('agreement') || errMsg.includes('TradFi-Perps')) {
+      } else if (errMsg.includes('TradFi-Perps') || (errMsg.includes('agreement') && (this.marketFeed.getSymbolFilters(trade.symbol) as any)?.assetClass === 'tradfi')) {
+         this.sessionState.tradfiAgreementRequired = true;
+         this.sessionState.tradfiAgreementRequiredSince = Date.now();
+         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+            msg: `TradFi-Perps agreement required for ${trade.symbol} SL placement. Please sign TradFi-Perps on Binance (crypto perpetuals unaffected).`,
+            level: 'error'
+         });
+      } else if (errMsg.includes('agreement')) {
          this.sessionState.agreementRequired = true;
          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-            msg: `CRITICAL: Agreement required for ${trade.symbol} SL placement. Please sign the TradFi-Perps agreement on Binance.`,
+            msg: `CRITICAL: Agreement required for ${trade.symbol} SL placement. Please check Binance.`,
             level: 'error'
          });
       }

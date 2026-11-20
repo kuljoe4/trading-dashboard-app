@@ -409,6 +409,36 @@ export class ExecutionService {
           continue;
         }
 
+        // Agreement gate fast-fail: prevent per-symbol cooldown spam and keep crypto trading uninterrupted when only TradFi-Perps agreement is missing
+        if (!config.paper_mode) {
+          if (this.sessionState.agreementRequired) {
+            this.emitEntrySkipLog(
+              opp.symbol,
+              currentStrategyLabel,
+              'agreement_required',
+              'exchange agreement required on Binance',
+              'warn',
+              5 * 60 * 1000,
+            );
+            continue;
+          }
+          const isTradFiSym = (this.marketFeedService.getSymbolFilters?.(opp.symbol) as any)?.assetClass === 'tradfi';
+          if (isTradFiSym && this.sessionState.tradfiAgreementRequired) {
+            const since = this.sessionState.tradfiAgreementRequiredSince || 0;
+            if (Date.now() - since < 15 * 60 * 1000) {
+              this.emitEntrySkipLog(
+                opp.symbol,
+                currentStrategyLabel,
+                'tradfi_agreement_required',
+                'TradFi-Perps agreement required on Binance (stock/ETF futures paused; crypto unaffected)',
+                'warn',
+                10 * 60 * 1000,
+              );
+              continue;
+            }
+          }
+        }
+
         // Enforce allowed entry side ('both' | 'long' | 'short')
         const allowedSide = (resolvedConfig.entry_side || 'both').toLowerCase();
         const oppDirection = (opp.direction || '').toUpperCase();
@@ -1020,12 +1050,29 @@ export class ExecutionService {
               }
             }
 
-            // BOLT: Only apply symbol-specific cooldown if it wasn't a global circuit breaker trip (e.g. ban/weight)
+            // BOLT: Only apply symbol-specific cooldown if it wasn't a global/category gate (circuit breaker or exchange agreement)
             const isCircuitOpen = result.status === ExecutionStatus.CIRCUIT_OPEN;
+            const errStr = String(result.error || '');
+            const isAgreementGate =
+              errStr.includes('TradFi-Perps agreement required') ||
+              errStr.includes('Exchange agreement required') ||
+              errStr.includes('Binance agreement required');
 
             if (isCircuitOpen) {
               this.logger.warn(`${opp.symbol}: Entry blocked (${mode}) due to global circuit breaker (${result.status}). Error: ${result.error}`);
               this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'circuit_open', `entry blocked by global circuit breaker (${result.error || result.status})`, 'warn');
+            } else if (isAgreementGate) {
+              const isTradFiOnly = errStr.includes('TradFi-Perps');
+              this.emitEntrySkipLog(
+                opp.symbol,
+                currentStrategyLabel,
+                isTradFiOnly ? 'tradfi_agreement_required' : 'agreement_required',
+                isTradFiOnly
+                  ? 'TradFi-Perps agreement required on Binance (stock/ETF futures paused; crypto unaffected)'
+                  : 'exchange agreement required on Binance',
+                'warn',
+                10 * 60 * 1000,
+              );
             } else {
               const failureKey = `${mode}:${currentStrategyLabel}:${opp.symbol}`;
               const failures = (this.consecutiveFailures.get(failureKey) || 0) + 1;

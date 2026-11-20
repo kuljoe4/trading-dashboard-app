@@ -716,6 +716,8 @@ export class EngineBroadcasterService {
       hibernating: this.sessionState.hibernating,
       hibernation_mode: config.hibernation_mode || 'adaptive',
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
+      agreementRequired: this.sessionState.agreementRequired,
+      tradfiAgreementRequired: this.sessionState.tradfiAgreementRequired,
       paused: this.sessionState.paused,
       paused_strategies: (this.sessionState.pausedStrategies && this.sessionState.pausedStrategies.size > 0)
         ? Array.from(this.sessionState.pausedStrategies)

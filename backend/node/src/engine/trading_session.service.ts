@@ -735,7 +735,7 @@ export class TradingSessionService implements OnApplicationShutdown {
           }
           const sc = t.strategy_config || strategyConfigs.find((c) => c.strategy_label === t.strategy_label) || this.config;
           const hasExitRules = Boolean(
-            sc?.use_exit_signals ||
+            (sc as any)?.use_exit_signals ||
             sc?.trigger_candle_exit_enabled ||
             (Array.isArray(sc?.exit_signals) && sc.exit_signals.length > 0)
           );
@@ -1581,6 +1581,8 @@ export class TradingSessionService implements OnApplicationShutdown {
       hibernation_mode: this.config?.hibernation_mode || "adaptive",
       gateState: this.sessionState.gateState,
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
+      agreementRequired: this.sessionState.agreementRequired,
+      tradfiAgreementRequired: this.sessionState.tradfiAgreementRequired,
       scannerPaused:
         this.sessionState.gateState === "max_trades" ||
         this.sessionState.gateState === "sl_guard" ||
@@ -1873,6 +1875,8 @@ export class TradingSessionService implements OnApplicationShutdown {
       gateState: this.sessionState.gateState,
       hibernating: this.sessionState.hibernating,
       isAdaptiveTightened: lastRisk?.isAdaptiveTightened ?? false,
+      agreementRequired: this.sessionState.agreementRequired,
+      tradfiAgreementRequired: this.sessionState.tradfiAgreementRequired,
       tradesInPeriod: lastRisk?.tradesInPeriod,
       maxTradesPeriod: lastRisk?.maxTradesPeriod,
       tradesIn24h: lastRisk?.tradesIn24h,
@@ -1889,6 +1893,21 @@ export class TradingSessionService implements OnApplicationShutdown {
         .map((t) =>
           this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price, true),
         ),
+    };
+  }
+
+  resetAgreementRequirement() {
+    this.sessionState.agreementRequired = false;
+    this.sessionState.tradfiAgreementRequired = false;
+    this.sessionState.tradfiAgreementRequiredSince = null;
+    this.broadcast("tick", {
+      agreementRequired: false,
+      tradfiAgreementRequired: false,
+    });
+    return {
+      status: "ok",
+      agreementRequired: false,
+      tradfiAgreementRequired: false,
     };
   }
 

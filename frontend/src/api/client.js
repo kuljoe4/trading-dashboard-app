@@ -391,6 +391,7 @@ export const createSessionAPI = (apiInstance = api) => ({
     ...payload,
     config: sanitizeSessionConfig(payload.config || {}),
   }),
+  resetAgreementRequirement: () => apiInstance.post('/session/agreement/reset'),
 })
 
 export const sessionAPI = createSessionAPI()

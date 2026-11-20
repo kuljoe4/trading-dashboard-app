@@ -494,6 +494,11 @@ export class SessionController {
     return this.sessionService.getLifetimeAnalytics(mode);
   }
 
+  @Post("agreement/reset")
+  async resetAgreementRequirement() {
+    return this.sessionService.resetAgreementRequirement();
+  }
+
   @Post("reset-paper-balance")
   async resetPaperBalance(@Req() req: Request) {
     const clientIp =

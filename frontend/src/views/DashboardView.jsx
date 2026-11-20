@@ -1196,7 +1196,7 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 })
 GateBanner.displayName = 'GateBanner'
 
-const DashboardTopBannerDock = React.memo(({ apiStatus, agreementRequired, gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, showResumingFeedback, onManage }) => {
+const DashboardTopBannerDock = React.memo(({ apiStatus, agreementRequired, tradfiAgreementRequired, gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, showResumingFeedback, onManage, onResetAgreement }) => {
   const hasTopConnectivityAlert = useTradingStore(state => Boolean((state.wsStatus === 'error' && state.wsError) || state.apiError || state.wsStatus === 'reconnecting'));
 
   return (
@@ -1222,16 +1222,63 @@ const DashboardTopBannerDock = React.memo(({ apiStatus, agreementRequired, gateS
             <AlertCircle size={13} className="text-red shrink-0" aria-hidden="true" />
             <span className="font-semibold text-red shrink-0">Agreement Required</span>
             <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
-            <span className="text-muted truncate">Sign Binance TradFi-Perps agreement to unlock trading.</span>
+            <span className="text-muted truncate">Sign Binance Futures agreement to unlock live trading.</span>
           </div>
-          <a
-            href="https://www.binance.com/en/futures/BTCUSDT"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-2 py-0.5 rounded bg-red/15 hover:bg-red/25 border border-red/30 text-[10.5px] font-semibold text-red transition-colors shrink-0"
-          >
-            Open Binance
-          </a>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onResetAgreement && (
+              <button
+                type="button"
+                onClick={onResetAgreement}
+                className="px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 border border-border text-[10.5px] font-semibold text-fg transition-colors cursor-pointer"
+              >
+                Retry
+              </button>
+            )}
+            <a
+              href="https://www.binance.com/en/futures/BTCUSDT"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2 py-0.5 rounded bg-red/15 hover:bg-red/25 border border-red/30 text-[10.5px] font-semibold text-red transition-colors"
+            >
+              Open Binance
+            </a>
+          </div>
+        </motion.div>
+      )}
+
+      {!agreementRequired && Boolean(tradfiAgreementRequired) && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          role="status"
+          className="pointer-events-auto px-3 py-1.5 rounded-lg bg-surface/95 backdrop-blur-md border border-amber/40 text-[11px] shadow-lg flex items-center justify-between gap-2.5"
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <AlertCircle size={13} className="text-amber shrink-0" aria-hidden="true" />
+            <span className="font-semibold text-amber shrink-0">TradFi-Perps Agreement</span>
+            <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
+            <span className="text-muted truncate">Stock/ETF futures paused until signed on Binance (crypto pairs unaffected).</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onResetAgreement && (
+              <button
+                type="button"
+                onClick={onResetAgreement}
+                className="px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 border border-border text-[10.5px] font-semibold text-fg transition-colors cursor-pointer"
+              >
+                Retry TradFi
+              </button>
+            )}
+            <a
+              href="https://www.binance.com/en/futures/BTCUSDT"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2 py-0.5 rounded bg-amber/15 hover:bg-amber/25 border border-amber/30 text-[10.5px] font-semibold text-amber transition-colors"
+            >
+              Open Binance
+            </a>
+          </div>
         </motion.div>
       )}
 
@@ -1624,7 +1671,7 @@ export function DashboardView({ initialStrategy }) {
   const {
     sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, activePnl: storeActivePnl, realizedPnl: storeRealizedPnl, lastKnownPnl, totalRiskPct,
     totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
-    updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
+    updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired, tradfiAgreementRequired,
     scannerPaused, scannerResults, sessionList, fetchSessions, wsStatus,
     updateStats, analytics, stats, lastUdsBalanceReason, lastUdsBalanceTs,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
@@ -1654,6 +1701,7 @@ export function DashboardView({ initialStrategy }) {
     hibernating: state.hibernating,
     hibernationMode: state.hibernationMode,
     agreementRequired: state.agreementRequired,
+    tradfiAgreementRequired: state.tradfiAgreementRequired,
     scannerPaused: state.scannerPaused,
     scannerResults: state.scannerResults || [],
     alerts: state.alerts,
@@ -2438,6 +2486,7 @@ export function DashboardView({ initialStrategy }) {
         <DashboardTopBannerDock
           apiStatus={apiStatus}
           agreementRequired={agreementRequired}
+          tradfiAgreementRequired={tradfiAgreementRequired}
           gateState={gateState}
           scannerPaused={scannerPaused}
           reason={gateReason}
@@ -2447,6 +2496,14 @@ export function DashboardView({ initialStrategy }) {
           activeTradesCount={activeTrades.length}
           showResumingFeedback={showResumingFeedback}
           onManage={handleEditPrimary}
+          onResetAgreement={async () => {
+            try {
+              await sessionAPI.resetAgreementRequirement();
+              useTradingStore.setState({ agreementRequired: false, tradfiAgreementRequired: false });
+            } catch (e) {
+              console.error('Failed to reset agreement requirement', e);
+            }
+          }}
         />
 
         {/* Unified Portfolio & Risk Limits Strip */}

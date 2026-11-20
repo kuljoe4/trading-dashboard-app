@@ -559,8 +559,9 @@ export class MarketFeedService {
           level: 'info'
         });
         // Refresh the watchlist now that the cache has candidates.
-        if (this.currentConfig) {
-          this.updateWatchlist(this.currentConfig).catch(() => {});
+        const latestCfg = this.sessionState?.config || this.currentConfig;
+        if (latestCfg) {
+          this.updateWatchlist(latestCfg).catch(() => {});
         }
       }
     } catch (err) {
@@ -595,9 +596,10 @@ export class MarketFeedService {
   private async startWatchlistManager(config: SessionConfig) {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     this.zeroWatchlistCycles = 0;
-    this.updateWatchlist(config);
+    this.updateWatchlist(this.sessionState?.config || this.currentConfig || config);
     this.watchlistInterval = setInterval(() => {
-      this.updateWatchlist(config);
+      const activeConfig = this.sessionState?.config || this.currentConfig || config;
+      this.updateWatchlist(activeConfig);
 
       if (this.activeWatchlist.size === 0) {
         this.zeroWatchlistCycles++;
@@ -1033,10 +1035,16 @@ export class MarketFeedService {
           if (hibMode !== 'light' && isStrategyGatedFn(scLabel) && !canStrategyBypassKnifeFn(sc, scLabel)) continue;
 
           let scSymbols = symbols;
+          const rootHasStatic = Boolean(config.symbols && config.symbols.length > 0);
           if (sc !== config) {
             if (sc.symbols && sc.symbols.length > 0) {
               scSymbols = sc.symbols.filter(s => !activeSymbolList.includes(s));
             } else {
+              const scExcludedSet = new Set<string>(activeExcludedSet);
+              if (sc.excluded_symbols && Array.isArray(sc.excluded_symbols)) {
+                sc.excluded_symbols.forEach(s => scExcludedSet.add(s));
+              }
+              const scCombinedExcluded = Array.from(scExcludedSet);
               const effectiveDiscoveryMode = sc.discovery_mode || config.discovery_mode || 'volume';
               const effectiveWatchlistSize = sc.watchlist_size || config.watchlist_size || 50;
               const isScChangeDiscovery =
@@ -1047,20 +1055,51 @@ export class MarketFeedService {
               const isDifferentDiscovery = sc.discovery_mode !== undefined && sc.discovery_mode !== config.discovery_mode;
               const isDifferentSize = sc.watchlist_size !== undefined && sc.watchlist_size !== config.watchlist_size;
               const isDifferentOffset = sc.watchlist_offset !== undefined && sc.watchlist_offset !== (config.watchlist_offset || 0);
+              const isDifferentSmart = Boolean(sc.smart_watchlist_enabled) !== Boolean(config.smart_watchlist_enabled);
+              const hasVariantExclusions = Boolean(sc.excluded_symbols && sc.excluded_symbols.length > 0);
 
-              if (isDifferentDiscovery || isDifferentSize || isDifferentOffset || isScChangeDiscovery) {
+              if (sc.smart_watchlist_enabled) {
+                const sensitivity = sc.smart_watchlist_sensitivity || 0.7;
+                const threshold = (sc.scan_pct_threshold || 2.0) * sensitivity;
+                const tickers = this.tickerCache.getLatestTickers();
+                const smartCandidates = tickers
+                  .filter(t => {
+                    if (scExcludedSet.has(t.symbol)) return false;
+                    if (this.getSymbolFilters(t.symbol) === undefined) return false;
+                    if (t.open_24h && t.open_24h > 0) {
+                      const momentum = Math.abs((t.price - t.open_24h) / t.open_24h) * 100;
+                      return momentum >= threshold;
+                    }
+                    return false;
+                  })
+                  .sort((a, b) => b.volume_24h - a.volume_24h)
+                  .slice(0, effectiveWatchlistSize)
+                  .map(t => t.symbol);
+                const leaderCount = Math.max(1, Math.floor(effectiveWatchlistSize / 2));
+                const scTop = effectiveDiscoveryMode === 'change_pct'
+                  ? await this.tickerCache.topByChangePct(Math.max(leaderCount, 3), scCombinedExcluded)
+                  : effectiveDiscoveryMode === 'loss_pct'
+                    ? await this.tickerCache.topByLossPct(Math.max(leaderCount, 3), scCombinedExcluded)
+                    : effectiveDiscoveryMode === 'abs_change_pct'
+                      ? await this.tickerCache.topByAbsChangePct(Math.max(leaderCount, 3), scCombinedExcluded)
+                      : await this.tickerCache.topByVolume(leaderCount, scCombinedExcluded);
+                scSymbols = Array.from(new Set([
+                  ...smartCandidates,
+                  ...scTop.map((t: any) => t.symbol).filter(s => this.getSymbolFilters(s) !== undefined && !scExcludedSet.has(s)),
+                ]));
+              } else if (rootHasStatic || isDifferentDiscovery || isDifferentSize || isDifferentOffset || isDifferentSmart || hasVariantExclusions || isScChangeDiscovery) {
                 const scOffset = sc.watchlist_offset || 0;
                 const scTop = effectiveDiscoveryMode === 'change_pct'
-                  ? await this.tickerCache.topByChangePct(feedVariantSize + scOffset, combinedExcluded)
+                  ? await this.tickerCache.topByChangePct(feedVariantSize + scOffset, scCombinedExcluded)
                   : effectiveDiscoveryMode === 'loss_pct'
-                    ? await this.tickerCache.topByLossPct(feedVariantSize + scOffset, combinedExcluded)
+                    ? await this.tickerCache.topByLossPct(feedVariantSize + scOffset, scCombinedExcluded)
                     : effectiveDiscoveryMode === 'abs_change_pct'
-                      ? await this.tickerCache.topByAbsChangePct(feedVariantSize + scOffset, combinedExcluded)
-                      : await this.tickerCache.topByVolume(feedVariantSize + scOffset, combinedExcluded);
+                      ? await this.tickerCache.topByAbsChangePct(feedVariantSize + scOffset, scCombinedExcluded)
+                      : await this.tickerCache.topByVolume(feedVariantSize + scOffset, scCombinedExcluded);
                 scSymbols = scTop
                   .slice(scOffset)
                   .map((t: any) => t.symbol)
-                  .filter(s => this.getSymbolFilters(s) !== undefined && !activeExcludedSet.has(s));
+                  .filter(s => this.getSymbolFilters(s) !== undefined && !scExcludedSet.has(s));
               }
             }
           }

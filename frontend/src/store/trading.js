@@ -349,6 +349,10 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
       last_cross_direction: source.htf_ema_cross_perf.last_cross_direction
     } : undefined,
     lastUpdate: effectiveLastUpdate,
+    sl_dist_pct: source.sl_dist_pct !== undefined && source.sl_dist_pct !== null ? toNumber(source.sl_dist_pct) : undefined,
+    raw_sl_dist_pct: source.raw_sl_dist_pct !== undefined && source.raw_sl_dist_pct !== null ? toNumber(source.raw_sl_dist_pct) : undefined,
+    prospect_rr: source.prospect_rr !== undefined && source.prospect_rr !== null ? toNumber(source.prospect_rr) : undefined,
+    sl_price: source.sl_price !== undefined && source.sl_price !== null ? toNumber(source.sl_price) : undefined,
     signalResult: source.signalResult && typeof source.signalResult === 'object' ? {
       allFired: !!source.signalResult.allFired,
       firedSignals: Array.isArray(source.signalResult.firedSignals) ? source.signalResult.firedSignals.map(s => String(s)) : [],
@@ -414,7 +418,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   const sigDigest = sig ? `${sig.allFired ? 1 : 0}|${(sig.firedSignals || []).join(',')}|${sig.reason}|${sigDetailsDigest}` : '';
   const sb = res.score_breakdown;
   const sbDigest = sb ? `${sb.momentum}:${sb.volatility}:${sb.trend}:${sb.htf_ema_cross || 0}` : '';
-  const f = `${res.symbol}:${res.pct}:${res.momentum}:${res.dir}:${res.vol}:${res.score}:${res.price}:${res.volume_rank}:${sbDigest}:${sigDigest}`;
+  const f = `${res.symbol}:${res.pct}:${res.momentum}:${res.dir}:${res.vol}:${res.score}:${res.price}:${res.volume_rank}:${res.sl_dist_pct ?? ''}:${res.raw_sl_dist_pct ?? ''}:${res.prospect_rr ?? ''}:${sbDigest}:${sigDigest}`;
   if (prev && prev._fingerprint === f && !o._delta && !o._thin) {
     return prev;
   }
@@ -426,6 +430,10 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
     if (!res.ohlc_history || res.ohlc_history.length === 0) res.ohlc_history = prev.ohlc_history;
     if (!res.score_breakdown) res.score_breakdown = prev.score_breakdown;
     if (!res.signalResult) res.signalResult = prev.signalResult;
+    if (res.sl_dist_pct === undefined && prev.sl_dist_pct !== undefined) res.sl_dist_pct = prev.sl_dist_pct;
+    if (res.raw_sl_dist_pct === undefined && prev.raw_sl_dist_pct !== undefined) res.raw_sl_dist_pct = prev.raw_sl_dist_pct;
+    if (res.prospect_rr === undefined && prev.prospect_rr !== undefined) res.prospect_rr = prev.prospect_rr;
+    if (res.sl_price === undefined && prev.sl_price !== undefined) res.sl_price = prev.sl_price;
   }
   return res;
 }
@@ -750,6 +758,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   effectivePeriodMs: undefined, jitterFactor: undefined,
   entryCount: 0, hitCount: 0,
   alerts: [],
+  initialStatusLoaded: false,
   isSyncing: false, isSyncingOnResume: false, configSyncing: false,
   debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
   rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 },
@@ -1441,6 +1450,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
     if (isAuthoritative) {
       merged.isSyncingOnResume = isUnpricedSnapshot;
+      merged.initialStatusLoaded = true;
     }
     merged.lastAuthoritativeUpdateTs = Date.now();
 

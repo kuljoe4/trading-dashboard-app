@@ -1,14 +1,47 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { SystemMetrics } from './SystemMetrics'
 import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap, Plus, Keyboard } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
 
 const preloadView = (path) => {
-  if (path === '/') import('../views/DashboardView');
-  else if (path === '/trades') import('../views/TradesView');
-  else if (path === '/history') import('../views/HistoryView');
-  else if (path === '/settings') import('../views/SettingsView');
+  if (path === '/') {
+    import('../views/DashboardView');
+    import('../views/StrategyDetailView');
+  } else if (path === '/trades') {
+    import('../views/TradesView');
+    import('../views/TradeDetailView');
+  } else if (path === '/history') {
+    import('../views/HistoryView');
+  } else if (path === '/settings') {
+    import('../views/SettingsView');
+  }
+};
+
+const useActiveHash = (activeRoute) => {
+  const [hash, setHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : '#/'));
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onHashChange = () => setHash(window.location.hash || '#/');
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  return (path) => {
+    if (activeRoute) {
+      if (path === '/') return activeRoute === 'cockpit' || activeRoute === 'dashboard' || activeRoute.startsWith('strategy/');
+      if (path === '/trades') return activeRoute === 'trades' || activeRoute.startsWith('trade/');
+      return activeRoute === path.slice(1) || activeRoute.startsWith(`${path.slice(1)}/`);
+    }
+    if (path === '/') {
+      return hash === '#/' || hash === '' || hash.startsWith('#/strategy/');
+    }
+    if (path === '/trades') {
+      return hash.startsWith('#/trades') || hash.startsWith('#/trade/');
+    }
+    return hash.startsWith(`#${path}`);
+  };
 };
 
 const NAV_ITEMS = [
@@ -18,18 +51,11 @@ const NAV_ITEMS = [
   { path: '/settings', label: 'Settings', icon: SettingsIcon, shortcut: '4' },
 ]
 
-export const Sidebar = ({ selected }) => {
+export const Sidebar = ({ selected, activeRoute }) => {
   const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, rateLimitLastSync, apiStatus, gateState, isEcoMode, isSyncing, sessionActive, activeTrades, config } = useTradingStore()
   const [isHovered, setIsHovered] = React.useState(false)
   const isExpanded = !collapsed || isHovered
-
-  const isActive = (path) => {
-    if (path === '/') {
-      const h = window.location.hash;
-      return h === '#/' || h === '' || h.startsWith('#/strategy/');
-    }
-    return window.location.hash.startsWith(`#${path}`)
-  }
+  const isActive = useActiveHash(activeRoute)
 
   const triggerScanner = () => window.dispatchEvent(new Event('toggle-scanner'))
 
@@ -47,6 +73,7 @@ export const Sidebar = ({ selected }) => {
           type="button"
           onClick={() => { window.location.hash = '#/'; }}
           onMouseEnter={() => preloadView('/')}
+          onFocus={() => preloadView('/')}
           aria-label="Momentum Cockpit Home"
           className={cn("flex items-center gap-3 mb-8 text-left group/brand focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer transition-opacity hover:opacity-95 relative shrink-0", !isExpanded && "justify-center")}
         >
@@ -73,6 +100,8 @@ export const Sidebar = ({ selected }) => {
               type="button"
               onClick={() => window.location.hash = `#${item.path}`}
               onMouseEnter={() => preloadView(item.path)}
+              onFocus={() => preloadView(item.path)}
+              onTouchStart={() => preloadView(item.path)}
               aria-label={`${item.label}${item.path === '/trades' && activeTrades?.length > 0 ? ` (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : ''}${item.shortcut ? ` [${item.shortcut}]` : ''}`}
               aria-current={isActive(item.path) ? 'page' : undefined}
               className={cn(
@@ -184,15 +213,9 @@ export const MobileHealthBar = () => {
   )
 }
 
-export const BottomNav = ({ selected }) => {
-  const { wsStatus, monitoring, rateLimit, rateLimitLastSync, gateState, isEcoMode, healthEnabled, isSyncing, activeTrades } = useTradingStore()
-  const isActive = (path) => {
-    if (path === '/') {
-      const h = window.location.hash;
-      return h === '#/' || h === '' || h.startsWith('#/strategy/');
-    }
-    return window.location.hash.startsWith(`#${path}`)
-  }
+export const BottomNav = ({ selected, activeRoute }) => {
+  const { isSyncing, activeTrades } = useTradingStore()
+  const isActive = useActiveHash(activeRoute)
 
   return (
     <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-border z-[60] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
@@ -214,6 +237,8 @@ export const BottomNav = ({ selected }) => {
             type="button"
             onClick={() => window.location.hash = `#${item.path}`}
             onMouseEnter={() => preloadView(item.path)}
+            onFocus={() => preloadView(item.path)}
+            onTouchStart={() => preloadView(item.path)}
             aria-label={item.path === '/trades' && activeTrades?.length > 0 ? `${item.label} (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : item.label}
             aria-current={isActive(item.path) ? 'page' : undefined}
             className={cn(
@@ -224,7 +249,7 @@ export const BottomNav = ({ selected }) => {
             <div className="relative">
               <item.icon size={20} />
               {item.path === '/trades' && activeTrades?.length > 0 && (
-                <span className="absolute -top-1.5 -right-2 bg-accent text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center border border-surface shadow-sm animate-in zoom-in duration-300">
+                <span className="absolute -top-1.5 -right-2 bg-accent text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center border border-surface shadow-sm">
                   {activeTrades.length}
                 </span>
               )}
@@ -236,3 +261,4 @@ export const BottomNav = ({ selected }) => {
     </div>
   )
 }
+

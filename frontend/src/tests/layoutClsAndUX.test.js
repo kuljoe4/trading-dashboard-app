@@ -341,6 +341,58 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       'TradesView, TradeDetailView, and HistoryView must render zero-CLS skeletons during resume and initial REST hydration'
     );
   });
+
+  test('Persistent App navigation shell, non-blanking transitions, and full-route skeletons are wired cleanly', () => {
+    const mainSource = fs.readFileSync(path.join(__dirname, '../main.jsx'), 'utf-8');
+    const smoothMotionSource = fs.readFileSync(path.join(__dirname, '../components/ui/SmoothMotion.jsx'), 'utf-8');
+    const historyViewSource = fs.readFileSync(path.join(__dirname, '../views/HistoryView.jsx'), 'utf-8');
+    const tradesViewSource = fs.readFileSync(path.join(__dirname, '../views/TradesView.jsx'), 'utf-8');
+    const backtestSource = fs.readFileSync(path.join(__dirname, '../components/BacktestPanel.jsx'), 'utf-8');
+    const settingsSource = fs.readFileSync(path.join(__dirname, '../views/SettingsView.jsx'), 'utf-8');
+    const indexHtmlSource = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf-8');
+
+    assert.ok(
+      !smoothMotionSource.includes('<AnimatePresence mode="wait"'),
+      'SmoothSwap must mount incoming route/tab content immediately without AnimatePresence mode="wait" blanking'
+    );
+
+    const sidebarIdx = mainSource.indexOf('<Sidebar ');
+    const suspenseIdx = mainSource.indexOf('<Suspense fallback={<LoadingView view={view} />}>');
+    const bottomNavIdx = mainSource.indexOf('<BottomNav ');
+    assert.ok(
+      sidebarIdx !== -1 &&
+      suspenseIdx !== -1 &&
+      bottomNavIdx !== -1 &&
+      sidebarIdx < suspenseIdx &&
+      bottomNavIdx > suspenseIdx &&
+      mainSource.includes('useState(getViewFromHash)') &&
+      mainSource.includes('<DashboardSkeleton />') &&
+      mainSource.includes('<TradesSkeleton />') &&
+      mainSource.includes('<HistorySkeleton />') &&
+      mainSource.includes('<SettingsSkeleton />') &&
+      mainSource.includes('<TradeDetailSkeleton />') &&
+      mainSource.includes('<StrategyDetailSkeleton />'),
+      'main.jsx must render persistent Sidebar/BottomNav outside Suspense, initialize route synchronously, and route-match LoadingView skeletons'
+    );
+
+    assert.ok(
+      !tradesViewSource.includes('<Sidebar') &&
+      !historyViewSource.includes('<Sidebar') &&
+      !settingsSource.includes('<Sidebar') &&
+      !dashboardViewSource.includes('<Sidebar'),
+      'Individual views must not remount Sidebar independently when App owns the persistent shell'
+    );
+
+    assert.ok(
+      !historyViewSource.includes('<React.Suspense fallback={null}>\n      <Sidebar') &&
+      historyViewSource.includes('<ModalDrawerSkeleton />') &&
+      tradesViewSource.includes('<ModalDrawerSkeleton />') &&
+      backtestSource.includes('<BacktestResultsSkeleton />') &&
+      settingsSource.includes('<StartupChecklistSkeleton') &&
+      indexHtmlSource.includes('boot-shell'),
+      'Views must wire HistoryView/BacktestPanel/SettingsView/drawer skeletons and index.html cold-boot shell without full-page fallback={null}'
+    );
+  });
 });
 
 

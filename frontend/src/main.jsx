@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { TooltipProvider } from './components/ui/tooltip';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -9,7 +9,16 @@ import { AuthOverlay } from './components/AuthOverlay';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { GlobalToaster } from './components/ui/primitives';
 import { PersistentAlertBanner } from './components/PersistentAlertBanner';
+import { Sidebar, BottomNav } from './components/Navigation';
 import { SmoothSwap } from './components/ui/SmoothMotion';
+import {
+  DashboardSkeleton,
+  TradesSkeleton,
+  HistorySkeleton,
+  SettingsSkeleton,
+  TradeDetailSkeleton,
+  StrategyDetailSkeleton,
+} from './components/ui/Skeletons';
 import { lazyWithRetry } from './lib/lazy';
 import './index.css';
 
@@ -19,54 +28,26 @@ const HistoryView = lazyWithRetry(() => import('./views/HistoryView').then(m => 
 const TradesView = lazyWithRetry(() => import('./views/TradesView'));
 const TradeDetailView = lazyWithRetry(() => import('./views/TradeDetailView'));
 
-const LoadingView = () => {
-  const sidebarCollapsed = useTradingStore((s) => s.sidebarCollapsed);
-  return (
-    <div
-      role="status"
-      aria-busy="true"
-      aria-label="Loading workspace"
-      className={`min-h-screen bg-background transition-all duration-300 ${sidebarCollapsed ? 'lg:pl-[80px]' : 'lg:pl-[260px]'}`}
-    >
-      <div className="max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 space-y-3">
-        <div className="h-[62px] rounded-2xl bg-surface/50 border border-border/30 px-4 flex items-center justify-between skeleton-shimmer">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-surface/80" />
-            <div className="space-y-1.5">
-              <div className="w-40 h-3.5 rounded bg-surface/80" />
-              <div className="w-24 h-2.5 rounded bg-surface/60" />
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-20 h-7 rounded-lg bg-surface/75 hidden sm:block" />
-            <div className="w-20 h-7 rounded-lg bg-surface/75" />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-[62px] rounded-xl bg-surface/50 border border-border/30 p-3 flex flex-col justify-between skeleton-shimmer">
-              <div className="w-16 h-2.5 rounded bg-surface/70" />
-              <div className="w-24 h-4 rounded bg-surface/85" />
-            </div>
-          ))}
-        </div>
-        <div className="h-[190px] rounded-2xl bg-surface/40 border border-border/30 p-4 space-y-3 skeleton-shimmer">
-          <div className="w-36 h-3.5 rounded bg-surface/75" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="h-[115px] rounded-xl bg-surface/60 border border-border/25" />
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+const getViewFromHash = () => {
+  if (typeof window === 'undefined') return 'cockpit';
+  const fullHash = window.location.hash.replace('#/', '') || 'cockpit';
+  const [path] = fullHash.split('?');
+  return path === 'dashboard' ? 'cockpit' : path;
+};
+
+const LoadingView = ({ view = 'cockpit' }) => {
+  if (view === 'trades') return <TradesSkeleton />;
+  if (view === 'history') return <HistorySkeleton />;
+  if (view === 'settings') return <SettingsSkeleton />;
+  if (view.startsWith('trade/')) return <TradeDetailSkeleton />;
+  if (view.startsWith('strategy/')) return <StrategyDetailSkeleton />;
+  return <DashboardSkeleton />;
 };
 
 const App = () => {
   const store = useTradingStore();
   const { 
-    setSessionActive, updateStats, setThrottled, sync, debugToolsEnabled
+    setSessionActive, updateStats, setThrottled, debugToolsEnabled, sidebarCollapsed
   } = store;
 
   const [hydrated, setHydrated] = useState(() => {
@@ -112,12 +93,14 @@ const App = () => {
       import('./views/HistoryView').catch(() => {});
       import('./views/SettingsView').catch(() => {});
       import('./views/TradeDetailView').catch(() => {});
+      import('./views/StrategyDetailView').catch(() => {});
+      import('./components/TradeDetailModal').catch(() => {});
     };
     if (typeof window.requestIdleCallback === 'function') {
-      const idleId = window.requestIdleCallback(warmRoutes, { timeout: 2000 });
+      const idleId = window.requestIdleCallback(warmRoutes, { timeout: 1500 });
       return () => window.cancelIdleCallback(idleId);
     }
-    const timer = setTimeout(warmRoutes, 900);
+    const timer = setTimeout(warmRoutes, 400);
     return () => clearTimeout(timer);
   }, [hydrated]);
 
@@ -275,7 +258,7 @@ const App = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const [view, setView] = useState('cockpit');
+  const [view, setView] = useState(getViewFromHash);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -321,7 +304,10 @@ const App = () => {
         });
       } catch (e) {
         if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {
-          if (retryCount < 8) {
+          const httpStatus = e?.response?.status;
+          if (httpStatus >= 400 && httpStatus < 500) {
+            useTradingStore.setState({ initialStatusLoaded: true });
+          } else if (retryCount < 8) {
             retryTimer = setTimeout(() => {
               if (!controller.signal.aborted) {
                 checkStatus(retryCount + 1);
@@ -329,6 +315,7 @@ const App = () => {
             }, 1500);
           } else {
             console.error("Failed to fetch session status", e);
+            useTradingStore.setState({ initialStatusLoaded: true });
           }
         }
       }
@@ -336,23 +323,21 @@ const App = () => {
     checkStatus();
 
     const handleHashChange = () => {
-      const fullHash = window.location.hash.replace('#/', '') || 'cockpit';
-      const [path, query] = fullHash.split('?');
-      setView(path === 'dashboard' ? 'cockpit' : path);
+      setView(getViewFromHash());
       setShowShortcuts(false);
       window.scrollTo({ top: 0, behavior: 'instant' });
     };
     window.addEventListener('hashchange', handleHashChange);
-    handleHashChange();
 
     return () => {
       controller.abort();
+      if (retryTimer) clearTimeout(retryTimer);
       window.removeEventListener('hashchange', handleHashChange);
     };
-  }, [setSessionActive, updateStats]);
+  }, [hydrated, setSessionActive, updateStats]);
 
   const renderView = () => {
-    if (!hydrated) return <LoadingView />;
+    if (!hydrated) return <LoadingView view={view} />;
 
     if (view.startsWith('trade/')) {
       const id = view.replace('trade/', '');
@@ -360,8 +345,6 @@ const App = () => {
     }
     if (view.startsWith('strategy/')) {
       const label = decodeURIComponent(view.replace('strategy/', ''));
-      // Find strategy from store to pass to Dashboard's selected state
-      // For now, we reuse the selected logic in DashboardView if it's there
       return <DashboardView initialStrategy={label} />;
     }
 
@@ -373,6 +356,12 @@ const App = () => {
       default: return <DashboardView />;
     }
   };
+
+  const selectedStrategy = view.startsWith('strategy/')
+    ? decodeURIComponent(view.replace('strategy/', ''))
+    : null;
+
+  const tradingMode = store.config?.trading_mode || (store.config?.paper_mode ? 'paper' : 'live');
 
   const routeGroupKey = view.startsWith('strategy/')
     ? 'cockpit'
@@ -386,12 +375,23 @@ const App = () => {
       <ShortcutsModal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
       <GlobalToaster />
       <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
+        {tradingMode === 'paper' && (
+          <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
+        )}
         <PersistentAlertBanner />
-        <Suspense fallback={<LoadingView />}>
-          <SmoothSwap contentKey={routeGroupKey} duration={0.14} yOffset={3}>
-            {renderView()}
-          </SmoothSwap>
-        </Suspense>
+        <Sidebar selected={selectedStrategy} activeRoute={view} />
+        <div
+          className={`min-h-screen transition-[padding] duration-300 ${
+            sidebarCollapsed ? 'lg:pl-[80px]' : 'lg:pl-[260px]'
+          }`}
+        >
+          <Suspense fallback={<LoadingView view={view} />}>
+            <SmoothSwap contentKey={routeGroupKey} duration={0.14} yOffset={3}>
+              {renderView()}
+            </SmoothSwap>
+          </Suspense>
+        </div>
+        <BottomNav selected={selectedStrategy} activeRoute={view} />
       </div>
     </TooltipProvider>
   );

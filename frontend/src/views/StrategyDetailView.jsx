@@ -19,7 +19,7 @@ import {
 } from '../components/ui/primitives'
 import { CandidateConditionsGauge } from '../components/ui/CandidateConditionsGauge'
 import { SmoothCollapse, SmoothHeightContainer, SmoothSwap, MotionSegmentedPill, FocusCueBar } from '../components/ui/SmoothMotion'
-import { ChartPanelSkeleton, CalendarGridSkeleton } from '../components/ui/Skeletons'
+import { ChartPanelSkeleton, CalendarGridSkeleton, ModalDrawerSkeleton } from '../components/ui/Skeletons'
 import { calculateOpportunityProximity } from '../lib/formatters'
 import { calculatePerformanceMetrics } from '../lib/analytics'
 import { ScannerPreview } from '../components/ScannerPreview'
@@ -942,24 +942,44 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
         });
       }
 
-      // Prospective SL bound rejection/clamp
-      const oppSlDistPct = opp.sl_dist_pct != null ? Number(opp.sl_dist_pct) : NaN;
-      if (Number.isFinite(oppSlDistPct) && oppSlDistPct > slMaxPct) {
-        list.push({
-          id: `cand-sl-${opp.symbol}`,
-          outcome: slOobAction === 'reject' ? 'rejected' : 'waiting',
-          isRoutine: false,
-          stageNum: '3',
-          stage: '3. Risk & SL',
-          symbol: opp.symbol,
-          direction: candDir,
-          title: slOobAction === 'reject'
-            ? `SL Distance Rejected (${oppSlDistPct.toFixed(2)}% > ${slMaxPct}% Max)`
-            : `SL Distance Clamped (${oppSlDistPct.toFixed(2)}% → ${slMaxPct}% Max)`,
-          reason: `Prospective ${strategyConfig.sl_type || 'pct'} SL distance of ${oppSlDistPct.toFixed(2)}% exceeds configured sl_max_pct (${slMaxPct}%). Action: ${slOobAction.toUpperCase()}.`,
-          timestamp: candTs,
-          details: { slType: strategyConfig.sl_type || 'pct', prospectiveSlPct: `${oppSlDistPct.toFixed(2)}%`, maxSlPct: `${slMaxPct}%`, action: slOobAction }
-        });
+      // Prospective SL bound rejection/clamp (only applies to dynamic structural SL types, not Fixed 'pct')
+      const slTypeCfg = strategyConfig.sl_type || 'pct';
+      const oppSlDistPct = opp.raw_sl_dist_pct != null ? Number(opp.raw_sl_dist_pct) : (opp.sl_dist_pct != null ? Number(opp.sl_dist_pct) : NaN);
+      const slMinPct = Number(strategyConfig.sl_min_pct ?? 0.3);
+      if (slTypeCfg !== 'pct' && Number.isFinite(oppSlDistPct)) {
+        if (oppSlDistPct > slMaxPct) {
+          list.push({
+            id: `cand-sl-${opp.symbol}`,
+            outcome: slOobAction === 'reject' ? 'rejected' : 'waiting',
+            isRoutine: false,
+            stageNum: '3',
+            stage: '3. Risk & SL',
+            symbol: opp.symbol,
+            direction: candDir,
+            title: slOobAction === 'reject'
+              ? `SL Distance Rejected (${oppSlDistPct.toFixed(2)}% > ${slMaxPct}% Max)`
+              : `SL Distance Clamped (${oppSlDistPct.toFixed(2)}% → ${slMaxPct}% Max)`,
+            reason: `Prospective ${slTypeCfg} SL distance of ${oppSlDistPct.toFixed(2)}% exceeds configured sl_max_pct (${slMaxPct}%). Action: ${slOobAction.toUpperCase()}.`,
+            timestamp: candTs,
+            details: { slType: slTypeCfg, prospectiveSlPct: `${oppSlDistPct.toFixed(2)}%`, maxSlPct: `${slMaxPct}%`, action: slOobAction }
+          });
+        } else if (oppSlDistPct < slMinPct) {
+          list.push({
+            id: `cand-sl-min-${opp.symbol}`,
+            outcome: slOobAction === 'reject' ? 'rejected' : 'waiting',
+            isRoutine: false,
+            stageNum: '3',
+            stage: '3. Risk & SL',
+            symbol: opp.symbol,
+            direction: candDir,
+            title: slOobAction === 'reject'
+              ? `SL Distance Rejected (${oppSlDistPct.toFixed(2)}% < ${slMinPct}% Min)`
+              : `SL Distance Widened (${oppSlDistPct.toFixed(2)}% → ${slMinPct}% Min)`,
+            reason: `Prospective ${slTypeCfg} SL distance of ${oppSlDistPct.toFixed(2)}% is below configured sl_min_pct (${slMinPct}%). Action: ${slOobAction.toUpperCase()}.`,
+            timestamp: candTs,
+            details: { slType: slTypeCfg, prospectiveSlPct: `${oppSlDistPct.toFixed(2)}%`, minSlPct: `${slMinPct}%`, action: slOobAction }
+          });
+        }
       }
 
       if (!scanMetLocal) {
@@ -1771,7 +1791,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
 
   return (
     <div className={cn(
-      "max-w-[1300px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-5 md:pt-5 lg:px-6 lg:pt-6 animate-in fade-in duration-300",
+      "max-w-[1300px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-5 md:pt-5 lg:px-6 lg:pt-6",
       healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
     )}>
       <ViewHeader
@@ -3163,7 +3183,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
       )}
       </SmoothSwap>
 
-      <Suspense fallback={null}>
+      <Suspense fallback={selectedTrade ? <ModalDrawerSkeleton /> : null}>
         {selectedTrade && (
           <TradeDetailModal
             isOpen={!!selectedTrade}

@@ -32,7 +32,9 @@ function getBreakoutRank(opportunity: RankedOpportunity, config: SessionConfig):
   const value = Number(detail?.value);
   const threshold = Number(detail?.threshold);
   const expansionPct = Number(detail?.expansion_pct);
-  const capPct = Number(detail?.max_expansion_pct);
+  const effCapPct = Number(detail?.effective_max_expansion_pct);
+  const rawCapPct = Number(detail?.max_expansion_pct);
+  const capPct = Number.isFinite(effCapPct) && effCapPct > 0 ? effCapPct : rawCapPct;
 
   if (
     detail?.insufficientData ||
@@ -47,7 +49,7 @@ function getBreakoutRank(opportunity: RankedOpportunity, config: SessionConfig):
   }
 
   const distanceToTargetPct = Math.abs(value - threshold) / threshold * 100;
-  const pastCap = expansionPct > capPct;
+  const pastCap = detail?.rejected === true || expansionPct > capPct;
   const withinCap = detail?.fired === true && !pastCap;
 
   return {

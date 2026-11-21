@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
-import { Sidebar, BottomNav } from '../components/Navigation'
+import { StartupChecklistSkeleton, SkeletonBlock } from '../components/ui/Skeletons'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { THEMES, APPEARANCE_PRESETS, DEFAULT_APPEARANCE } from '../lib/theme.js'
@@ -174,6 +174,7 @@ export function SettingsView() {
   const [showTestnetSecret, setShowTestnetSecret] = useState(false)
   const [maskedKey, setMaskedKey] = useState('')
   const [maskedTestnetKey, setMaskedTestnetKey] = useState('')
+  const [loadingKeys, setLoadingKeys] = useState(true)
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState(null)
   const [validating, setValidating] = useState(false)
@@ -242,12 +243,15 @@ export function SettingsView() {
   }, [])
 
   async function loadKeys() {
+    setLoadingKeys(true)
     try {
       const res = await settingsAPI.getKeys()
       setMaskedKey(res.data.api_key)
       setMaskedTestnetKey(res.data.testnet_api_key)
     } catch (e) {
       console.error('Failed to load keys', e)
+    } finally {
+      setLoadingKeys(false)
     }
   }
 
@@ -372,14 +376,9 @@ export function SettingsView() {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300",
-      sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
+      "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 transition-all",
+      healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
     )}>
-      <Sidebar />
-      <div className={cn(
-        "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all",
-        healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
-      )}>
         <ViewHeader
           icon={SettingsIcon}
           title="System Settings"
@@ -424,8 +423,9 @@ export function SettingsView() {
             <StatCard
               compact
               label="Exchange Keys"
-              value={keySummaryLabel}
-              color={keySummaryColor}
+              value={loadingKeys ? <SkeletonBlock className="h-4 w-20 rounded" /> : keySummaryLabel}
+              ariaLabel={loadingKeys ? 'Exchange Keys: Loading' : `Exchange Keys: ${keySummaryLabel}`}
+              color={loadingKeys ? 'text-dim' : keySummaryColor}
               subValue={adminApiKey ? 'Admin lock active' : 'Local open auth'}
             />
           </button>
@@ -1201,36 +1201,40 @@ export function SettingsView() {
                     </Btn>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {(startupChecklist?.checks || []).map((check) => {
-                      const isPass = check.status === 'PASS'
-                      const isWarn = check.status === 'WARN'
-                      return (
-                        <div
-                          key={check.id}
-                          className={cn(
-                            "p-4 rounded-xl border flex flex-col justify-between gap-2.5 transition-all",
-                            isPass ? "bg-background/40 border-border/60 hover:border-accent/40" : isWarn ? "bg-amber/5 border-amber/30" : "bg-red/5 border-red/30"
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-dim">{check.category}</span>
-                            <span className={cn(
-                              "text-[10px] font-mono font-bold uppercase tracking-wider",
-                              isPass ? "text-green" : isWarn ? "text-amber" : "text-red"
-                            )}>
-                              {check.status === 'PASS' ? '✓ PASS' : check.status === 'WARN' ? '⚠ WARN' : '✗ FAIL'}
-                            </span>
+                  {checkingStartup && !startupChecklist ? (
+                    <StartupChecklistSkeleton count={6} />
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {(startupChecklist?.checks || []).map((check) => {
+                        const isPass = check.status === 'PASS'
+                        const isWarn = check.status === 'WARN'
+                        return (
+                          <div
+                            key={check.id}
+                            className={cn(
+                              "p-4 rounded-xl border flex flex-col justify-between gap-2.5 transition-all",
+                              isPass ? "bg-background/40 border-border/60 hover:border-accent/40" : isWarn ? "bg-amber/5 border-amber/30" : "bg-red/5 border-red/30"
+                            )}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-dim">{check.category}</span>
+                              <span className={cn(
+                                "text-[10px] font-mono font-bold uppercase tracking-wider",
+                                isPass ? "text-green" : isWarn ? "text-amber" : "text-red"
+                              )}>
+                                {check.status === 'PASS' ? '✓ PASS' : check.status === 'WARN' ? '⚠ WARN' : '✗ FAIL'}
+                              </span>
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-text mb-0.5">{check.title}</div>
+                              <div className="text-[11px] font-mono font-semibold text-accent mb-1">{check.summary}</div>
+                              <p className="text-[11px] text-dim leading-snug">{check.detail}</p>
+                            </div>
                           </div>
-                          <div>
-                            <div className="text-xs font-bold text-text mb-0.5">{check.title}</div>
-                            <div className="text-[11px] font-mono font-semibold text-accent mb-1">{check.summary}</div>
-                            <p className="text-[11px] text-dim leading-snug">{check.detail}</p>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </SmoothCollapse>
             </section>
@@ -1767,8 +1771,6 @@ export function SettingsView() {
           </section>
         </div>
         </SmoothSwap>
-        <BottomNav />
-      </div>
     </div>
   )
 }

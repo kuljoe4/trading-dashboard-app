@@ -8,7 +8,7 @@ import { useTradingStore, normalizeTrade } from '../store/trading'
 import { resolveAdaptiveHistoryTradeLimit, resolveAdaptiveSessionLimit, filterHistorySessions, getNextAdaptiveTradeStep } from '../utils/periodicPerformance'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader, Btn } from '../components/ui/primitives'
 import { SmoothHeightContainer, SmoothSwap } from '../components/ui/SmoothMotion'
-import { ChartPanelSkeleton, HistorySessionsSkeleton } from '../components/ui/Skeletons'
+import { ChartPanelSkeleton, HistorySessionsSkeleton, SkeletonBlock, ModalDrawerSkeleton } from '../components/ui/Skeletons'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { lazyWithRetry } from '../lib/lazy'
@@ -353,7 +353,6 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
   );
 };
 
-import { Sidebar, BottomNav } from '../components/Navigation'
 import { EquityCurve, TODPerformance, RrOptimizationChart, StrategyCalendarPnL } from '../components/Analytics'
 import { BacktestPanel } from '../components/BacktestPanel'
 
@@ -2534,15 +2533,9 @@ export const HistoryView = () => {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300",
-      sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
+      "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 transition-all",
+      healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
     )}>
-      <React.Suspense fallback={null}>
-      <Sidebar />
-      <div className={cn(
-        "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all",
-        healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
-      )}>
         <ViewHeader
           icon={activeViewTab === 'backtest' ? BarChart3 : HistoryIcon}
           title={activeViewTab === 'backtest' ? "Strategy Backtest Engine" : "Trade History"}
@@ -2849,15 +2842,15 @@ export const HistoryView = () => {
                     <>
                       <div className="flex flex-col gap-1" aria-label="Loading lifetime analytics">
                         <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60">Net P&L</span>
-                        <span className="h-4 w-16 rounded bg-border/40 animate-pulse inline-block" />
+                        <SkeletonBlock className="h-4 w-16 rounded" />
                       </div>
                       <div className="flex flex-col gap-1">
                         <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60">Win Rate</span>
-                        <span className="h-4 w-14 rounded bg-border/40 animate-pulse inline-block" />
+                        <SkeletonBlock className="h-4 w-14 rounded" />
                       </div>
                       <div className="flex flex-col gap-1">
                         <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60">Sharpe</span>
-                        <span className="h-4 w-10 rounded bg-border/40 animate-pulse inline-block" />
+                        <SkeletonBlock className="h-4 w-10 rounded" />
                       </div>
                     </>
                   ) : (
@@ -2907,6 +2900,18 @@ export const HistoryView = () => {
                 className="overflow-hidden bg-surface/5 border-x border-b border-border/50 rounded-b-2xl p-4 md:p-6 flex flex-col gap-6 md:gap-8"
               >
                 {/* 1. Stat Cards Grid (First 6) */}
+                {loading && !currentAnalytics ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 auto-rows-fr items-stretch gap-3 md:gap-4" role="status" aria-busy="true" aria-label="Loading analytics summary cards">
+                    {[0, 1, 2, 3, 4, 5].map((idx) => (
+                      <div key={idx} className="min-h-[76px] rounded-xl bg-surface/45 border border-border/35 p-3.5 flex flex-col justify-between">
+                        <SkeletonBlock className="w-20 h-2.5 rounded opacity-70" />
+                        <SkeletonBlock className="w-24 h-4 rounded" />
+                        <SkeletonBlock className="w-28 h-2 rounded opacity-55" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                <>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 auto-rows-fr items-stretch gap-3 md:gap-4 gap-y-4">
                   <StatCard
                     label="Total Performance"
@@ -3024,6 +3029,8 @@ export const HistoryView = () => {
                     }
                   />
                 </div>
+                </>
+                )}
 
                 {/* 3. Charts Area */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -3558,16 +3565,15 @@ export const HistoryView = () => {
         </div>
         )}
         </SmoothSwap>
-        <BottomNav />
-      </div>
-      {selectedTrade && (
-        <TradeDetailModal
-          trade={selectedTrade}
-          isOpen={!!selectedTrade}
-          onClose={handleCloseInspectTrade}
-          onTradeClose={async () => {}}
-        />
-      )}
+      <React.Suspense fallback={selectedTrade ? <ModalDrawerSkeleton /> : null}>
+        {selectedTrade && (
+          <TradeDetailModal
+            trade={selectedTrade}
+            isOpen={!!selectedTrade}
+            onClose={handleCloseInspectTrade}
+            onTradeClose={async () => {}}
+          />
+        )}
       </React.Suspense>
     </div>
   )

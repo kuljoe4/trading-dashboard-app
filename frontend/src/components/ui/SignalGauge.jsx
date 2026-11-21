@@ -64,6 +64,8 @@ export const SignalGauge = React.memo(({
   type = '',
   isLong = true,
   markPrice,
+  strategyConfig = {},
+  opp = null,
   className,
   compact = false,
   children,
@@ -116,11 +118,13 @@ export const SignalGauge = React.memo(({
     return buildHtfLadderModel({
       sigKey: s.key || propSignalKey || 'htf_breakout',
       signalDetail: s,
+      opp,
+      strategyConfig,
       markPrice: Number(finalValue || markPrice || 0),
       isLong,
       isExit: effectiveIsExit,
     });
-  }, [isHtfBreakout, finalInsufficient, s, propSignalKey, finalValue, markPrice, isLong, effectiveIsExit]);
+  }, [isHtfBreakout, finalInsufficient, s, propSignalKey, opp, strategyConfig, finalValue, markPrice, isLong, effectiveIsExit]);
 
   const meter = useMemo(() => computeConditionMeter({
     value: finalValue,
@@ -131,7 +135,7 @@ export const SignalGauge = React.memo(({
     isExit: effectiveIsExit,
     fired: Boolean(isFired),
     active: isActive !== false,
-    rejected: Boolean(isRejected),
+    rejected: Boolean(isRejected || ladder?.isOverCap),
     insufficientData: Boolean(finalInsufficient),
     signalKey: s.key || propSignalKey || finalLabel,
     proximity: finalProx,
@@ -140,7 +144,7 @@ export const SignalGauge = React.memo(({
       sigKey.includes('cross') ||
       String(s.metric || signalMetric || '').toLowerCase().includes('dual') ||
       String(s.metric || signalMetric || '').toLowerCase().includes('cross'),
-  }), [finalValue, finalThreshold, isPrice, finalUnit, isLong, effectiveIsExit, isFired, isActive, isRejected, finalInsufficient, s.key, propSignalKey, finalLabel, finalProx, sigKey, s.metric, signalMetric]);
+  }), [finalValue, finalThreshold, isPrice, finalUnit, isLong, effectiveIsExit, isFired, isActive, isRejected, ladder?.isOverCap, finalInsufficient, s.key, propSignalKey, finalLabel, finalProx, sigKey, s.metric, signalMetric]);
 
   const formatVal = (val) => {
     if (val === undefined || val === null || Number.isNaN(Number(val))) return '---';
@@ -150,7 +154,9 @@ export const SignalGauge = React.memo(({
     return `${num.toFixed(decimals)}${finalUnit || ''}`;
   };
 
-  const zone = meter.dialZone || 'watching';
+  const zone = ladder
+    ? (ladder.isOverCap || isRejected ? 'blocked' : (ladder.zone === 'below' ? 'watching' : ladder.zone))
+    : (meter.dialZone || 'watching');
   const liveFormatted = finalInsufficient ? '---' : formatVal(finalValue);
 
   const macdFilter = useMemo(() => {
@@ -158,10 +164,11 @@ export const SignalGauge = React.memo(({
     return buildMacdFilterModel({
       sigKey: s.key || propSignalKey || finalLabel,
       signalDetail: s,
+      strategyConfig,
       isLong,
       isExit: effectiveIsExit,
     });
-  }, [finalInsufficient, s, propSignalKey, finalLabel, isLong, effectiveIsExit]);
+  }, [finalInsufficient, s, propSignalKey, finalLabel, strategyConfig, isLong, effectiveIsExit]);
 
   const prevItemRef = useRef(null);
   const [changeInfo, setChangeInfo] = useState(null);

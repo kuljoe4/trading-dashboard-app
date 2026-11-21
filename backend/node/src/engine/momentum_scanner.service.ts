@@ -18,6 +18,8 @@ export interface Opportunity {
   ohlc_history?: Candle[]; // Full OHLC for detailed visualization
   candle_count?: number; // Real klineStore buffer length for UI warmup diagnostics
   sl_dist_pct?: number;
+  raw_sl_dist_pct?: number;
+  sl_price?: number;
   prospect_rr?: number;
   score_breakdown?: {
     momentum: number;
@@ -487,14 +489,14 @@ export class MomentumScannerService {
       ? tickerData!.price
       : currentPrice;
 
-    // 1. PRE-FILTER SL BOUNDS: Reject move if SL distance exceeds sl_max_pct (unless explicit watchlist target)
+    // 1. PRE-FILTER SL BOUNDS: Reject move if structural SL violates sl_min_pct / sl_max_pct (unless explicit watchlist target)
     const slCheck = this.checkSlBounds(symbol, displayPrice || currentPrice, direction, config, candles);
     if (!isExplicitSymbol && slCheck.rejected) {
-      const slReason = `prospective SL ${slCheck.slDistPct.toFixed(2)}% > max ${config.sl_max_pct ?? 3.0}%`;
+      const slReason = slCheck.reason || `prospective SL ${slCheck.slDistPct.toFixed(2)}% out of bounds [${config.sl_min_pct ?? 0.3}%..${config.sl_max_pct ?? 3.0}%]`;
       this.recordPreFilterReason(symbol, 'sl_bounds', slReason, momentumPct, slCheck.slDistPct, config.strategy_label);
       if (config.debug_mode) {
         this.logger.debug(
-          `[Scanner Diagnostic] ${symbol} pre-filtered: prospective SL distance ${slCheck.slDistPct.toFixed(2)}% exceeds sl_max_pct ${config.sl_max_pct || 3.0}% (Reason: ${slCheck.reason})`,
+          `[Scanner Diagnostic] ${symbol} pre-filtered: ${slReason}`,
         );
       }
       return null;
@@ -529,6 +531,8 @@ export class MomentumScannerService {
         direction,
         candle_count: candles.length,
         sl_dist_pct: slCheck.slDistPct,
+        raw_sl_dist_pct: slCheck.rawSlDistPct,
+        sl_price: slCheck.slPrice,
         prospect_rr: prospectRr,
         score_breakdown: {
           ...breakdown,
@@ -550,10 +554,22 @@ export class MomentumScannerService {
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
     candles: Candle[],
-  ): { slDistPct: number; rejected: boolean; reason?: string } {
+  ): { slDistPct: number; rawSlDistPct: number; slPrice?: number; rejected: boolean; reason?: string } {
     const slDistancePct = config.sl_distance_pct ?? 0.8;
     const slType = config.sl_type ?? 'pct';
-    const maxPct = config.sl_max_pct ?? 3.0;
+
+    // Fixed percentage SL is deterministic and does not apply sl_min_pct / sl_max_pct structural bounds (matches RiskEngine.computeSl)
+    if (slType === 'pct') {
+      const fixedSlPrice = entryPrice > 0
+        ? (direction === 'LONG' ? entryPrice * (1 - slDistancePct / 100) : entryPrice * (1 + slDistancePct / 100))
+        : undefined;
+      return { slDistPct: slDistancePct, rawSlDistPct: slDistancePct, slPrice: fixedSlPrice, rejected: false };
+    }
+
+    const hasMin = config.sl_min_pct !== undefined && config.sl_min_pct !== null && (config.sl_min_pct as any) !== '' && Number.isFinite(Number(config.sl_min_pct));
+    const hasMax = config.sl_max_pct !== undefined && config.sl_max_pct !== null && (config.sl_max_pct as any) !== '' && Number.isFinite(Number(config.sl_max_pct));
+    const minPct = Math.max(0.01, hasMin ? Number(config.sl_min_pct) : 0.3);
+    const maxPct = Math.max(minPct, hasMax ? Number(config.sl_max_pct) : 3.0);
     const action = config.sl_out_of_bounds_action || 'clamp';
     const shouldReject = action === 'reject' || (config.reject_entry_if_sl_exceeds_max === true && action !== 'clamp');
 
@@ -614,10 +630,23 @@ export class MomentumScannerService {
       }
     }
 
-    if (calculatedDistPct > maxPct) {
+    const rawSlDistPct = calculatedDistPct;
+
+    if (calculatedDistPct < minPct) {
       if (shouldReject) {
         return {
-          slDistPct: calculatedDistPct,
+          slDistPct: rawSlDistPct,
+          rawSlDistPct,
+          rejected: true,
+          reason: `Prospective SL ${calculatedDistPct.toFixed(2)}% < sl_min_pct ${minPct}%`,
+        };
+      }
+      calculatedDistPct = minPct;
+    } else if (calculatedDistPct > maxPct) {
+      if (shouldReject) {
+        return {
+          slDistPct: rawSlDistPct,
+          rawSlDistPct,
           rejected: true,
           reason: `Prospective SL ${calculatedDistPct.toFixed(2)}% > sl_max_pct ${maxPct}%`,
         };
@@ -626,7 +655,11 @@ export class MomentumScannerService {
       calculatedDistPct = maxPct;
     }
 
-    return { slDistPct: calculatedDistPct, rejected: false };
+    const slPrice = entryPrice > 0
+      ? (direction === 'LONG' ? entryPrice * (1 - calculatedDistPct / 100) : entryPrice * (1 + calculatedDistPct / 100))
+      : undefined;
+
+    return { slDistPct: calculatedDistPct, rawSlDistPct, slPrice, rejected: false };
   }
 
   /**

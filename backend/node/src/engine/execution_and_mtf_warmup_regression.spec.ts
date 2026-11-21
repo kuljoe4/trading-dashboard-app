@@ -214,7 +214,7 @@ describe('Live Execution, Multi-TF Warmup & Watchlist Alignment Regressions', ()
           htf_breakout_trigger_timeframe: '5m',
           htf_breakout_mode: 'closed_candle_confirm',
           htf_breakout_lookback: 1,
-          htf_breakout_max_expansion_pct: 5,
+          htf_breakout_max_expansion_pct: 50,
           entry_ema_fast: 2,
           entry_ema_slow: 5,
           ema_dual_macd_filter: true,
@@ -264,7 +264,7 @@ describe('Live Execution, Multi-TF Warmup & Watchlist Alignment Regressions', ()
           htf_breakout_trigger_timeframe: '5m',
           htf_breakout_mode: 'closed_candle_confirm',
           htf_breakout_lookback: 1,
-          htf_breakout_max_expansion_pct: 5,
+          htf_breakout_max_expansion_pct: 50,
           entry_ema_fast: 2,
           entry_ema_slow: 5,
           ema_dual_macd_filter: true,
@@ -356,6 +356,59 @@ describe('Live Execution, Multi-TF Warmup & Watchlist Alignment Regressions', ()
       }, candles1d);
       expect(resWithForming.rejected).toBe(true);
       expect(resWithForming.slDistPct).toBeCloseTo(25, 2);
+    });
+
+    it('checkSlBounds enforces sl_min_pct floor in clamp/reject modes, preserves rawSlDistPct, and skips bounds for Fixed pct', () => {
+      const candles5m: Candle[] = [
+        { time: 1000, open: 100, high: 100.1, low: 99.88, close: 100, volume: 100 }, // 0.12% low dist
+        { time: 2000, open: 100, high: 100.1, low: 99.95, close: 100, volume: 100 },
+      ];
+      const scanner = new MomentumScannerService(
+        { getRawCandles: () => candles5m } as any,
+        {} as any,
+        { resolveInterval: (v: string) => v || '5m' } as any,
+      );
+
+      // 1. Tight lookback SL (0.12%) < sl_min_pct (0.3%) under clamp mode widens to 0.3% and reports raw 0.12%
+      const clampedMin = (scanner as any).checkSlBounds('SOLUSDT', 100, 'LONG', {
+        sl_type: 'lookback_low/high',
+        sl_lookback_timeframe: '5m',
+        sl_lookback_period: 1,
+        sl_include_forming_candle: false,
+        sl_min_pct: 0.3,
+        sl_max_pct: 3.0,
+        sl_out_of_bounds_action: 'clamp',
+        scan_interval: '5m',
+      }, candles5m);
+      expect(clampedMin.rejected).toBe(false);
+      expect(clampedMin.rawSlDistPct).toBeCloseTo(0.12, 2);
+      expect(clampedMin.slDistPct).toBeCloseTo(0.3, 2);
+
+      // 2. Tight lookback SL (0.12%) < sl_min_pct (0.3%) under reject mode rejects
+      const rejectedMin = (scanner as any).checkSlBounds('SOLUSDT', 100, 'LONG', {
+        sl_type: 'lookback_low/high',
+        sl_lookback_timeframe: '5m',
+        sl_lookback_period: 1,
+        sl_include_forming_candle: false,
+        sl_min_pct: 0.3,
+        sl_max_pct: 3.0,
+        sl_out_of_bounds_action: 'reject',
+        scan_interval: '5m',
+      }, candles5m);
+      expect(rejectedMin.rejected).toBe(true);
+      expect(rejectedMin.reason).toContain('sl_min_pct 0.3%');
+
+      // 3. Fixed pct SL (6.0%) ignores structural sl_max_pct (3.0%) in reject mode
+      const fixedPct = (scanner as any).checkSlBounds('SOLUSDT', 100, 'LONG', {
+        sl_type: 'pct',
+        sl_distance_pct: 6.0,
+        sl_min_pct: 0.3,
+        sl_max_pct: 3.0,
+        sl_out_of_bounds_action: 'reject',
+        scan_interval: '5m',
+      }, candles5m);
+      expect(fixedPct.rejected).toBe(false);
+      expect(fixedPct.slDistPct).toBe(6.0);
     });
   });
 

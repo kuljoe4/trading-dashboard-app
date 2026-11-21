@@ -46,7 +46,30 @@
     <meta property="og:description" content="Resource-lean momentum trading dashboard for Binance USDⓈ-M futures with real-time analytics, risk controls, and automated strategy monitoring." />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div
+        id="boot-shell"
+        aria-hidden="true"
+        style="min-height:100vh;background:#080b12;color:#f8fafc;display:flex;font-family:'Plus Jakarta Sans',system-ui,sans-serif;"
+      >
+        <div style="width:260px;background:#0d121f;border-right:1px solid #1c2436;padding:20px;display:none;" class="boot-sidebar">
+          <div style="height:36px;width:150px;border-radius:8px;background:#141b2d;margin-bottom:32px;"></div>
+          <div style="height:36px;border-radius:8px;background:#141b2d;margin-bottom:8px;"></div>
+          <div style="height:36px;border-radius:8px;background:#111728;margin-bottom:8px;"></div>
+          <div style="height:36px;border-radius:8px;background:#111728;margin-bottom:8px;"></div>
+          <div style="height:36px;border-radius:8px;background:#111728;"></div>
+        </div>
+        <div style="flex:1;padding:16px 20px;max-width:1600px;margin:0 auto;">
+          <div style="height:58px;border-radius:16px;background:#0d121f;border:1px solid #1c2436;margin-bottom:12px;"></div>
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px;">
+            <div style="height:68px;border-radius:12px;background:#0d121f;border:1px solid #1c2436;"></div>
+            <div style="height:68px;border-radius:12px;background:#0d121f;border:1px solid #1c2436;"></div>
+          </div>
+          <div style="height:176px;border-radius:16px;background:#0d121f;border:1px solid #1c2436;"></div>
+        </div>
+      </div>
+      <style>@media(min-width:1024px){.boot-sidebar{display:block!important}}</style>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

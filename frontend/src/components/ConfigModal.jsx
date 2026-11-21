@@ -496,7 +496,7 @@ const getSignalParamsSchema = (sigKey, baseType, isEntry = true, isExit = true) 
     ], {}, 'Reference Level');
     addParam('htf_breakout_lookback', 'number', 1, null, { min: 1, max: 30 }, 'Ref Lookback (Bars)');
     addParam('htf_breakout_buffer_pct', 'number', 0, null, { min: 0, max: 10, step: 0.05 }, 'Breakout Buffer %');
-    addParam('htf_breakout_max_expansion_pct', 'number', 0, null, { min: 0, max: 20, step: 0.1 }, 'Max Expansion Cap %');
+    addParam('htf_breakout_max_expansion_pct', 'number', 0, null, { min: 0, max: 100, step: 0.1 }, 'Max Expansion Cap (% of Ref)');
   }
 
   if (baseType === 'trigger_candle_exit') {
@@ -554,7 +554,7 @@ const TOOLTIPS = {
   htf_breakout_reference_level: "High/Low uses candle wicks. Body uses max/min of Open and Close. Close Only uses previous candle close.",
   htf_breakout_lookback: "Number of completed higher-timeframe candles to scan (1 = previous 1 day/bar; >1 scans the highest high/lowest low of past N bars).",
   htf_breakout_buffer_pct: "Required percentage above/below the HTF level before a breakout is confirmed, filtering false wicks.",
-  htf_breakout_max_expansion_pct: "Ceiling percentage beyond the level. If price has expanded more than this %, entry is rejected to avoid chasing overextended moves (0 = disabled).",
+  htf_breakout_max_expansion_pct: "Maximum allowed price expansion beyond the breakout level expressed as a percentage of the HTF reference candle range (e.g. 10 = 10% of a 6% reference candle range, allowing +0.6% expansion). Entry is rejected if price expands further (0 = disabled).",
   trigger_candle_exit_n: "Number of candles adjacent to the trigger candle to include when computing the exit boundary. 0 uses only the trigger candle; N > 0 uses the lowest low (long) or highest high (short) within the ±N window.",
   trigger_candle_exit_offset_mode: "Window direction around trigger candle: Prev & Next (both sides), Previous Only (candles prior to entry), or Next Only (candles after entry).",
   trigger_candle_exit_mode: "Candle Close requires the bar to close beyond the level. Wick / Touch fires immediately upon touching or wicking past the boundary.",
@@ -2837,6 +2837,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
       'scanner_signal_depth',
       'engulfing_lookback', 'engulfing_streak', 'engulfing_max_expansion_pct',
+      'htf_breakout_lookback', 'htf_breakout_buffer_pct', 'htf_breakout_max_expansion_pct',
       'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
@@ -4144,6 +4145,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
       'scanner_signal_depth',
       'engulfing_lookback', 'engulfing_streak', 'engulfing_max_expansion_pct',
+      'htf_breakout_lookback', 'htf_breakout_buffer_pct', 'htf_breakout_max_expansion_pct',
       'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
@@ -6897,21 +6899,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   { value: 'streak_extreme', label: 'Streak Extreme' },
                   { value: 'supertrend', label: 'Supertrend Line' }
                 ])}
-                {renderField('Out of Bounds', 'sl_out_of_bounds_action', 'text', [
+                {cfg.sl_type !== 'pct' ? renderField('Out of Bounds', 'sl_out_of_bounds_action', 'text', [
                   { value: 'clamp', label: 'Clamp to Limits' },
                   { value: 'reject', label: 'Reject Entry' }
-                ])}
-                <div className="md:col-span-2 flex items-start justify-between gap-3 p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
-                  <CollapsibleHelpTitle
-                    title="Reject Entry If SL Exceeds Max"
-                    titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
-                    helpText="Pre-filter scanner opportunities where calculated prospective SL exceeds sl_max_pct, rejecting wide high-risk moves to free up slots for better setups."
-                  />
-                  <Toggle
-                    value={cfg.reject_entry_if_sl_exceeds_max !== false}
-                    onChange={(v) => setField('reject_entry_if_sl_exceeds_max', v)}
-                  />
-                </div>
+                ]) : <div />}
+                {cfg.sl_type !== 'pct' && (
+                  <div className="md:col-span-2 flex items-start justify-between gap-3 p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
+                    <CollapsibleHelpTitle
+                      title="Reject Entry If SL Exceeds Max"
+                      titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
+                      helpText="Pre-filter scanner opportunities where calculated prospective SL exceeds sl_max_pct, rejecting wide high-risk moves to free up slots for better setups."
+                    />
+                    <Toggle
+                      value={cfg.reject_entry_if_sl_exceeds_max !== false}
+                      onChange={(v) => setField('reject_entry_if_sl_exceeds_max', v)}
+                    />
+                  </div>
+                )}
                 {cfg.sl_type === 'pct' ? (
                   renderField('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
                 ) : (
@@ -6936,11 +6940,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </div>
                   </div>
                 )}
-                {cfg.sl_type !== 'pct' && renderField('Max Allowed SL %', 'sl_pct_limit', 'number', null, { min: 0.1, step: 0.1 })}
-                <div className="grid grid-cols-2 gap-4">
-                  {renderField('Floor Min %', 'sl_min_pct', 'number', null, { min: 0.1, step: 0.1 })}
-                  {renderField('Ceiling Max %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
-                </div>
+                {cfg.sl_type !== 'pct' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    {renderField('Floor Min %', 'sl_min_pct', 'number', null, {
+                      min: 0.05,
+                      step: 0.1,
+                      helpText: "Minimum allowed structural SL distance (%). In Clamp mode, tighter stops widen to this floor; in Reject mode, tighter setups are skipped."
+                    })}
+                    {renderField('Ceiling Max %', 'sl_max_pct', 'number', null, {
+                      min: 0.1,
+                      step: 0.1,
+                      helpText: "Maximum allowed structural SL distance (%). In Clamp mode, wider stops cap here; in Reject mode, wide setups are skipped."
+                    })}
+                  </div>
+                )}
                 <div className="md:col-span-2">
                   {renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, {
                     min: CONFIG_LIMITS.TRAILING_GUARD_MIN,

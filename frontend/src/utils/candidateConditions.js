@@ -320,8 +320,144 @@ export function resolveDialZone(dialPct, { insufficientData = false, rejected = 
 }
 
 /**
+ * Single source of truth for pre-trade / candidate Stop-Loss check & cap telemetry.
+ * Computes live SL distance (% of price), compares against sl_min_pct / sl_max_pct,
+ * and resolves percentage of SL check used (slCapUsedPct = slDistPct / slMaxPct * 100)
+ * alongside clamp vs reject enforcement.
+ */
+export function evaluateSlCheck({
+  opp = null,
+  strategyConfig = {},
+  livePrice = NaN,
+  isLong = true,
+  isExit = false,
+  signalDetail = null,
+  refHigh = NaN,
+  refLow = NaN,
+  trigTfFallback = null,
+} = {}) {
+  const cfg = strategyConfig || {};
+  const sig = signalDetail || {};
+  const wantUpper = isExit ? !isLong : isLong;
+  const priceNum = Number(livePrice);
+  const hasPrice = Number.isFinite(priceNum) && priceNum > 0;
+
+  const slType = String(cfg.sl_type || (cfg.sl_lookback_period !== undefined ? 'lookback_low/high' : 'pct'));
+  const defaultLookback = cfg.signal_params?.htf_breakout_lookback ?? 5;
+  const slLookbackPeriod = Math.max(1, Number(cfg.sl_lookback_period ?? defaultLookback) || 5);
+  const rawSlTf = cfg.sl_lookback_timeframe;
+  const scanTf = String(cfg.scan_interval || '5m');
+  const slLookbackTf = (!rawSlTf || rawSlTf === 'default')
+    ? String(trigTfFallback || cfg.signal_timeframes?.[slType] || scanTf)
+    : String(rawSlTf);
+
+  const hasExplicitSlMax = cfg.sl_max_pct !== undefined && cfg.sl_max_pct !== null && cfg.sl_max_pct !== '' && Number.isFinite(Number(cfg.sl_max_pct)) && Number(cfg.sl_max_pct) > 0;
+  const slMaxPct = hasExplicitSlMax ? Number(cfg.sl_max_pct) : 3.0;
+  const hasExplicitSlMin = cfg.sl_min_pct !== undefined && cfg.sl_min_pct !== null && cfg.sl_min_pct !== '' && Number.isFinite(Number(cfg.sl_min_pct)) && Number(cfg.sl_min_pct) >= 0;
+  const slMinPct = hasExplicitSlMin ? Math.max(0.01, Number(cfg.sl_min_pct)) : 0.3;
+  const slOobAction = cfg.sl_out_of_bounds_action
+    ? String(cfg.sl_out_of_bounds_action).toLowerCase()
+    : (cfg.reject_entry_if_sl_exceeds_max === true ? 'reject' : 'clamp');
+
+  const rawOppSlDistPct = opp?.sl_dist_pct !== undefined && opp?.sl_dist_pct !== null ? Number(opp.sl_dist_pct) : NaN;
+  const rawOppUnboundedSlDistPct = opp?.raw_sl_dist_pct !== undefined && opp?.raw_sl_dist_pct !== null ? Number(opp.raw_sl_dist_pct) : NaN;
+  const configuredFixedSlPct = Number(cfg.sl_distance_pct ?? 0);
+  const explicitOppSlPrice = Number(opp?.sl_price ?? NaN);
+  const sigSlPrice = Number(sig?.slPrice ?? NaN);
+  const refHighNum = Number(refHigh);
+  const refLowNum = Number(refLow);
+  const defaultLookbackExtreme = wantUpper
+    ? (Number.isFinite(refLowNum) && refLowNum > 0 ? refLowNum : NaN)
+    : (Number.isFinite(refHighNum) && refHighNum > 0 ? refHighNum : NaN);
+
+  let slDistPct = 0.8;
+  let slPrice = hasPrice ? (wantUpper ? priceNum * 0.992 : priceNum * 1.008) : NaN;
+  let slSource = 'default';
+
+  if (Number.isFinite(rawOppSlDistPct) && rawOppSlDistPct > 0) {
+    slDistPct = Number.isFinite(rawOppUnboundedSlDistPct) && rawOppUnboundedSlDistPct > 0
+      ? rawOppUnboundedSlDistPct
+      : rawOppSlDistPct;
+    slPrice = Number.isFinite(explicitOppSlPrice) && explicitOppSlPrice > 0
+      ? explicitOppSlPrice
+      : (hasPrice
+          ? (wantUpper ? priceNum * (1 - rawOppSlDistPct / 100) : priceNum * (1 + rawOppSlDistPct / 100))
+          : NaN);
+    slSource = 'opportunity';
+  } else if (slType === 'pct') {
+    slDistPct = configuredFixedSlPct > 0 ? configuredFixedSlPct : 0.8;
+    slPrice = Number.isFinite(explicitOppSlPrice) && explicitOppSlPrice > 0
+      ? explicitOppSlPrice
+      : (hasPrice
+          ? (wantUpper ? priceNum * (1 - slDistPct / 100) : priceNum * (1 + slDistPct / 100))
+          : NaN);
+    slSource = 'fixed_pct';
+  } else if (Number.isFinite(explicitOppSlPrice) && explicitOppSlPrice > 0 && hasPrice) {
+    slPrice = explicitOppSlPrice;
+    slDistPct = Math.max(0.05, (Math.abs(priceNum - slPrice) / priceNum) * 100);
+    slSource = 'opp_price';
+  } else if (Number.isFinite(sigSlPrice) && sigSlPrice > 0 && hasPrice) {
+    slPrice = sigSlPrice;
+    slDistPct = Math.max(0.05, (Math.abs(priceNum - slPrice) / priceNum) * 100);
+    slSource = 'signal_price';
+  } else if (Number.isFinite(defaultLookbackExtreme) && defaultLookbackExtreme > 0 && hasPrice) {
+    slPrice = defaultLookbackExtreme;
+    slDistPct = Math.max(0.05, (Math.abs(priceNum - slPrice) / priceNum) * 100);
+    slSource = 'ref_extreme';
+  } else {
+    slDistPct = configuredFixedSlPct > 0 ? configuredFixedSlPct : 0.8;
+    slPrice = hasPrice
+      ? (wantUpper ? priceNum * (1 - slDistPct / 100) : priceNum * (1 + slDistPct / 100))
+      : NaN;
+  }
+
+  slDistPct = Math.max(0.05, Number(slDistPct.toFixed(2)));
+  const applyStructuralBounds = slType !== 'pct';
+  const slCapUsedPct = slMaxPct > 0 ? Math.max(0, (slDistPct / slMaxPct) * 100) : 0;
+  const slCapRoomPct = slMaxPct - slDistPct;
+  const slExceedsMax = applyStructuralBounds && slDistPct > slMaxPct;
+  const slBelowMin = applyStructuralBounds && slDistPct < slMinPct;
+  const slRejected = (slExceedsMax || slBelowMin) && slOobAction === 'reject';
+  const slClamped = slExceedsMax && !slRejected;
+  const slWidened = slBelowMin && !slRejected;
+  const effectiveSlDistPct = (Number.isFinite(rawOppSlDistPct) && rawOppSlDistPct > 0 && (slClamped || slWidened))
+    ? Number(rawOppSlDistPct.toFixed(2))
+    : (slExceedsMax && slClamped
+        ? slMaxPct
+        : (slWidened ? slMinPct : slDistPct));
+  const slStatus = slRejected
+    ? 'rejected'
+    : (slClamped ? 'clamped' : (slWidened ? 'widened' : 'pass'));
+
+  return {
+    slType,
+    slLookbackPeriod,
+    slLookbackTf,
+    hasExplicitSlMax,
+    slMaxPct,
+    slMinPct,
+    slOobAction,
+    slPrice,
+    slDistPct,
+    effectiveSlDistPct,
+    slCapUsedPct,
+    slCapRoomPct,
+    slExceedsMax,
+    slBelowMin,
+    slRejected,
+    slClamped,
+    slWidened,
+    slStatus,
+    slSource,
+    applyStructuralBounds,
+  };
+}
+
+/**
  * Builds structured spatial level-ladder telemetry for HTF Breakout (`htf_breakout` / `prev_day_breakout`).
- * Zone cutoffs scale directly from `htf_breakout_max_expansion_pct` (Fresh 0-25% of cap, Stale 25-60%, Late 60-100%, Rejected >100%).
+ * `htf_breakout_max_expansion_pct` is expressed as `% of HTF reference candle distance` (ref_high - ref_low)
+ * (e.g. 10% of a 6% ref candle range = 0.6% max price expansion above breakout level).
+ * Zone cutoffs scale directly from that cap (Fresh 0-25%, Stale 25-60%, Late 60-100%, Rejected >100%).
  */
 export function buildHtfLadderModel({
   sigKey = 'htf_breakout',
@@ -429,73 +565,92 @@ export function buildHtfLadderModel({
     ? thrNum
     : (wantUpper ? refHigh * (1 + bufferPct / 100) : refLow * (1 - bufferPct / 100));
 
-  // Resolve Lookback SL distance & SL Cap (sl_type = lookback_low/high, sl_lookback_period, sl_max_pct)
-  const slType = String(strategyConfig.sl_type || 'lookback_low/high');
-  const slLookbackPeriod = Math.max(1, Number(strategyConfig.sl_lookback_period ?? lookback ?? 5) || 5);
-  const rawSlTf = strategyConfig.sl_lookback_timeframe;
-  const slLookbackTf = (!rawSlTf || rawSlTf === 'default') ? trigTf : String(rawSlTf);
-  const hasExplicitSlMax = strategyConfig.sl_max_pct !== undefined && strategyConfig.sl_max_pct !== null && Number.isFinite(Number(strategyConfig.sl_max_pct)) && Number(strategyConfig.sl_max_pct) > 0;
-  const slMaxPct = hasExplicitSlMax ? Number(strategyConfig.sl_max_pct) : 3.0;
-  const slMinPct = Math.max(0.05, Number(strategyConfig.sl_min_pct ?? 0.3) || 0.3);
+  const slCheck = evaluateSlCheck({
+    opp,
+    strategyConfig,
+    livePrice: livePriceNum,
+    isLong,
+    isExit,
+    signalDetail,
+    refHigh,
+    refLow,
+    trigTfFallback: trigTf,
+  });
 
+  const {
+    slType,
+    slLookbackPeriod,
+    slLookbackTf,
+    hasExplicitSlMax,
+    slMaxPct,
+    slMinPct,
+    slOobAction,
+    slDistPct,
+    slCapUsedPct,
+    slCapRoomPct,
+    slExceedsMax,
+    slRejected,
+    slClamped,
+  } = slCheck;
   const rawOppSlDistPct = Number(opp?.sl_dist_pct);
-  const explicitSlPrice = Number(signalDetail.slPrice ?? opp?.sl_price ?? NaN);
-  const defaultLookbackExtreme = wantUpper ? refLow : refHigh;
+  let slPrice = slCheck.slPrice;
 
-  let slPrice = defaultLookbackExtreme;
-  let slDistPct = 1.0;
-  if (Number.isFinite(rawOppSlDistPct) && rawOppSlDistPct > 0) {
-    slDistPct = rawOppSlDistPct;
-    slPrice = Number.isFinite(explicitSlPrice) && explicitSlPrice > 0
-      ? explicitSlPrice
-      : (wantUpper
-          ? livePriceNum * (1 - slDistPct / 100)
-          : livePriceNum * (1 + slDistPct / 100));
-  } else if (Number.isFinite(explicitSlPrice) && explicitSlPrice > 0 && livePriceNum > 0) {
-    slPrice = explicitSlPrice;
-    slDistPct = (Math.abs(livePriceNum - slPrice) / livePriceNum) * 100;
-  } else if (livePriceNum > 0 && defaultLookbackExtreme > 0) {
-    slPrice = defaultLookbackExtreme;
-    slDistPct = (Math.abs(livePriceNum - slPrice) / livePriceNum) * 100;
-  } else {
-    slDistPct = Number(strategyConfig.sl_distance_pct) || 1.0;
-    slPrice = wantUpper ? livePriceNum * (1 - slDistPct / 100) : livePriceNum * (1 + slDistPct / 100);
+  // Keep protective fallback SL price on the protective side only if no authoritative SL dist was provided
+  if (slCheck.slSource === 'default' || slCheck.slSource === 'ref_extreme') {
+    if (wantUpper && slPrice >= breakoutLevel) {
+      slPrice = Math.min(refLow, breakoutLevel * (1 - Math.max(0.4, slDistPct) / 100));
+    } else if (!wantUpper && slPrice <= breakoutLevel) {
+      slPrice = Math.max(refHigh, breakoutLevel * (1 + Math.max(0.4, slDistPct) / 100));
+    }
+  } else if (!Number.isFinite(slPrice) || slPrice <= 0) {
+    slPrice = wantUpper
+      ? livePriceNum * (1 - slDistPct / 100)
+      : livePriceNum * (1 + slDistPct / 100);
   }
 
-  // Keep lookback SL on the protective side of the reference range
-  if (wantUpper && slPrice >= breakoutLevel) {
-    slPrice = Math.min(refLow, breakoutLevel * (1 - Math.max(0.4, slDistPct) / 100));
-  } else if (!wantUpper && slPrice <= breakoutLevel) {
-    slPrice = Math.max(refHigh, breakoutLevel * (1 + Math.max(0.4, slDistPct) / 100));
-  }
-  if (livePriceNum > 0 && Number.isFinite(slPrice) && slPrice > 0) {
-    slDistPct = Math.max(0.05, Number(((Math.abs(livePriceNum - slPrice) / livePriceNum) * 100).toFixed(2)));
-  }
+  // Breakout Max Expansion Cap = % of HTF Reference Candle Distance (completely independent of SL distance / sl_max_pct)
+  const capUsesSlLookback = false;
+  const refCandleSpan = refHigh > refLow ? (refHigh - refLow) : 0;
+  const backendRefRangePct = Number(signalDetail.ref_range_pct ?? NaN);
+  const computedRefRangePct = activeRefLevel > 0 && refCandleSpan > 0
+    ? Number(((refCandleSpan / activeRefLevel) * 100).toFixed(4))
+    : 0;
+  const refRangePct = Number.isFinite(backendRefRangePct) && backendRefRangePct > 0
+    ? backendRefRangePct
+    : computedRefRangePct;
 
-  // Price level where lookback SL distance reaches slMaxPct
-  const slCapPrice = wantUpper
-    ? slPrice / Math.max(0.1, 1 - slMaxPct / 100)
-    : slPrice / (1 + slMaxPct / 100);
-  const slCapUsedPct = slMaxPct > 0 ? Math.max(0, (slDistPct / slMaxPct) * 100) : 0;
-  const slCapRoomPct = slMaxPct - slDistPct;
-  const capUsesSlLookback = configuredMaxExpPct === 0;
+  const backendEffectiveExpPct = Number(signalDetail.effective_max_expansion_pct ?? NaN);
+  const refFractionExpPct = configuredMaxExpPct > 0
+    ? (refRangePct > 0
+        ? Number(((refRangePct * configuredMaxExpPct) / 100).toFixed(4))
+        : configuredMaxExpPct)
+    : 0;
 
-  // When explicit htf_breakout_max_expansion_pct is 0, link cap to the lookback SL cap (if sl_max_pct or sl_dist_pct is active)
-  const slDerivedExpPct = breakoutLevel > 0 && Number.isFinite(slCapPrice)
-    ? Math.max(0.25, Number((Math.abs((slCapPrice - breakoutLevel) / breakoutLevel) * 100).toFixed(2)))
-    : slMaxPct;
-  const effectiveMaxExpPct = configuredMaxExpPct > 0
-    ? configuredMaxExpPct
-    : ((hasExplicitSlMax || Number.isFinite(rawOppSlDistPct)) ? slDerivedExpPct : 2.0);
-  const hasHardCap = configuredMaxExpPct > 0 || hasExplicitSlMax || Number.isFinite(rawOppSlDistPct);
+  const hasHardCap = configuredMaxExpPct > 0;
+  const hasAuthoritativeRefCap = Number.isFinite(backendEffectiveExpPct) && backendEffectiveExpPct > 0;
+  const effectiveMaxExpPct = hasHardCap
+    ? (hasAuthoritativeRefCap ? backendEffectiveExpPct : refFractionExpPct)
+    : (refRangePct > 0 ? Number(Math.max(1.0, refRangePct * 0.25).toFixed(4)) : 2.0);
   const explicitCap = Number(signalDetail.expansion_cap ?? NaN);
-  const expansionCap = Number.isFinite(explicitCap) && explicitCap > 0
+  const canUseExplicitCap = hasHardCap && Number.isFinite(explicitCap) && explicitCap > 0 && (hasAuthoritativeRefCap || refCandleSpan <= 0);
+  const expansionCap = canUseExplicitCap
     ? explicitCap
-    : (configuredMaxExpPct === 0 && (hasExplicitSlMax || Number.isFinite(rawOppSlDistPct)) && Number.isFinite(slCapPrice) && slCapPrice > 0
-        ? slCapPrice
+    : (hasHardCap && refCandleSpan > 0
+        ? (wantUpper
+            ? refHigh + refCandleSpan * (configuredMaxExpPct / 100)
+            : refLow - refCandleSpan * (configuredMaxExpPct / 100))
         : (wantUpper
             ? refHigh * (1 + effectiveMaxExpPct / 100)
             : refLow * (1 - effectiveMaxExpPct / 100)));
+
+  // Keep SL cap headroom telemetry purely for SL reference diagnostics (not breakout cap)
+  const rawSlCapPrice = wantUpper
+    ? slPrice / Math.max(0.1, 1 - slMaxPct / 100)
+    : slPrice / (1 + slMaxPct / 100);
+  const slCapHeadroomExhausted = Number.isFinite(rawSlCapPrice) && breakoutLevel > 0
+    ? (wantUpper ? rawSlCapPrice <= breakoutLevel : rawSlCapPrice >= breakoutLevel)
+    : false;
+  const slCapPrice = slCapHeadroomExhausted ? breakoutLevel : rawSlCapPrice;
 
   // Signed % distance from breakout level (>0 means price has crossed beyond breakoutLevel in target direction)
   const distFromLevelPct = breakoutLevel > 0
@@ -505,21 +660,24 @@ export function buildHtfLadderModel({
     : 0;
 
   const capSpanPct = breakoutLevel > 0
-    ? Math.max(0.05, Math.abs(((expansionCap - breakoutLevel) / breakoutLevel) * 100))
+    ? Math.max(0.0001, Math.abs(((expansionCap - breakoutLevel) / breakoutLevel) * 100))
     : effectiveMaxExpPct;
 
-  const capUsedPct = distFromLevelPct <= 0
+  const expansionCapUsedPct = distFromLevelPct <= 0
     ? 0
     : (distFromLevelPct / capSpanPct) * 100;
-  const capRoomPct = distFromLevelPct <= 0
+  const expansionCapRoomPct = distFromLevelPct <= 0
     ? capSpanPct
     : capSpanPct - distFromLevelPct;
+
+  const capUsedPct = expansionCapUsedPct;
+  const capRoomPct = expansionCapRoomPct;
 
   // Prospective or Snapshot SL <-> Entry <-> Target/Exit & R:R Ratio telemetry
   const tpRatio = Math.max(0.5, Number(strategyConfig.tp_ratio ?? opp?.prospect_rr ?? 2.0) || 2.0);
   const entryPrice = opp?.isEntrySnapshot && Number(opp?.price) > 0 ? Number(opp.price) : livePriceNum;
   const exitSnap = opp?.exitSnapshot || null;
-  const targetRewardPct = Number((slDistPct * tpRatio).toFixed(2));
+  const targetRewardPct = Number((slCheck.effectiveSlDistPct * tpRatio).toFixed(2));
   const targetExitPrice = wantUpper
     ? entryPrice * (1 + targetRewardPct / 100)
     : entryPrice * (1 - targetRewardPct / 100);
@@ -638,7 +796,8 @@ export function buildHtfLadderModel({
     ? `${trigTf} close in ${Math.floor(countdownMs / 3600000)}h ${Math.ceil((countdownMs % 3600000) / 60000)}m`
     : `${trigTf} close in ${countdownMin}m`;
 
-  const isOverCap = (hasHardCap && capUsedPct > 100) || Boolean(signalDetail.rejected);
+  const isOverExpansionCap = (configuredMaxExpPct > 0 && expansionCapUsedPct > 100) || Boolean(signalDetail.rejected);
+  const isOverCap = isOverExpansionCap;
   let zone = 'below';
   let zoneLabel = 'Below level';
   if (isOverCap) {
@@ -660,13 +819,16 @@ export function buildHtfLadderModel({
     zoneLabel = 'Stale · aging';
   } else {
     zone = 'late';
-    zoneLabel = 'Late · near cap';
+    zoneLabel = hasHardCap ? 'Late · near cap' : 'Late · extended';
   }
 
   // Equivalent 0..150 dialPct so composite dial math & zone badges stay aligned
   let dialPct = 0;
   let rawDialPct = 0;
-  if (distFromLevelPct < 0) {
+  if (isOverCap) {
+    rawDialPct = Math.max(151, Math.round(150 + Math.max(1, capUsedPct - 100) * 0.5));
+    dialPct = 150;
+  } else if (distFromLevelPct < 0) {
     const absDist = Math.abs(distFromLevelPct);
     // Within 0.5% -> 80..99% (Near); 0.5%..3.5% -> 10..79% (Watching)
     if (absDist <= 0.5) {
@@ -679,13 +841,14 @@ export function buildHtfLadderModel({
     dialPct = 98;
     rawDialPct = 98;
   } else {
-    // Map capUsedPct: 0..25% -> 100..105 (Fresh), 25..60% -> 105..115 (Stale), 60..100% -> 115..150 (Late), >100% -> >150
-    if (capUsedPct <= 25) {
-      rawDialPct = Math.round(100 + (capUsedPct / 25) * 5);
-    } else if (capUsedPct <= 60) {
-      rawDialPct = Math.round(105 + ((capUsedPct - 25) / 35) * 10);
+    // Map capUsedPct: 0..25% -> 100..105 (Fresh), 25..60% -> 105..115 (Stale), 60..100% -> 115..150 (Late)
+    const boundedCap = Math.min(100, Math.max(0, capUsedPct));
+    if (boundedCap <= 25) {
+      rawDialPct = Math.round(100 + (boundedCap / 25) * 5);
+    } else if (boundedCap <= 60) {
+      rawDialPct = Math.round(105 + ((boundedCap - 25) / 35) * 10);
     } else {
-      rawDialPct = Math.round(115 + ((capUsedPct - 60) / 40) * 35);
+      rawDialPct = Math.round(115 + ((boundedCap - 60) / 40) * 35);
     }
     dialPct = Math.max(100, Math.min(150, rawDialPct));
   }
@@ -701,6 +864,7 @@ export function buildHtfLadderModel({
     bufferPct,
     maxExpansionPct: configuredMaxExpPct,
     effectiveMaxExpPct,
+    refRangePct,
     hasHardCap,
     capUsesSlLookback,
     slType,
@@ -708,8 +872,15 @@ export function buildHtfLadderModel({
     slLookbackTf,
     slPrice,
     slDistPct,
+    effectiveSlDistPct: slCheck.effectiveSlDistPct,
     slMaxPct,
     slMinPct,
+    slOobAction,
+    slExceedsMax,
+    slRejected,
+    slClamped,
+    slCapHeadroomExhausted,
+    rawSlCapPrice,
     slCapPrice,
     slCapUsedPct,
     slCapRoomPct,
@@ -732,6 +903,8 @@ export function buildHtfLadderModel({
     capSpanPct,
     capUsedPct,
     capRoomPct,
+    expansionCapUsedPct,
+    expansionCapRoomPct,
     candleConfirmState,
     countdownMs,
     countdownText,
@@ -742,6 +915,107 @@ export function buildHtfLadderModel({
     entrySide: entrySideCfg,
     dialPct,
     rawDialPct,
+  };
+}
+
+/**
+ * Computes true-proportion linear vertical domain [pMin, pMax] for the HTF Breakout ladder:
+ * - When `hasHardCap` is true, enforces 1:1 price spacing across [slPrice, breakoutLevel, expansionCap, livePrice]
+ *   (only breaking SL axis past 6.0x / <0.12x capDist and accommodating over-cap moves up to 2.5x past expansionCap).
+ * - When `hasHardCap` is false (`Cap Off`), keeps strict 1:1 spacing across [slPrice, breakoutLevel, livePrice]
+ *   with an open-ended directional skirt (`effectiveCapTarget`) rather than fabricating a fake cap box.
+ */
+export function computeHtfLadderDomain({
+  isLong,
+  breakoutLevel,
+  expansionCap,
+  slPrice,
+  livePrice,
+  hasHardCap,
+}) {
+  const rawCapDist = hasHardCap ? Math.abs(expansionCap - breakoutLevel) : 0;
+  const slBehindBreakout = slPrice > 0
+    ? (isLong ? slPrice < breakoutLevel : slPrice > breakoutLevel)
+    : true;
+  const rawSlDist = slPrice > 0
+    ? Math.abs(breakoutLevel - slPrice)
+    : Math.max(rawCapDist * 0.85, breakoutLevel * 0.005);
+
+  let slScaleBreak = false;
+  let slVisualPrice = slPrice > 0 ? slPrice : (isLong ? breakoutLevel - rawSlDist : breakoutLevel + rawSlDist);
+  let overCapActive = false;
+  let pMax = breakoutLevel;
+  let pMin = breakoutLevel;
+  let effectiveCapTarget = expansionCap;
+
+  if (hasHardCap) {
+    const capDist = Math.max(rawCapDist, breakoutLevel * 0.0005, 1e-9);
+    const minTrueSlSpan = capDist * 0.12;
+    const maxTrueSlSpan = capDist * 6.0;
+    if (slBehindBreakout) {
+      slScaleBreak = slPrice > 0 && (rawSlDist > maxTrueSlSpan || rawSlDist < minTrueSlSpan);
+      const visualSlSpan = slScaleBreak
+        ? Math.min(Math.max(rawSlDist, minTrueSlSpan), maxTrueSlSpan)
+        : rawSlDist;
+      slVisualPrice = isLong ? breakoutLevel - visualSlSpan : breakoutLevel + visualSlSpan;
+    } else {
+      slScaleBreak = false;
+      slVisualPrice = slPrice;
+    }
+
+    overCapActive = isLong ? livePrice > expansionCap : livePrice < expansionCap;
+    const lowAnchor = slBehindBreakout ? slVisualPrice : (breakoutLevel - capDist * 0.25);
+    const highAnchor = slBehindBreakout ? slVisualPrice : (breakoutLevel + capDist * 0.25);
+    const underSlActive = slBehindBreakout && (isLong ? livePrice < slVisualPrice : livePrice > slVisualPrice);
+    const clampedLiveForDomain = isLong
+      ? Math.max(lowAnchor - capDist * 0.35, Math.min(expansionCap + capDist * 2.5, livePrice))
+      : Math.min(highAnchor + capDist * 0.35, Math.max(expansionCap - capDist * 2.5, livePrice));
+
+    pMax = isLong
+      ? (overCapActive
+          ? Math.max(expansionCap + capDist * 0.18, clampedLiveForDomain + capDist * 0.08)
+          : expansionCap + capDist * 0.05)
+      : (underSlActive
+          ? Math.max(highAnchor + capDist * 0.15, clampedLiveForDomain + capDist * 0.08)
+          : (slBehindBreakout ? highAnchor + capDist * 0.04 : highAnchor));
+
+    pMin = isLong
+      ? (underSlActive
+          ? Math.min(lowAnchor - capDist * 0.15, clampedLiveForDomain - capDist * 0.08)
+          : (slBehindBreakout ? lowAnchor - capDist * 0.04 : lowAnchor))
+      : (overCapActive
+          ? Math.min(expansionCap - capDist * 0.18, clampedLiveForDomain - capDist * 0.08)
+          : expansionCap - capDist * 0.05);
+  } else {
+    const liveDistPastBreak = isLong
+      ? Math.max(0, livePrice - breakoutLevel)
+      : Math.max(0, breakoutLevel - livePrice);
+    const slRefSpan = slPrice > 0
+      ? Math.max(Math.abs(livePrice - slPrice), rawSlDist)
+      : rawSlDist;
+    const openSpan = Math.max(liveDistPastBreak * 1.45, slRefSpan * 0.55, breakoutLevel * 0.002);
+    effectiveCapTarget = isLong ? breakoutLevel + openSpan : breakoutLevel - openSpan;
+
+    const underSlActive = isLong ? livePrice < slVisualPrice : livePrice > slVisualPrice;
+    const liveBeyondSl = isLong ? Math.max(0, slVisualPrice - livePrice) : Math.max(0, livePrice - slVisualPrice);
+    const slTail = slBehindBreakout
+      ? (underSlActive ? Math.min(rawSlDist * 0.5, liveBeyondSl + rawSlDist * 0.15) : rawSlDist * 0.04)
+      : openSpan * 0.25;
+
+    pMax = isLong ? effectiveCapTarget : (slBehindBreakout ? slVisualPrice + slTail : breakoutLevel + slTail);
+    pMin = isLong ? (slBehindBreakout ? slVisualPrice - slTail : breakoutLevel - slTail) : effectiveCapTarget;
+  }
+
+  return {
+    rawCapDist,
+    rawSlDist,
+    slBehindBreakout,
+    slScaleBreak,
+    slVisualPrice,
+    overCapActive,
+    pMax,
+    pMin,
+    effectiveCapTarget,
   };
 }
 
@@ -1683,8 +1957,9 @@ export function buildCandidateConditionsModel({
     if (ladder && !isWarming) {
       const absDist = Math.abs(ladder.distFromLevelPct);
       const distFormatted = absDist >= 10 ? absDist.toFixed(1) : absDist.toFixed(2);
+      const signPrefix = ladder.distFromLevelPct >= 0 ? '+' : '-';
       const ladderOverText = isRejected
-        ? `+${distFormatted}% · over cap`
+        ? `${signPrefix}${distFormatted}% · ${ladder.slRejected ? 'SL > max' : 'over cap'}`
         : ladder.distFromLevelPct >= 0
           ? (ladder.candleConfirmState === 'wicked_only' && ladder.mode === 'closed_candle_confirm'
               ? `Wicked +${distFormatted}%`
@@ -1740,7 +2015,119 @@ export function buildCandidateConditionsModel({
     };
   });
 
-  const entryConditions = [scannerCondition, ...signalConditionItems];
+  // Pre-trade SL Check & Cap gate condition widget (evaluated consistently for every strategy)
+  const htfSignalDetail = signalDetails.htf_breakout || signalDetails.prev_day_breakout || null;
+  const slCheck = evaluateSlCheck({
+    opp,
+    strategyConfig,
+    livePrice: markPrice,
+    isLong,
+    isExit: false,
+    signalDetail: htfSignalDetail,
+    refHigh: htfSignalDetail?.ref_high,
+    refLow: htfSignalDetail?.ref_low,
+  });
+
+  const slUsedRound = Math.round(slCheck.slCapUsedPct);
+  const slRatioMax = pickNiceRatioMax(Math.max(150, slUsedRound));
+  const slRoomAbs = Math.abs(slCheck.slCapRoomPct);
+  const slRoomFmt = slRoomAbs >= 10 ? slRoomAbs.toFixed(1) : slRoomAbs.toFixed(2);
+  const slCapLeftPct = Math.max(0, 100 - slUsedRound);
+
+  const slTfLabel = slCheck.slType === 'lookback_low/high'
+    ? slCheck.slLookbackTf
+    : (slCheck.slType === 'engulfing_boundary'
+        ? (strategyConfig.signal_timeframes?.engulfing || scanTf)
+        : slCheck.slType === 'supertrend'
+          ? (strategyConfig.signal_timeframes?.supertrend || scanTf)
+          : scanTf);
+  const slTypeShort = slCheck.slType === 'lookback_low/high'
+    ? `${slCheck.slLookbackPeriod}b lookback`
+    : slCheck.slType === 'pct'
+      ? 'Fixed'
+      : slCheck.slType.replace(/_/g, ' ');
+
+  const slDialZone = symbol === '---'
+    ? 'watching'
+    : (slCheck.slRejected
+        ? 'blocked'
+        : (slCheck.slClamped || slCheck.slWidened ? 'warming' : 'fresh'));
+  const slStateLabel = symbol === '---'
+    ? 'IDLE'
+    : (slCheck.slRejected
+        ? 'REJECTED'
+        : (slCheck.slClamped
+            ? 'CLAMPED'
+            : (slCheck.slWidened ? 'WIDENED' : 'PASS')));
+  const slTone = symbol === '---'
+    ? 'neutral'
+    : (slCheck.slRejected
+        ? 'danger'
+        : (slCheck.slClamped || slCheck.slWidened ? 'warning' : 'positive'));
+
+  const isFixedSl = !slCheck.applyStructuralBounds;
+  const slCondition = {
+    key: '__sl_check__',
+    connector: 'GATE',
+    isSlGate: true,
+    visualization: 'dial',
+    label: 'SL Check',
+    timeframe: slTfLabel,
+    paramsText: isFixedSl ? `${slTypeShort} · ${slCheck.slDistPct.toFixed(2)}%` : `${slTypeShort} · ${slCheck.slOobAction}`,
+    liveValue: symbol === '---' ? null : slCheck.slDistPct,
+    targetValue: isFixedSl ? slCheck.slDistPct : slCheck.slMaxPct,
+    unit: '%',
+    thresholdIsPrice: false,
+    liveText: symbol === '---' ? '---' : `${slCheck.slDistPct.toFixed(2)}%`,
+    targetText: isFixedSl ? 'Fixed SL' : `${slCheck.slMaxPct.toFixed(2)}% max`,
+    proximity: symbol === '---' ? 0 : (isFixedSl ? 100 : Math.min(100, slUsedRound)),
+    dialPct: symbol === '---' ? 0 : (isFixedSl ? 100 : Math.min(150, Math.max(0, slUsedRound))),
+    rawDialPct: symbol === '---' ? 0 : (isFixedSl ? 100 : slUsedRound),
+    meterFillPct: symbol === '---' ? 0 : (isFixedSl ? 100 : Math.min(100, Math.round((slUsedRound / slRatioMax) * 100))),
+    dialZone: isFixedSl ? (symbol === '---' ? 'watching' : 'fresh') : slDialZone,
+    dialStatus: isFixedSl ? 'Fixed SL' : (slCheck.slRejected ? 'SL Rejected' : slCheck.slClamped ? 'SL Clamped' : slCheck.slWidened ? 'Min SL Floor' : 'SL OK'),
+    dialOverText: symbol === '---' ? 'IDLE' : (isFixedSl ? `${slCheck.slDistPct.toFixed(2)}% fixed` : `${slUsedRound}% of max SL`),
+    dialScale: isFixedSl
+      ? null
+      : {
+          mode: 'linear_ratio',
+          invertTrack: true,
+          valuePct: symbol === '---' ? 0 : slUsedRound,
+          maxPct: slRatioMax,
+          minLabel: '0%',
+          targetLabel: 'max',
+          maxLabel: `${slRatioMax}%`,
+          subText: symbol === '---'
+            ? `max ${slCheck.slMaxPct.toFixed(2)}% SL`
+            : `${slCheck.slDistPct.toFixed(2)}% / ${slCheck.slMaxPct.toFixed(2)}%`,
+          isOffScale: symbol !== '---' && slUsedRound > slRatioMax,
+        },
+    deltaLabel: isFixedSl ? 'Mode' : (symbol === '---' ? 'SL Bounds' : (slCheck.slExceedsMax ? 'Over max' : slCheck.slBelowMin ? (slCheck.slRejected ? 'Under min' : 'Floor') : 'Room left')),
+    deltaValueText: isFixedSl
+      ? 'Fixed % (bounds N/A)'
+      : symbol === '---'
+        ? `Min ${slCheck.slMinPct.toFixed(2)}% · Max ${slCheck.slMaxPct.toFixed(2)}%`
+        : (slCheck.slRejected && slCheck.slBelowMin)
+          ? `-${Math.max(0, slCheck.slMinPct - slCheck.slDistPct).toFixed(2)}% under min (${slCheck.slMinPct.toFixed(2)}%)`
+          : slCheck.slRejected
+            ? `+${slRoomFmt}% over max`
+            : slCheck.slClamped
+              ? `Clamp → ${slCheck.slMaxPct.toFixed(2)}% (+${slRoomFmt}%)`
+              : slCheck.slWidened
+                ? `Widen → ${slCheck.slMinPct.toFixed(2)}% min`
+                : `${slRoomFmt}% (${slCapLeftPct}% left)`,
+    deltaPctText: '',
+    stateLabel: isFixedSl ? (symbol === '---' ? 'IDLE' : 'PASS') : slStateLabel,
+    tone: isFixedSl ? (symbol === '---' ? 'neutral' : 'positive') : slTone,
+    slCheck,
+    description: isFixedSl
+      ? `Fixed stop-loss ${slCheck.slDistPct.toFixed(2)}%`
+      : `Prospective SL ${slCheck.slDistPct.toFixed(2)}% vs bounds [${slCheck.slMinPct.toFixed(2)}%..${slCheck.slMaxPct.toFixed(2)}%] (${slUsedRound}% of max SL · action: ${slCheck.slOobAction.toUpperCase()})`,
+    evaluatedAtMs: opp?.isEntrySnapshot ? opp?.snapshotCapturedAt : liveEvalTs,
+  };
+
+  // Append SL Check at the end so conditions[0] stays Scanner and conditions[1] stays the first signal
+  const entryConditions = [scannerCondition, ...signalConditionItems, slCondition];
 
   // Evaluate signal gate satisfaction and composite dial strictly by signalLogic (ALL=min, ANY=max, COMBO=min(req, max(opt)))
   const evalPool = signalConditionItems.length > 0 ? signalConditionItems : [scannerCondition];
@@ -1749,25 +2136,25 @@ export function buildCandidateConditionsModel({
     : evalPool.filter(c => c.stateLabel === 'PASS').length;
   const totalConditionsCount = evalPool.length;
 
-  let signalsLogicSatisfied = velocityPassed && sideMatched;
+  let signalsLogicSatisfied = velocityPassed && sideMatched && !slCheck.slRejected;
   let rawCompositeSignalDial = Number(scannerCondition.dialPct) || 0;
 
   if (signalConditionItems.length > 0) {
     if (signalLogic === 'any') {
-      signalsLogicSatisfied = velocityPassed && sideMatched && signalConditionItems.some(c => c.stateLabel === 'PASS');
+      signalsLogicSatisfied = signalsLogicSatisfied && signalConditionItems.some(c => c.stateLabel === 'PASS');
       rawCompositeSignalDial = Math.max(...signalConditionItems.map(c => Number(c.dialPct) || 0));
     } else if (signalLogic === 'combo') {
       const reqItems = signalConditionItems.filter(c => c.connector === 'REQ' || requiredSignals.includes(c.key));
       const optItems = signalConditionItems.filter(c => !reqItems.includes(c));
       const reqPassed = reqItems.every(c => c.stateLabel === 'PASS');
       const optPassed = optItems.length === 0 || optItems.some(c => c.stateLabel === 'PASS');
-      signalsLogicSatisfied = velocityPassed && sideMatched && reqPassed && optPassed;
+      signalsLogicSatisfied = signalsLogicSatisfied && reqPassed && optPassed;
       const reqMin = reqItems.length > 0 ? Math.min(...reqItems.map(c => Number(c.dialPct) || 0)) : 150;
       const optMax = optItems.length > 0 ? Math.max(...optItems.map(c => Number(c.dialPct) || 0)) : reqMin;
       rawCompositeSignalDial = Math.min(reqMin, optMax);
     } else {
       // ALL (AND gate): weakest signal determines composite readiness
-      signalsLogicSatisfied = velocityPassed && sideMatched && signalConditionItems.every(c => c.stateLabel === 'PASS');
+      signalsLogicSatisfied = signalsLogicSatisfied && signalConditionItems.every(c => c.stateLabel === 'PASS');
       rawCompositeSignalDial = Math.min(...signalConditionItems.map(c => Number(c.dialPct) || 0));
     }
   }
@@ -1783,10 +2170,11 @@ export function buildCandidateConditionsModel({
     ? 0
     : Math.min(100, Math.max(0, compositeDialPct >= 100 ? 100 : compositeDialPct));
 
-  const anyRejected = signalConditionItems.some(c => c.stateLabel === 'REJECTED' || c.stateLabel === 'BLOCKED');
+  const anySignalRejected = signalConditionItems.some(c => c.stateLabel === 'REJECTED' || c.stateLabel === 'BLOCKED');
+  const blockedBySignals = signalLogic === 'all' && anySignalRejected;
   const compositeDial = resolveDialZone(compositeDialPct, {
     insufficientData: entryConditions.some(c => c.stateLabel === 'WARMING'),
-    rejected: !sideMatched || (signalLogic === 'all' && anyRejected),
+    rejected: !sideMatched || slCheck.slRejected || blockedBySignals,
   });
 
   const normalizedGate = String(gateState || 'ACTIVE').toUpperCase();
@@ -1815,7 +2203,10 @@ export function buildCandidateConditionsModel({
   } else if (entryConditions.some(c => c.stateLabel === 'WARMING')) {
     overallStatus = 'WARMING';
     overallTone = 'warning';
-  } else if (signalLogic === 'all' && anyRejected) {
+  } else if (slCheck.slRejected) {
+    overallStatus = 'SL EXCEEDS MAX';
+    overallTone = 'danger';
+  } else if (blockedBySignals) {
     overallStatus = 'OVER EXPANSION CAP';
     overallTone = 'danger';
   } else if (signalsLogicSatisfied) {
@@ -1823,9 +2214,13 @@ export function buildCandidateConditionsModel({
     overallTone = 'positive';
   }
 
-  const slPct = opp?.sl_dist_pct !== undefined && opp?.sl_dist_pct !== null
-    ? `${Number(opp.sl_dist_pct).toFixed(2)}% SL`
-    : `${strategyConfig.sl_distance_pct ?? 1.0}% SL (${strategyConfig.sl_type || 'pct'})`;
+  const slPct = isFixedSl
+    ? `${slCheck.effectiveSlDistPct.toFixed(2)}% SL (Fixed)`
+    : symbol === '---'
+      ? `${slCheck.slDistPct.toFixed(2)}% SL (max ${slCheck.slMaxPct.toFixed(2)}%)`
+      : (slCheck.slClamped
+          ? `${slCheck.slMaxPct.toFixed(2)}% SL (clamped)`
+          : `${slCheck.effectiveSlDistPct.toFixed(2)}% SL (${slUsedRound}% max)`);
   const rrTarget = opp?.prospect_rr !== undefined && opp?.prospect_rr !== null
     ? `${opp.prospect_rr}R target`
     : `${strategyConfig.tp_ratio ?? 2.0}R target`;
@@ -1837,6 +2232,7 @@ export function buildCandidateConditionsModel({
     markPrice,
     logicLabel: signalLogic.toUpperCase(),
     scannerPassed: velocityPassed,
+    slCheck,
     compositeProximity,
     compositeDialPct,
     firedConditionsCount,

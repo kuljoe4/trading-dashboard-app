@@ -35,11 +35,10 @@ import {
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { SmoothCollapse, SmoothSwap, MOTION_EASE } from '../components/ui/SmoothMotion'
-import { StrategyDetailSkeleton, DecisionLogSkeleton, ScannerRowsSkeleton } from '../components/ui/Skeletons'
+import { StrategyDetailSkeleton, DecisionLogSkeleton, ScannerRowsSkeleton, SkeletonBlock } from '../components/ui/Skeletons'
 import { useNow } from '../hooks/useNow'
 
 const TemporalRiskGrid = React.memo(() => {
@@ -1707,9 +1706,10 @@ export function DashboardView({ initialStrategy }) {
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired, tradfiAgreementRequired,
     scannerPaused, scannerResults, sessionList, fetchSessions, wsStatus,
     updateStats, analytics, stats, lastUdsBalanceReason, lastUdsBalanceTs,
-    sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
+    variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
-    nextSlotTs, fetchTradeHistory, fetchAnalytics, tradeHistory, sessionTradeHistory, sessionTradeHistoryId, tradeHistoryCounts, sessionTradeHistoryCounts
+    nextSlotTs, fetchTradeHistory, fetchAnalytics, tradeHistory, sessionTradeHistory, sessionTradeHistoryId, tradeHistoryCounts, sessionTradeHistoryCounts,
+    initialStatusLoaded
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -1742,7 +1742,6 @@ export function DashboardView({ initialStrategy }) {
     sessionList: state.sessionList,
     fetchSessions: state.fetchSessions,
     wsStatus: state.wsStatus,
-    sidebarCollapsed: state.sidebarCollapsed,
     variantScannerResults: state.variantScannerResults,
     variantStats: state.variantStats,
     isThrottled: state.isThrottled,
@@ -1769,7 +1768,8 @@ export function DashboardView({ initialStrategy }) {
     sessionTradeHistory: state.sessionTradeHistory,
     sessionTradeHistoryId: state.sessionTradeHistoryId,
     tradeHistoryCounts: state.tradeHistoryCounts,
-    sessionTradeHistoryCounts: state.sessionTradeHistoryCounts
+    sessionTradeHistoryCounts: state.sessionTradeHistoryCounts,
+    initialStatusLoaded: state.initialStatusLoaded
   }), shallow)
 
   useEffect(() => {
@@ -2415,17 +2415,11 @@ export function DashboardView({ initialStrategy }) {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300 relative overflow-x-clip",
-      sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]",
+      "min-h-screen transition-colors duration-300 relative overflow-x-clip",
       tradingMode === 'paper' ? "shadow-[inset_0_0_100px_rgba(245,166,35,0.05)] border-amber/10" :
       tradingMode === 'testnet' ? "shadow-[inset_0_0_100px_rgba(168,85,247,0.05)] border-purple/10" :
       "shadow-[inset_0_0_100px_rgba(34,197,94,0.05)] border-green/10"
     )}>
-      {/* Audit Item 40: Persistent Paper Mode Indicator */}
-      {tradingMode === 'paper' && (
-        <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
-      )}
-      <Sidebar selected={selected} />
 
       <SmoothSwap contentKey={selected ? `strategy:${selected}` : 'overview'} duration={0.16} yOffset={4}>
       {selected ? (
@@ -2790,19 +2784,17 @@ export function DashboardView({ initialStrategy }) {
               </button>
             </div>
           </div>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={cardViewMode}
-              id="active-strategy-cards-container"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.15, ease: "easeInOut" }}
-              className={cn(
-                "grid gap-2.5 sm:gap-3",
-                cardViewMode === 'list' ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 auto-rows-fr items-stretch"
-              )}
-            >
+          <motion.div
+            key={cardViewMode}
+            id="active-strategy-cards-container"
+            initial={{ opacity: 0.94, y: 3 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.14, ease: MOTION_EASE.outExpo }}
+            className={cn(
+              "grid gap-2.5 sm:gap-3",
+              cardViewMode === 'list' ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 auto-rows-fr items-stretch"
+            )}
+          >
             {sessionActive ? (
               <>
                 {(() => {
@@ -2920,6 +2912,22 @@ export function DashboardView({ initialStrategy }) {
                   );
                 })()}
               </>
+            ) : !initialStatusLoaded && !lastSession ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 col-span-1 md:col-span-2" role="status" aria-busy="true" aria-label="Checking session status">
+                {[0, 1].map((i) => (
+                  <div key={i} className="h-[118px] rounded-xl bg-background/50 border border-border/35 p-3.5 flex flex-col justify-between">
+                    <div className="flex items-center justify-between">
+                      <SkeletonBlock className="w-32 h-4 rounded" />
+                      <SkeletonBlock className="w-16 h-5 rounded-full opacity-75" />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <SkeletonBlock className="h-8 rounded-lg opacity-70" />
+                      <SkeletonBlock className="h-8 rounded-lg opacity-70" />
+                      <SkeletonBlock className="h-8 rounded-lg opacity-70" />
+                    </div>
+                  </div>
+                ))}
+              </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 col-span-1 md:col-span-2">
                 <button
@@ -2967,7 +2975,6 @@ export function DashboardView({ initialStrategy }) {
               </div>
             )}
             </motion.div>
-          </AnimatePresence>
         </div>
 
         {/* Full-Width Secondary Drawers: Periodic P&L + Collapsible Session Logs */}
@@ -3089,13 +3096,11 @@ export function DashboardView({ initialStrategy }) {
             whileTap={{ scale: 0.9 }}
             onClick={() => setShowScanner(true)}
             aria-label="Open Market Scanner"
-            className="w-10 h-10 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
+            className="w-10 h-10 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center"
           >
             <Zap size={20} />
           </motion.button>
         </div>
-
-        <BottomNav selected={selected} />
     </div>
   )
 }

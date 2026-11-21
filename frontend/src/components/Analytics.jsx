@@ -543,15 +543,13 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
       </div>
 
       {/* Main Calendar Render (Grid vs. Agenda) */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={viewMode}
-          id="strategy-calendar-view-container"
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.15, ease: "easeInOut" }}
-        >
+      <motion.div
+        key={viewMode}
+        id="strategy-calendar-view-container"
+        initial={{ opacity: 0.94, y: 3 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+      >
           {viewMode === 'GRID' ? (
             <div className="grid grid-cols-7 gap-1 sm:gap-2">
               {daysOfWeek.map((day) => (
@@ -679,8 +677,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
               )}
             </div>
           )}
-        </motion.div>
-      </AnimatePresence>
+      </motion.div>
 
       {/* Daily Detail Interactive Popover Modal / Drawer */}
       {selectedDayDetail && (

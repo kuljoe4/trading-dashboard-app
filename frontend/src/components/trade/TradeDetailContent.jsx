@@ -802,9 +802,11 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
               qty={qty}
               riskUsdt={riskUsdt}
               signalKey={s.key || key}
+              signal={s}
               signalMetric={s.metric}
               signalDescription={s.description}
               signalEstimation={sigEst}
+              strategyConfig={trade.strategy_config}
               type="exit"
             >
               {/* Delay control overrides and inline editing */}

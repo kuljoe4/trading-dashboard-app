@@ -452,3 +452,304 @@ export const HistorySessionsSkeleton = ({ count = 3 }) => (
     ))}
   </div>
 )
+
+/**
+ * Matches DashboardView (Overview) geometry: ViewHeader + 4 Global Metric StatCards + Strategy Cards + Secondary Drawers.
+ */
+export const DashboardSkeleton = () => (
+  <div
+    className="max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 pb-20 space-y-3"
+    role="status"
+    aria-busy="true"
+    aria-label="Loading cockpit overview"
+  >
+    <div className="min-h-[58px] w-full rounded-2xl bg-surface/45 border border-border/35 px-4 py-3 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <SkeletonBlock className="w-8 h-8 rounded-xl shrink-0" />
+        <div className="space-y-1.5">
+          <SkeletonBlock className="w-32 sm:w-44 h-4 rounded" />
+          <SkeletonBlock className="w-44 sm:w-64 h-2.5 rounded opacity-65" />
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <SkeletonBlock className="w-20 h-8 rounded-xl hidden sm:block" />
+        <SkeletonBlock className="w-8 h-8 rounded-xl" />
+      </div>
+    </div>
+
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+      {[0, 1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="h-[68px] rounded-xl bg-surface/45 border border-border/35 px-3 py-2.5 flex flex-col justify-between"
+        >
+          <SkeletonBlock className="w-20 h-2.5 rounded opacity-70" />
+          <SkeletonBlock className="w-28 h-4 rounded" />
+        </div>
+      ))}
+    </div>
+
+    <div className="rounded-xl bg-surface/40 border border-border/40 p-3 sm:p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <SkeletonBlock className="w-32 h-3.5 rounded" />
+        <SkeletonBlock className="w-40 h-7 rounded-lg opacity-75" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3">
+        {[0, 1].map((i) => (
+          <div key={i} className="h-[132px] rounded-xl bg-background/50 border border-border/35 p-3.5 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <SkeletonBlock className="w-36 h-4 rounded" />
+              <SkeletonBlock className="w-16 h-5 rounded-full opacity-75" />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <SkeletonBlock className="h-9 rounded-lg opacity-70" />
+              <SkeletonBlock className="h-9 rounded-lg opacity-70" />
+              <SkeletonBlock className="h-9 rounded-lg opacity-70" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-surface/35 border border-border/35 px-4 py-3.5 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <SkeletonBlock className="w-8 h-8 rounded-xl" />
+        <SkeletonBlock className="w-44 h-3.5 rounded" />
+      </div>
+      <SkeletonBlock className="w-24 h-6 rounded-lg opacity-65" />
+    </div>
+  </div>
+)
+
+/**
+ * Matches TradesView geometry: ViewHeader + 4 KPI cards + Tactical Filters toolbar + ActiveTradesSkeleton.
+ */
+export const TradesSkeleton = () => (
+  <div
+    className="max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 pb-20 space-y-3"
+    role="status"
+    aria-busy="true"
+    aria-label="Loading active positions"
+  >
+    <div className="min-h-[58px] w-full rounded-2xl bg-surface/45 border border-border/35 px-4 py-3 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <SkeletonBlock className="w-8 h-8 rounded-xl shrink-0" />
+        <div className="space-y-1.5">
+          <SkeletonBlock className="w-36 h-4 rounded" />
+          <SkeletonBlock className="w-48 h-2.5 rounded opacity-65" />
+        </div>
+      </div>
+    </div>
+
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="h-[72px] rounded-xl bg-surface/45 border border-border/35 p-3 flex flex-col justify-between">
+          <SkeletonBlock className="w-16 h-2.5 rounded opacity-70" />
+          <SkeletonBlock className="w-24 h-4 rounded" />
+          <SkeletonBlock className="w-28 h-2 rounded opacity-55" />
+        </div>
+      ))}
+    </div>
+
+    <div className="h-[52px] rounded-xl bg-surface/45 border border-border/35 px-3 flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <SkeletonBlock className="w-6 h-6 rounded-lg" />
+        <SkeletonBlock className="w-28 h-3 rounded" />
+      </div>
+      <SkeletonBlock className="w-20 h-7 rounded-lg opacity-75" />
+    </div>
+
+    <ActiveTradesSkeleton count={2} />
+  </div>
+)
+
+/**
+ * Matches HistoryView geometry: ViewHeader + filter toolbar + Lifetime Analytics card + Session rows.
+ */
+export const HistorySkeleton = () => (
+  <div
+    className="max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 pb-20 space-y-4"
+    role="status"
+    aria-busy="true"
+    aria-label="Loading trade history"
+  >
+    <div className="min-h-[58px] w-full rounded-2xl bg-surface/45 border border-border/35 px-4 py-3 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <SkeletonBlock className="w-8 h-8 rounded-xl shrink-0" />
+        <div className="space-y-1.5">
+          <SkeletonBlock className="w-32 h-4 rounded" />
+          <SkeletonBlock className="w-52 h-2.5 rounded opacity-65" />
+        </div>
+      </div>
+      <SkeletonBlock className="w-36 h-8 rounded-xl opacity-80" />
+    </div>
+
+    <div className="rounded-2xl bg-surface/40 border border-border/40 p-3 space-y-2.5">
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+        <SkeletonBlock className="w-full md:w-52 h-9 rounded-xl" />
+        <div className="flex items-center gap-2">
+          <SkeletonBlock className="flex-1 md:w-60 h-9 rounded-xl" />
+          <SkeletonBlock className="w-20 h-9 rounded-xl opacity-75" />
+        </div>
+      </div>
+      <SkeletonBlock className="w-64 h-3 rounded opacity-55" />
+    </div>
+
+    <div className="min-h-[68px] rounded-2xl bg-surface/35 border border-border/35 p-4 flex items-center justify-between gap-4">
+      <div className="flex items-center gap-3">
+        <SkeletonBlock className="w-10 h-10 rounded-xl" />
+        <div className="space-y-1.5">
+          <SkeletonBlock className="w-48 h-3.5 rounded" />
+          <SkeletonBlock className="w-36 h-2.5 rounded opacity-60" />
+        </div>
+      </div>
+      <div className="hidden sm:flex items-center gap-6">
+        <SkeletonBlock className="w-16 h-6 rounded" />
+        <SkeletonBlock className="w-16 h-6 rounded" />
+        <SkeletonBlock className="w-14 h-6 rounded" />
+      </div>
+    </div>
+
+    <HistorySessionsSkeleton count={3} />
+  </div>
+)
+
+/**
+ * Matches SettingsView geometry: ViewHeader + 4 KPI cards + Category tabs + Settings accordion cards.
+ */
+export const SettingsSkeleton = () => (
+  <div
+    className="max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 pb-20 space-y-3"
+    role="status"
+    aria-busy="true"
+    aria-label="Loading system settings"
+  >
+    <div className="min-h-[58px] w-full rounded-2xl bg-surface/45 border border-border/35 px-4 py-3 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <SkeletonBlock className="w-8 h-8 rounded-xl shrink-0" />
+        <div className="space-y-1.5">
+          <SkeletonBlock className="w-36 h-4 rounded" />
+          <SkeletonBlock className="w-56 h-2.5 rounded opacity-65" />
+        </div>
+      </div>
+      <SkeletonBlock className="w-24 h-8 rounded-lg opacity-75" />
+    </div>
+
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="h-[72px] rounded-xl bg-surface/45 border border-border/35 p-3 flex flex-col justify-between">
+          <SkeletonBlock className="w-20 h-2.5 rounded opacity-70" />
+          <SkeletonBlock className="w-24 h-4 rounded" />
+          <SkeletonBlock className="w-28 h-2 rounded opacity-55" />
+        </div>
+      ))}
+    </div>
+
+    <div className="h-[44px] w-full sm:w-[460px] rounded-xl bg-surface/40 border border-border/35 p-1 flex items-center gap-1.5">
+      {[0, 1, 2, 3, 4].map((i) => (
+        <SkeletonBlock key={i} className="flex-1 h-full rounded-lg opacity-70" />
+      ))}
+    </div>
+
+    <div className="flex flex-col gap-3">
+      {[0, 1, 2, 3, 4].map((i) => (
+        <div key={i} className="h-[58px] rounded-2xl bg-surface/40 border border-border/35 px-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <SkeletonBlock className="w-40 h-3.5 rounded" />
+            <SkeletonBlock className="w-24 h-3 rounded opacity-60 hidden sm:block" />
+          </div>
+          <SkeletonBlock className="w-4 h-4 rounded opacity-65" />
+        </div>
+      ))}
+    </div>
+  </div>
+)
+
+/**
+ * Matches BacktestPanel results area while historical simulation is running.
+ */
+export const BacktestResultsSkeleton = () => (
+  <div
+    className="flex flex-col gap-5"
+    role="status"
+    aria-busy="true"
+    aria-label="Running backtest simulation"
+  >
+    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+      {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+        <div key={i} className="h-[76px] rounded-xl bg-surface/45 border border-border/35 p-3 flex flex-col justify-between">
+          <SkeletonBlock className="w-16 h-2.5 rounded opacity-70" />
+          <SkeletonBlock className="w-20 h-4 rounded" />
+          <SkeletonBlock className="w-24 h-2 rounded opacity-55" />
+        </div>
+      ))}
+    </div>
+    <ChartPanelSkeleton height={240} label="Simulating equity curve" />
+    <div className="rounded-2xl bg-surface/35 border border-border/35 p-4 space-y-2.5">
+      <SkeletonBlock className="w-40 h-3.5 rounded" />
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="h-[46px] rounded-xl bg-background/40 border border-border/25 px-3 flex items-center justify-between">
+          <SkeletonBlock className="w-28 h-3.5 rounded" />
+          <SkeletonBlock className="w-20 h-3.5 rounded opacity-75" />
+        </div>
+      ))}
+    </div>
+  </div>
+)
+
+/**
+ * Matches SettingsView Startup & Connection Checklist 3-column grid while verifying readiness.
+ */
+export const StartupChecklistSkeleton = ({ count = 6 }) => (
+  <div
+    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"
+    role="status"
+    aria-busy="true"
+    aria-label="Verifying startup checklist"
+  >
+    {Array.from({ length: count }).map((_, i) => (
+      <div key={i} className="rounded-xl border border-border/40 bg-background/40 p-4 space-y-2.5 min-h-[112px]">
+        <div className="flex items-center justify-between gap-2">
+          <SkeletonBlock className="w-20 h-2.5 rounded opacity-65" />
+          <SkeletonBlock className="w-12 h-3 rounded opacity-75" />
+        </div>
+        <SkeletonBlock className="w-36 h-3.5 rounded" />
+        <SkeletonBlock className="w-28 h-3 rounded opacity-75" />
+        <SkeletonBlock className="w-full h-2.5 rounded opacity-55" />
+      </div>
+    ))}
+  </div>
+)
+
+/**
+ * Lightweight centered drawer/modal skeleton for lazy TradeDetailModal suspense.
+ */
+export const ModalDrawerSkeleton = () => (
+  <div
+    className="fixed inset-x-0 bottom-0 top-[6dvh] lg:inset-x-auto lg:left-1/2 lg:-translate-x-1/2 lg:top-[6dvh] lg:bottom-[6dvh] lg:w-full lg:max-w-[1140px] z-[101] bg-background border border-border/70 rounded-t-[32px] lg:rounded-3xl p-5 flex flex-col gap-4 shadow-2xl"
+    role="status"
+    aria-busy="true"
+    aria-label="Loading trade details"
+  >
+    <div className="flex items-center justify-between border-b border-border/30 pb-3">
+      <div className="flex items-center gap-3">
+        <SkeletonBlock className="w-8 h-8 rounded-xl" />
+        <div className="space-y-1.5">
+          <SkeletonBlock className="w-28 h-4 rounded" />
+          <SkeletonBlock className="w-36 h-2.5 rounded opacity-65" />
+        </div>
+      </div>
+      <SkeletonBlock className="w-7 h-7 rounded-lg" />
+    </div>
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="h-[70px] rounded-xl bg-surface/45 border border-border/35 p-3 flex flex-col justify-between">
+          <SkeletonBlock className="w-16 h-2.5 rounded opacity-70" />
+          <SkeletonBlock className="w-20 h-4 rounded" />
+        </div>
+      ))}
+    </div>
+    <ChartPanelSkeleton height={220} label="Loading trade telemetry" />
+  </div>
+)
+

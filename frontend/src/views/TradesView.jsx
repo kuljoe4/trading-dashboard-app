@@ -4,13 +4,12 @@ import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { SectionLabel, StatCard, cn, ViewHeader, Btn, Tooltip } from '../components/ui/primitives'
 import { SmoothCollapse } from '../components/ui/SmoothMotion'
-import { ActiveTradesSkeleton } from '../components/ui/Skeletons'
+import { ActiveTradesSkeleton, ModalDrawerSkeleton } from '../components/ui/Skeletons'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
-import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
 
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
@@ -21,7 +20,7 @@ const preloadTradeDetailModal = () => {
 import { Filter, SlidersHorizontal, ChevronDown, RotateCcw } from 'lucide-react'
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, activePnl: storeActivePnl, lastKnownPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore(state => ({
+  const { activeTrades, totalPnl, activePnl: storeActivePnl, lastKnownPnl, totalRiskPct, totalSlUsed, config, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, isSyncing, initialStatusLoaded, sessionActive, totalEstPnlToRealize } = useTradingStore(state => ({
     activeTrades: state.activeTrades,
     totalPnl: state.totalPnl,
     activePnl: state.activePnl,
@@ -29,15 +28,22 @@ const TradesView = () => {
     totalRiskPct: state.totalRiskPct,
     totalSlUsed: state.totalSlUsed,
     config: state.config,
-    sidebarCollapsed: state.sidebarCollapsed,
     healthEnabled: state.healthEnabled,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
     isSyncingOnResume: state.isSyncingOnResume,
+    isSyncing: state.isSyncing,
+    initialStatusLoaded: state.initialStatusLoaded,
     sessionActive: state.sessionActive,
     totalEstPnlToRealize: state.totalEstPnlToRealize,
   }), shallow)
   const [selectedTradeId, setSelectedTradeId] = useState(null)
+
+  useEffect(() => {
+    if (activeTrades && activeTrades.length > 0) {
+      preloadTradeDetailModal();
+    }
+  }, [activeTrades?.length]);
 
   // Persisted filter settings
   const [strategyFilter, setStrategyFilter] = useState(() => {
@@ -151,14 +157,9 @@ const TradesView = () => {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300",
-      sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
+      "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 transition-all",
+      healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
     )}>
-      <Sidebar />
-      <div className={cn(
-        "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all",
-        healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
-      )}>
         <ViewHeader
           icon={Briefcase}
           title="Active Positions"
@@ -364,7 +365,7 @@ const TradesView = () => {
             </div>
 
         {(!activeTrades || activeTrades.length === 0) ? (
-          showResumingFeedback ? (
+          (showResumingFeedback || !initialStatusLoaded || isSyncing) ? (
             <ActiveTradesSkeleton count={2} />
           ) : (
           <div className="bg-surface/20 border border-border border-dashed rounded-3xl p-20 flex flex-col items-center justify-center text-center">
@@ -428,7 +429,7 @@ const TradesView = () => {
         );
       })()}
 
-      <Suspense fallback={null}>
+      <Suspense fallback={selectedTrade ? <ModalDrawerSkeleton /> : null}>
         {selectedTrade && (
           <TradeDetailModal
             isOpen={!!selectedTrade}
@@ -438,8 +439,6 @@ const TradesView = () => {
           />
         )}
       </Suspense>
-      </div>
-      <BottomNav />
     </div>
   )
 }

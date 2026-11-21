@@ -3381,20 +3381,32 @@ export class SignalEngineService {
       const liveHigh = formingCandle ? Math.max(currentHigh, formingCandle.high) : currentHigh;
       const liveLow = formingCandle ? Math.min(currentLow, formingCandle.low) : currentLow;
 
+      const targetSpan = targetRefHigh > targetRefLow ? (targetRefHigh - targetRefLow) : 0;
+      const wickSpan = refHigh > refLow ? (refHigh - refLow) : 0;
+      const refCandleSpan = targetSpan > 0 ? targetSpan : wickSpan;
+
       let fired = false;
       let rejected = false;
       let thresholdPrice = 0;
       let expansionCapPrice: number | null = null;
+      let effectiveMaxExpPct: number | null = null;
       let candleConfirmState: 'closed_beyond' | 'wicked_only' | 'below' = 'below';
       let description = '';
       const isExit = purpose === 'exit';
+      const wantUpperRef = isExit ? side === 'SHORT' : side === 'LONG';
+      const activeRefForDist = wantUpperRef ? targetRefHigh : targetRefLow;
+      const rawRefRangePct = activeRefForDist > 0 && refCandleSpan > 0
+        ? (refCandleSpan / activeRefForDist) * 100
+        : 0;
+      const refRangePct = rawRefRangePct > 0 ? roundTo(rawRefRangePct, 4) : 0;
 
       if (side === 'LONG') {
         // Base breakout threshold with buffer %
         const bufferAmount = (bufferPct > 0) ? targetRefHigh * (bufferPct / 100) : 0;
         thresholdPrice = targetRefHigh + bufferAmount;
-        if (maxExpansionPct > 0) {
-          expansionCapPrice = targetRefHigh * (1 + maxExpansionPct / 100);
+        if (maxExpansionPct > 0 && !isExit && refCandleSpan > 0 && targetRefHigh > 0) {
+          effectiveMaxExpPct = roundTo((refCandleSpan / targetRefHigh) * maxExpansionPct, 6);
+          expansionCapPrice = targetRefHigh + refCandleSpan * (maxExpansionPct / 100);
         }
 
         if (!isExit) {
@@ -3416,12 +3428,16 @@ export class SignalEngineService {
             candleConfirmState = currentPrice > thresholdPrice ? 'closed_beyond' : (currentHigh > thresholdPrice ? 'wicked_only' : 'below');
           }
 
-          // Anti-overexpansion ceiling guard
+          // Anti-overexpansion ceiling guard (% of HTF reference candle distance)
           if (expansionCapPrice !== null && (currentPrice > expansionCapPrice || livePrice > expansionCapPrice)) {
+            const effLabel = effectiveMaxExpPct !== null
+              ? (effectiveMaxExpPct < 0.01 ? effectiveMaxExpPct.toFixed(4) : effectiveMaxExpPct.toFixed(2))
+              : String(maxExpansionPct);
+            const refLabel = refRangePct.toFixed(2);
             if (fired) {
               fired = false;
               rejected = true;
-              description = `Rejected: price ${currentPrice.toFixed(4)} expanded > ${maxExpansionPct}% above ${refTf} level (${expansionCapPrice.toFixed(4)})`;
+              description = `Rejected: price ${currentPrice.toFixed(4)} expanded > ${effLabel}% (${maxExpansionPct}% of ${refLabel}% ${refTf} range) above ${refTf} level (${expansionCapPrice.toFixed(4)})`;
             } else if (livePrice > expansionCapPrice) {
               rejected = true;
             }
@@ -3445,8 +3461,9 @@ export class SignalEngineService {
         // SHORT
         const bufferAmount = (bufferPct > 0) ? targetRefLow * (bufferPct / 100) : 0;
         thresholdPrice = targetRefLow - bufferAmount;
-        if (maxExpansionPct > 0) {
-          expansionCapPrice = targetRefLow * (1 - maxExpansionPct / 100);
+        if (maxExpansionPct > 0 && !isExit && refCandleSpan > 0 && targetRefLow > 0) {
+          effectiveMaxExpPct = roundTo((refCandleSpan / targetRefLow) * maxExpansionPct, 6);
+          expansionCapPrice = targetRefLow - refCandleSpan * (maxExpansionPct / 100);
         }
 
         if (!isExit) {
@@ -3468,12 +3485,16 @@ export class SignalEngineService {
             candleConfirmState = currentPrice < thresholdPrice ? 'closed_beyond' : (currentLow < thresholdPrice ? 'wicked_only' : 'below');
           }
 
-          // Anti-overexpansion floor guard
+          // Anti-overexpansion floor guard (% of HTF reference candle distance)
           if (expansionCapPrice !== null && (currentPrice < expansionCapPrice || livePrice < expansionCapPrice)) {
+            const effLabel = effectiveMaxExpPct !== null
+              ? (effectiveMaxExpPct < 0.01 ? effectiveMaxExpPct.toFixed(4) : effectiveMaxExpPct.toFixed(2))
+              : String(maxExpansionPct);
+            const refLabel = refRangePct.toFixed(2);
             if (fired) {
               fired = false;
               rejected = true;
-              description = `Rejected: price ${currentPrice.toFixed(4)} expanded > ${maxExpansionPct}% below ${refTf} level (${expansionCapPrice.toFixed(4)})`;
+              description = `Rejected: price ${currentPrice.toFixed(4)} expanded > ${effLabel}% (${maxExpansionPct}% of ${refLabel}% ${refTf} range) below ${refTf} level (${expansionCapPrice.toFixed(4)})`;
             } else if (livePrice < expansionCapPrice) {
               rejected = true;
             }
@@ -3519,6 +3540,8 @@ export class SignalEngineService {
         buffer_pct: bufferPct,
         breakout_level: roundTo(thresholdPrice, 8),
         max_expansion_pct: maxExpansionPct,
+        effective_max_expansion_pct: effectiveMaxExpPct !== null ? roundTo(effectiveMaxExpPct, 6) : null,
+        ref_range_pct: refRangePct,
         expansion_cap: expansionCapPrice !== null ? roundTo(expansionCapPrice, 8) : null,
         live_price: roundTo(livePrice, 8),
         candle_high: roundTo(liveHigh, 8),

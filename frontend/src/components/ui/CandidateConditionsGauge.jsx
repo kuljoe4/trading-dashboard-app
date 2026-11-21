@@ -3,7 +3,11 @@ import { cn } from './primitives';
 import { SmoothHeightContainer } from './SmoothMotion';
 import { ConditionCardsSkeleton } from './Skeletons';
 import { price as fmtPrice } from '../../lib/formatters';
-import { buildCandidateConditionsModel, computeConditionValueDelta } from '../../utils/candidateConditions';
+import {
+  buildCandidateConditionsModel,
+  computeConditionValueDelta,
+  computeHtfLadderDomain,
+} from '../../utils/candidateConditions';
 
 const ZONE_COLOR_MAP = {
   watching: '#64748b',
@@ -269,7 +273,7 @@ export const ConditionDial = React.memo(function ConditionDial({
     targetAngle = ratioToAngle(100);
     targetLabel = dialScale.targetLabel || 'target';
     minLabel = dialScale.minLabel || '0%';
-    maxLabel = dialScale.maxLabel || `+${maxPct - 100}%`;
+    maxLabel = dialScale.maxLabel || (dialScale.invertTrack ? `${maxPct}%` : `+${maxPct - 100}%`);
     needleDeg = (clampedVal / maxPct) * 180;
     preTrackPath = describeAngleArc(cx, cy, r, -180, Math.max(-179.5, targetAngle - 0.8));
     postTrackPath = describeAngleArc(cx, cy, r, Math.min(-0.5, targetAngle + 0.8), 0);
@@ -291,6 +295,9 @@ export const ConditionDial = React.memo(function ConditionDial({
     activeArcPath = describeAngleArc(cx, cy, r, -180, 0);
     minorTickAngles = [pctToAngle(50)];
   }
+
+  const preTrackColor = dialScale?.invertTrack ? '#22c55e' : '#64748b';
+  const postTrackColor = dialScale?.invertTrack ? '#ef4444' : '#22c55e';
 
   const [tx1, ty1] = polar(cx, cy, r - strokeW * 0.9, targetAngle);
   const [tx2, ty2] = polar(cx, cy, r + strokeW * 0.9, targetAngle);
@@ -318,10 +325,10 @@ export const ConditionDial = React.memo(function ConditionDial({
     >
       {/* Clean 2-Segment Track: Pre-Target and Post-Target */}
       {preTrackPath && (
-        <path d={preTrackPath} stroke="#64748b" strokeOpacity="0.24" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
+        <path d={preTrackPath} stroke={preTrackColor} strokeOpacity="0.24" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
       )}
       {postTrackPath && (
-        <path d={postTrackPath} stroke="#22c55e" strokeOpacity="0.26" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
+        <path d={postTrackPath} stroke={postTrackColor} strokeOpacity="0.26" strokeWidth={strokeW} strokeLinecap="round" fill="none" />
       )}
 
       {/* Subtle Proportionate Reference Minor Ticks */}
@@ -513,16 +520,33 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
   const trigTf = ladder.trigTf || '1h';
   const mode = ladder.mode || 'closed_candle_confirm';
   const bufferPct = Number.isFinite(Number(ladder.bufferPct)) ? Number(ladder.bufferPct) : 0;
+  const maxExpansionPct = Number.isFinite(Number(ladder.maxExpansionPct)) ? Number(ladder.maxExpansionPct) : 0;
   const effectiveMaxExpPct = Number.isFinite(Number(ladder.effectiveMaxExpPct)) ? Number(ladder.effectiveMaxExpPct) : 2.0;
-  const hasHardCap = Boolean(ladder.hasHardCap);
-  const capUsesSlLookback = Boolean(ladder.capUsesSlLookback);
+  const hasHardCap = Boolean(ladder.hasHardCap) || maxExpansionPct > 0;
+  const slType = ladder.slType || 'lookback_low/high';
   const slLookbackPeriod = Number.isFinite(Number(ladder.slLookbackPeriod)) ? Number(ladder.slLookbackPeriod) : 5;
+  const slMaxPct = Number.isFinite(Number(ladder.slMaxPct)) ? Number(ladder.slMaxPct) : 3.0;
+  const slExceedsMax = Boolean(ladder.slExceedsMax);
+  const slRejected = Boolean(ladder.slRejected);
+  const slCapUsedPct = Number.isFinite(Number(ladder.slCapUsedPct)) ? Number(ladder.slCapUsedPct) : 0;
   const refHigh = Number.isFinite(Number(ladder.refHigh)) ? Number(ladder.refHigh) : 0;
   const refLow = Number.isFinite(Number(ladder.refLow)) ? Number(ladder.refLow) : 0;
   const breakoutLevel = Number.isFinite(Number(ladder.breakoutLevel)) ? Number(ladder.breakoutLevel) : (refHigh || refLow || 0);
-  const expansionCap = Number.isFinite(Number(ladder.expansionCap)) ? Number(ladder.expansionCap) : breakoutLevel;
-  const livePrice = Number.isFinite(Number(ladder.livePrice)) ? Number(ladder.livePrice) : breakoutLevel;
   const isLong = ladder.isLong !== false;
+  const activeRef = isLong ? refHigh : refLow;
+  const computedRefRangePct = activeRef > 0 && refHigh > refLow ? ((refHigh - refLow) / activeRef) * 100 : 0;
+  const refRangePct = Number.isFinite(Number(ladder.refRangePct)) && Number(ladder.refRangePct) > 0
+    ? Number(ladder.refRangePct)
+    : computedRefRangePct;
+  const expansionCap = Number.isFinite(Number(ladder.expansionCap)) ? Number(ladder.expansionCap) : breakoutLevel;
+  const capPriceDeltaPct = hasHardCap && breakoutLevel > 0
+    ? Math.abs(((expansionCap - breakoutLevel) / breakoutLevel) * 100)
+    : effectiveMaxExpPct;
+  const displayExpPct = hasHardCap && bufferPct === 0 && Math.abs(capPriceDeltaPct - effectiveMaxExpPct) > 0.05
+    ? capPriceDeltaPct
+    : effectiveMaxExpPct;
+  const fmtExpPct = Number(displayExpPct.toFixed(displayExpPct < 0.01 ? 4 : (displayExpPct < 0.1 ? 3 : 2)));
+  const livePrice = Number.isFinite(Number(ladder.livePrice)) ? Number(ladder.livePrice) : breakoutLevel;
   const slPrice = Number.isFinite(Number(ladder.slPrice)) && Number(ladder.slPrice) > 0
     ? Number(ladder.slPrice)
     : (isLong ? refLow : refHigh);
@@ -542,49 +566,37 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
 
   const zTone = LADDER_ZONE_TONE[zone] || LADDER_ZONE_TONE.below;
 
-  // True-Proportion Linear Vertical Domain [pMin, pMax]:
-  // Uses exact real price spacing across [slPrice, breakoutLevel, expansionCap];
-  // only applies an explicit scale-break when SL is an extreme outlier (>3.8× or <0.16× capDist).
-  const capDist = Math.max(Math.abs(expansionCap - breakoutLevel), breakoutLevel * 0.005, 1e-9);
-  const rawSlDist = slPrice > 0 ? Math.abs(breakoutLevel - slPrice) : capDist * 0.85;
-  const minTrueSlSpan = capDist * 0.16;
-  const maxTrueSlSpan = capDist * 3.8;
-  const slScaleBreak = slPrice > 0 && (rawSlDist > maxTrueSlSpan || rawSlDist < minTrueSlSpan);
-  const visualSlSpan = slScaleBreak
-    ? Math.min(Math.max(rawSlDist, minTrueSlSpan), maxTrueSlSpan)
-    : rawSlDist;
-  const slVisualPrice = isLong ? breakoutLevel - visualSlSpan : breakoutLevel + visualSlSpan;
-  const clampedLiveForDomain = isLong
-    ? Math.max(slVisualPrice - capDist * 0.30, Math.min(expansionCap + capDist * 0.40, livePrice))
-    : Math.min(slVisualPrice + capDist * 0.30, Math.max(expansionCap - capDist * 0.40, livePrice));
+  // True-Proportion Linear Vertical Domain [pMin, pMax]
+  const {
+    slBehindBreakout,
+    slScaleBreak,
+    slVisualPrice,
+    overCapActive,
+    pMax,
+    pMin,
+    effectiveCapTarget,
+  } = computeHtfLadderDomain({
+    isLong,
+    breakoutLevel,
+    expansionCap,
+    slPrice,
+    livePrice,
+    hasHardCap,
+  });
 
-  const overCapActive = isLong ? livePrice > expansionCap : livePrice < expansionCap;
-  const underSlActive = isLong ? livePrice < slVisualPrice : livePrice > slVisualPrice;
-
-  const pMax = isLong
-    ? (overCapActive
-        ? Math.min(expansionCap + capDist * 0.36, Math.max(expansionCap + capDist * 0.14, clampedLiveForDomain + capDist * 0.05))
-        : expansionCap + capDist * 0.02)
-    : (underSlActive
-        ? Math.min(slVisualPrice + capDist * 0.30, Math.max(slVisualPrice + capDist * 0.12, clampedLiveForDomain + capDist * 0.05))
-        : slVisualPrice + capDist * 0.02);
-
-  const pMin = isLong
-    ? (underSlActive
-        ? Math.max(slVisualPrice - capDist * 0.30, Math.min(slVisualPrice - capDist * 0.12, clampedLiveForDomain - capDist * 0.05))
-        : slVisualPrice - capDist * 0.02)
-    : (overCapActive
-        ? Math.max(expansionCap - capDist * 0.36, Math.min(expansionCap - capDist * 0.14, clampedLiveForDomain - capDist * 0.05))
-        : expansionCap - capDist * 0.02);
-
-  const svgW = Math.max(260, boxSize.w || 400);
+  const svgW = Math.max(250, boxSize.w || 400);
   const svgH = Math.max(compact ? 104 : 116, boxSize.h || (compact ? 116 : 134));
   const padTop = 7;
   const padBot = 7;
   const plotH = svgH - padTop - padBot;
-  const xLeft = 80;
-  const xRight = Math.max(xLeft + 104, svgW - 104);
+  const leftRailW = svgW < 330 ? 70 : 80;
+  const rightRailW = svgW < 330 ? 88 : 104;
+  const xLeft = leftRailW;
+  const xRight = Math.max(xLeft + 88, svgW - rightRailW);
   const bandW = xRight - xLeft;
+  const rightPillX = xRight + 4;
+  const rightPillW = Math.max(68, svgW - rightPillX - 4);
+  const leftPillW = Math.max(54, xLeft - 10);
 
   const yOf = (priceVal) => {
     const numVal = Number(priceVal);
@@ -595,7 +607,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
   };
 
   const yBreak = yOf(breakoutLevel);
-  const yCap = yOf(expansionCap);
+  const yCap = yOf(hasHardCap ? expansionCap : effectiveCapTarget);
   const yPx = yOf(livePrice);
   const ySl = yOf(slVisualPrice);
   const pillY = Math.max(8, Math.min(svgH - 8, yPx));
@@ -605,7 +617,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
     height: Math.max(0, Math.abs(y2 - y1)),
   });
 
-  const slRiskBox = rectBand(ySl, yBreak);
+  const slRiskBox = slBehindBreakout ? rectBand(ySl, yBreak) : rectBand(ySl, yPx);
   const capBox = rectBand(yBreak, yCap);
   const rejectBox = isLong ? rectBand(padTop, yCap) : rectBand(yCap, svgH - padBot);
 
@@ -616,6 +628,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
   const capRoomFormatted = safeCapRoom <= 0
     ? '0%'
     : `${safeCapRoom >= 10 ? safeCapRoom.toFixed(1) : safeCapRoom.toFixed(2)}%`;
+  const slUsedRound = Math.max(0, Math.round(slCapUsedPct));
 
   let confirmLabel = isLong ? `Below ${refTf} high` : `Above ${refTf} low`;
   let confirmToneClass = 'text-dim';
@@ -643,13 +656,13 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
       color: '#60a5fa',
       bold: true,
     },
-    {
+    ...(hasHardCap ? [{
       id: 'cap',
       y: yCap,
-      text: `${capUsesSlLookback ? 'SL cap' : 'cap'} ${isLong ? '+' : '-'}${effectiveMaxExpPct}%`,
+      text: `cap ${isLong ? '+' : '-'}${fmtExpPct}%`,
       color: '#c084fc',
       bold: true,
-    },
+    }] : []),
   ];
   const leftLabels = decollideVerticalLabels(rawLeftLabels, 12.5, 9, svgH - 9, pillY, 13.5);
 
@@ -669,13 +682,13 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
       color: '#e2e8f0',
       bold: true,
     },
-    {
+    ...(hasHardCap ? [{
       id: 'capPx',
       y: yCap,
       text: fmtPrice(expansionCap),
       color: '#c084fc',
       bold: true,
-    },
+    }] : []),
   ];
   const rightLabels = decollideVerticalLabels(rawRightLabels, 12.5, 9, svgH - 9, pillY, 13.5);
 
@@ -713,15 +726,28 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
   const capZoneTextY = resolveZoneTextY(capBox, 14);
   const rejectZoneTextY = overCapActive ? resolveZoneTextY(rejectBox, 12) : null;
 
+  const slSourceTag = slType === 'pct'
+    ? 'Fixed'
+    : slType === 'supertrend'
+      ? 'ST'
+      : slType === 'engulfing_boundary'
+        ? 'Eng'
+        : `${slLookbackPeriod}b`;
   const slZoneLabel = zoneTextW >= 152
-    ? `SL lookback (${slLookbackPeriod}b) · -${slDistPct.toFixed(2)}%${slScaleBreak ? ' · break' : ''}`
+    ? `SL (${slSourceTag}) · -${slDistPct.toFixed(2)}%${slScaleBreak ? ' · break' : ''}`
     : zoneTextW >= 96
-      ? `SL (${slLookbackPeriod}b) -${slDistPct.toFixed(1)}%${slScaleBreak ? ' · brk' : ''}`
+      ? `SL (${slSourceTag}) -${slDistPct.toFixed(1)}%`
       : `SL -${slDistPct.toFixed(1)}%`;
 
-  const capZoneLabel = zoneTextW >= 132
-    ? (capUsesSlLookback ? `SL cap window (${effectiveMaxExpPct}%)` : `Cap window (${effectiveMaxExpPct}%)`)
-    : `Cap ${effectiveMaxExpPct}%`;
+  const capZoneLabel = hasHardCap
+    ? (zoneTextW >= 152
+        ? `Cap ${fmtExpPct}% (${maxExpansionPct}% Ref)`
+        : zoneTextW >= 112
+          ? `Cap ${fmtExpPct}% (${maxExpansionPct}%R)`
+          : `Cap ${fmtExpPct}%`)
+    : (zoneTextW >= 124
+        ? `Uncapped (${refTf} ${refRangePct.toFixed(1)}%)`
+        : 'Uncapped');
 
   const livePriceText = fmtPrice(livePrice);
 
@@ -747,6 +773,10 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           <clipPath id={zoneClipId}>
             <rect x={xLeft + 5} y={0} width={zoneTextW} height={svgH} />
           </clipPath>
+          <linearGradient id={`${zoneClipId}-open`} x1="0" y1={isLong ? '1' : '0'} x2="0" y2={isLong ? '0' : '1'}>
+            <stop offset="0%" stopColor="#22c55e" stopOpacity="0.14" />
+            <stop offset="100%" stopColor="#22c55e" stopOpacity="0.01" />
+          </linearGradient>
         </defs>
 
         {/* Lookback SL Risk Zone (SL <-> Breakout Level) */}
@@ -791,19 +821,31 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           );
         })()}
 
-        {/* Single Clean Zoomed Cap Window (Breakout Level <-> Max Cap) + 50% Midpoint Guide */}
-        <rect x={xLeft} y={capBox.y} width={bandW} height={Math.max(1.5, capBox.height)} fill="#22c55e" fillOpacity="0.14" />
-        <rect x={xLeft} y={capBox.y} width="3" height={Math.max(1.5, capBox.height)} fill="#22c55e" fillOpacity="0.8" />
-        {capBox.height >= 18 && (
-          <line
-            x1={xLeft + 4}
-            y1={(yBreak + yCap) / 2}
-            x2={xRight}
-            y2={(yBreak + yCap) / 2}
-            stroke="#22c55e"
-            strokeOpacity="0.28"
-            strokeWidth="0.8"
-            strokeDasharray="2 3"
+        {/* Breakout Zone: Bounded Cap Box + 50% Midpoint when Cap On, or Open-Ended Gradient when Cap Off */}
+        {hasHardCap ? (
+          <>
+            <rect x={xLeft} y={capBox.y} width={bandW} height={Math.max(1.5, capBox.height)} fill="#22c55e" fillOpacity="0.14" />
+            <rect x={xLeft} y={capBox.y} width="3" height={Math.max(1.5, capBox.height)} fill="#22c55e" fillOpacity="0.8" />
+            {capBox.height >= 18 && (
+              <line
+                x1={xLeft + 4}
+                y1={(yBreak + yCap) / 2}
+                x2={xRight}
+                y2={(yBreak + yCap) / 2}
+                stroke="#22c55e"
+                strokeOpacity="0.28"
+                strokeWidth="0.8"
+                strokeDasharray="2 3"
+              />
+            )}
+          </>
+        ) : (
+          <rect
+            x={xLeft}
+            y={capBox.y}
+            width={bandW}
+            height={Math.max(1.5, capBox.height)}
+            fill={`url(#${zoneClipId}-open)`}
           />
         )}
         {capZoneTextY !== null && (
@@ -812,7 +854,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
             y={capZoneTextY}
             fontSize="8"
             fill="#4ade80"
-            fillOpacity="0.9"
+            fillOpacity={hasHardCap ? '0.9' : '0.72'}
             clipPath={`url(#${zoneClipId})`}
             className="font-mono font-semibold"
           >
@@ -862,16 +904,18 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           strokeDasharray="4 2.5"
         />
 
-        {/* Max-Expansion / Lookback SL Cap Line */}
-        <line
-          x1={xLeft}
-          y1={yCap}
-          x2={xRight}
-          y2={yCap}
-          stroke="#a855f7"
-          strokeWidth="1.5"
-          strokeDasharray="3 2.5"
-        />
+        {/* Breakout Max Expansion Cap Line (shown only when max_expansion_pct > 0) */}
+        {hasHardCap && (
+          <line
+            x1={xLeft}
+            y1={yCap}
+            x2={xRight}
+            y2={yCap}
+            stroke="#a855f7"
+            strokeWidth="1.5"
+            strokeDasharray="3 2.5"
+          />
+        )}
 
         {/* Slim Color-Filled Lookback Candles + Trigger Candle Lane */}
         {candleCount > 0 && (
@@ -1015,19 +1059,19 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
         >
           {/* Right Floating Live Price Pill */}
           <rect
-            x={xRight + 5}
+            x={rightPillX}
             y={-8}
-            width="95"
+            width={rightPillW}
             height="16"
             rx="4"
             fill={zTone.color}
             className="svg-smooth-color"
           />
           <text
-            x={xRight + 52.5}
+            x={rightPillX + rightPillW / 2}
             y={3.1}
             textAnchor="middle"
-            fontSize={livePriceText.length > 9 ? '7.8' : '9'}
+            fontSize={livePriceText.length > 9 || rightPillW < 82 ? '7.8' : '8.8'}
             fontWeight="800"
             fill="#ffffff"
             className="font-mono tabular-nums"
@@ -1039,7 +1083,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           <rect
             x="4"
             y={-7.5}
-            width="66"
+            width={leftPillW}
             height="15"
             rx="4"
             fill={zTone.color}
@@ -1049,10 +1093,10 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
             className="svg-smooth-color"
           />
           <text
-            x="37"
+            x={4 + leftPillW / 2}
             y={2.8}
             textAnchor="middle"
-            fontSize={distText.length > 7 ? '7.6' : '8.2'}
+            fontSize={distText.length > 7 || leftPillW < 60 ? '7.4' : '8.2'}
             fontWeight="800"
             fill={zTone.color}
             className="font-mono tabular-nums svg-smooth-color"
@@ -1072,13 +1116,17 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
 
         {/* Inline True-Proportion Two-Wing SL <-> Entry <-> Target Ratio Bar */}
         <div
-          className="flex-1 min-w-[120px] max-w-[215px] flex items-center gap-1.5"
-          title={`Lookback SL -${slDistPct.toFixed(2)}% (1.0R) | Target +${Math.abs(pnlOrRewardPct).toFixed(2)}% (${rrRatio.toFixed(1)}R)`}
+          className="flex-1 min-w-[100px] max-w-[205px] flex items-center gap-1.5"
+          title={
+            slType === 'pct'
+              ? `SL: -${slDistPct.toFixed(2)}% (Fixed) | Target +${Math.abs(pnlOrRewardPct).toFixed(2)}% (${rrRatio.toFixed(1)}R)`
+              : `SL Check: -${slDistPct.toFixed(2)}% / ${slMaxPct.toFixed(2)}% max (${slUsedRound}% of max SL) | Target +${Math.abs(pnlOrRewardPct).toFixed(2)}% (${rrRatio.toFixed(1)}R)`
+          }
         >
           <span className="text-[8px] font-bold text-red shrink-0">
             -{slDistPct.toFixed(1)}%
           </span>
-          <div className="flex-1 h-2.5 rounded bg-bg/85 border border-border/45 overflow-hidden flex items-center min-w-[36px]">
+          <div className="flex-1 h-2.5 rounded bg-bg/85 border border-border/45 overflow-hidden flex items-center min-w-[32px]">
             <div
               className="h-full bg-red/40 border-r border-text/85 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
               style={{ width: `${riskWingWidthPct.toFixed(2)}%` }}
@@ -1093,13 +1141,36 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
           </span>
         </div>
 
-        <span className="text-dim shrink-0">
-          Cap{' '}
-          <strong className={cn(zTone.textClass)}>
-            {distFromLevelPct < 0 ? '0%' : `${capUsedRound}%`}
-          </strong>
-          <span className="text-dim/75"> ({capRoomFormatted} left)</span>
-        </span>
+        {hasHardCap ? (
+          <span
+            className="text-dim shrink-0"
+            title={`Breakout Cap: ${fmtExpPct}% (${maxExpansionPct}% of ${refRangePct.toFixed(2)}% ${refTf} candle range) · Used: ${capUsedRound}% | SL: ${slDistPct.toFixed(2)}%`}
+          >
+            Cap{' '}
+            <strong className={cn(zTone.textClass)}>
+              {distFromLevelPct < 0 ? '0%' : `${capUsedRound}%`}
+            </strong>
+            <span className="text-dim/75"> ({capRoomFormatted} left)</span>
+            {slExceedsMax && (
+              <span className={cn('ml-1 font-semibold', slRejected ? 'text-purple-400' : 'text-amber')}>
+                · SL {slUsedRound}%
+              </span>
+            )}
+          </span>
+        ) : (
+          <span
+            className="text-dim shrink-0"
+            title={`Breakout Max Cap: Disabled (0%) · ${refTf} Ref Candle Range: ${refRangePct.toFixed(2)}% (${fmtPrice(refLow)}–${fmtPrice(refHigh)})`}
+          >
+            Cap <strong className="text-dim">Off</strong>
+            <span className="text-dim/75"> ({refTf} {refRangePct.toFixed(1)}%)</span>
+            {slExceedsMax && (
+              <span className={cn('ml-1 font-semibold', slRejected ? 'text-purple-400' : 'text-amber')}>
+                · SL {slUsedRound}%
+              </span>
+            )}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -1835,7 +1906,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                           <span
                             className={cn(
                               'text-[8.5px] font-black font-mono uppercase tracking-wider px-1.2 py-0.2 rounded border',
-                              c.isScannerGate
+                              (c.isScannerGate || c.isSlGate)
                                 ? 'bg-amber/10 text-amber border-amber/30'
                                 : 'bg-surface/70 text-dim border-border/50'
                             )}
@@ -1907,7 +1978,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                           {hasDeltaReadout && (
                             <div className="flex items-center justify-between gap-2 text-[9.5px] border-t border-border/25 pt-1 min-w-0">
                               <span className="text-dim uppercase tracking-wider font-semibold text-[8.5px] shrink-0">
-                                {(Number(c.dialPct) || 0) >= 100 ? 'Past target' : 'To go'}
+                                {c.deltaLabel || ((Number(c.dialPct) || 0) >= 100 ? 'Past target' : 'To go')}
                               </span>
                               <span
                                 className={cn(

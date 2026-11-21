@@ -579,7 +579,7 @@ function getScannerOpportunities(cfg?: any) {
         const lookback = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_lookback', 1)) || 1;
         const refLevelType = String(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_reference_level', 'high_low'));
         const bufferPct = Math.max(0, Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_buffer_pct', 0)) || 0);
-        const maxExpPct = Math.max(0, Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_max_expansion_pct', 2)) || 0);
+        const maxExpPct = Math.max(0, Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_max_expansion_pct', targetConfig.htf_breakout_max_expansion_pct ?? 0)) || 0);
 
         const allCompletedCandles = ohlc.length > 2 ? ohlc.slice(0, -1) : ohlc;
         const completedCandles = allCompletedCandles.slice(-Math.max(1, lookback));
@@ -598,8 +598,8 @@ function getScannerOpportunities(cfg?: any) {
             if (cL < l) l = cL;
           }
           if (Number.isFinite(h) && Number.isFinite(l) && h > l) {
-            refHigh = parseFloat(h.toFixed(decimals));
-            refLow = parseFloat(l.toFixed(decimals));
+            refHigh = parseFloat(h.toFixed(Math.max(decimals, 6)));
+            refLow = parseFloat(l.toFixed(Math.max(decimals, 6)));
           }
         }
 
@@ -608,12 +608,23 @@ function getScannerOpportunities(cfg?: any) {
         const liveHigh = Math.max(formingCandle.high || livePrice, livePrice);
         const liveLow = Math.min(formingCandle.low || livePrice, livePrice);
 
+        const priceDec = Math.max(decimals, 6);
         const breakoutLevel = sideUpper === 'LONG'
-          ? parseFloat((refHigh * (1 + bufferPct / 100)).toFixed(decimals))
-          : parseFloat((refLow * (1 - bufferPct / 100)).toFixed(decimals));
+          ? parseFloat((refHigh * (1 + bufferPct / 100)).toFixed(priceDec))
+          : parseFloat((refLow * (1 - bufferPct / 100)).toFixed(priceDec));
 
-        const expansionCap = maxExpPct > 0
-          ? parseFloat((sideUpper === 'LONG' ? refHigh * (1 + maxExpPct / 100) : refLow * (1 - maxExpPct / 100)).toFixed(decimals))
+        const refCandleSpan = refHigh > refLow ? (refHigh - refLow) : 0;
+        const activeRefForDist = sideUpper === 'LONG' ? refHigh : refLow;
+        const refRangePct = activeRefForDist > 0 && refCandleSpan > 0
+          ? parseFloat(((refCandleSpan / activeRefForDist) * 100).toFixed(4))
+          : 0;
+        const effectiveMaxExpPct = maxExpPct > 0 && refCandleSpan > 0 && activeRefForDist > 0
+          ? parseFloat(((refCandleSpan / activeRefForDist) * maxExpPct).toFixed(6))
+          : null;
+        const expansionCap = maxExpPct > 0 && refCandleSpan > 0
+          ? parseFloat((sideUpper === 'LONG'
+              ? refHigh + refCandleSpan * (maxExpPct / 100)
+              : refLow - refCandleSpan * (maxExpPct / 100)).toFixed(priceDec))
           : null;
 
         let candleConfirmState: 'closed_beyond' | 'wicked_only' | 'below' = 'below';
@@ -665,6 +676,8 @@ function getScannerOpportunities(cfg?: any) {
           buffer_pct: bufferPct,
           breakout_level: breakoutLevel,
           max_expansion_pct: maxExpPct,
+          effective_max_expansion_pct: effectiveMaxExpPct,
+          ref_range_pct: refRangePct,
           expansion_cap: expansionCap,
           live_price: livePrice,
           candle_high: liveHigh,
@@ -680,7 +693,7 @@ function getScannerOpportunities(cfg?: any) {
           reference_level: refLevelType,
           evaluated_at_ms: Date.now(),
           description: sigRejected
-            ? `Rejected: price ${livePrice.toFixed(decimals)} expanded > ${maxExpPct}% beyond ${refTf} level (${expansionCap?.toFixed(decimals)})`
+            ? `Rejected: price ${livePrice.toFixed(decimals)} expanded > ${effectiveMaxExpPct !== null ? effectiveMaxExpPct.toFixed(2) : maxExpPct}% (${maxExpPct}% of ${refRangePct.toFixed(2)}% ${refTf} range) beyond ${refTf} level (${expansionCap?.toFixed(decimals)})`
             : sigFired
             ? `${trigTf} close (${evalClose.toFixed(decimals)}) broke ${refTf} ${sideUpper === 'LONG' ? 'high' : 'low'} (${breakoutLevel.toFixed(decimals)})`
             : `Monitoring ${trigTf} close (${livePrice.toFixed(decimals)}) vs prev ${refTf} ${sideUpper === 'LONG' ? 'high' : 'low'} (${breakoutLevel.toFixed(decimals)})`,
@@ -775,6 +788,9 @@ function getScannerOpportunities(cfg?: any) {
       }
     }
 
+    const slCalc = computeSlForCandidate(item.price, isLong, targetConfig, ohlc, decimals);
+    const tpRatio = Number(targetConfig.tp_ratio ?? 2.0) || 2.0;
+
     opps.push({
       symbol: item.symbol,
       pct: item.momentum,
@@ -787,6 +803,10 @@ function getScannerOpportunities(cfg?: any) {
       price: item.price,
       volume_rank: rank++,
       history: item.history,
+      sl_dist_pct: slCalc.slDistPct,
+      raw_sl_dist_pct: slCalc.rawSlDistPct,
+      sl_price: slCalc.slPrice,
+      prospect_rr: Number((tpRatio / Math.max(0.05, slCalc.slDistPct)).toFixed(2)),
       score_breakdown: {
         momentum: parseFloat((Math.abs(item.momentum) * 10).toFixed(1)),
         volatility: item.volatility,
@@ -808,6 +828,71 @@ function getScannerOpportunities(cfg?: any) {
     });
   }
   return opps;
+}
+
+function computeSlForCandidate(entryPrice: number, isLong: boolean, cfg: any, ohlc: any[], decimals = 4) {
+  const slType = String(cfg?.sl_type || 'pct');
+  const slDistCfg = Number(cfg?.sl_distance_pct ?? 0.8) || 0.8;
+  const priceDec = Math.max(decimals, 6);
+
+  if (slType === 'pct' || !entryPrice || entryPrice <= 0) {
+    const slPrice = parseFloat((isLong ? entryPrice * (1 - slDistCfg / 100) : entryPrice * (1 + slDistCfg / 100)).toFixed(priceDec));
+    return { slDistPct: Number(slDistCfg.toFixed(2)), rawSlDistPct: Number(slDistCfg.toFixed(2)), slPrice, rejected: false };
+  }
+
+  const hasMin = cfg?.sl_min_pct !== undefined && cfg?.sl_min_pct !== null && cfg?.sl_min_pct !== '' && Number.isFinite(Number(cfg?.sl_min_pct));
+  const hasMax = cfg?.sl_max_pct !== undefined && cfg?.sl_max_pct !== null && cfg?.sl_max_pct !== '' && Number.isFinite(Number(cfg?.sl_max_pct));
+  const minPct = Math.max(0.01, hasMin ? Number(cfg.sl_min_pct) : 0.3);
+  const maxPct = Math.max(minPct, hasMax ? Number(cfg.sl_max_pct) : 3.0);
+  const action = String(cfg?.sl_out_of_bounds_action || 'clamp').toLowerCase();
+  const shouldReject = action === 'reject';
+
+  let rawDistPct = slDistCfg;
+  if (slType === 'lookback_low/high' && Array.isArray(ohlc) && ohlc.length > 0) {
+    const rawPeriod = (cfg?.sl_lookback_period !== undefined && cfg?.sl_lookback_period !== null && Number.isFinite(Number(cfg.sl_lookback_period)) && Number(cfg.sl_lookback_period) >= 0)
+      ? Number(cfg.sl_lookback_period)
+      : 5;
+    const includeForming = Boolean(cfg?.sl_include_forming_candle);
+    let extreme: number;
+    if (rawPeriod === 0 || ohlc.length === 1) {
+      const curr = ohlc[ohlc.length - 1];
+      extreme = isLong ? curr.low : curr.high;
+    } else {
+      const endCompletedIdx = ohlc.length - 1;
+      const startIdx = Math.max(0, endCompletedIdx - rawPeriod);
+      const endIdx = includeForming ? ohlc.length : endCompletedIdx;
+      extreme = ohlc[startIdx][isLong ? 'low' : 'high'];
+      for (let i = startIdx; i < endIdx; i++) {
+        extreme = isLong ? Math.min(extreme, ohlc[i].low) : Math.max(extreme, ohlc[i].high);
+      }
+    }
+    rawDistPct = (Math.abs(entryPrice - extreme) / entryPrice) * 100;
+  } else if ((slType === 'engulfing_boundary' || slType === 'streak_extreme') && Array.isArray(ohlc) && ohlc.length > 0) {
+    const lb = Math.min(ohlc.length, Number(cfg?.engulfing_lookback || 1));
+    let extreme = ohlc[ohlc.length - 1].close;
+    for (let i = ohlc.length - lb; i < ohlc.length; i++) {
+      extreme = isLong ? Math.min(extreme, ohlc[i].low) : Math.max(extreme, ohlc[i].high);
+    }
+    rawDistPct = (Math.abs(entryPrice - extreme) / entryPrice) * 100;
+  }
+
+  let effectiveDistPct = rawDistPct;
+  let rejected = false;
+  if (rawDistPct < minPct) {
+    if (shouldReject) rejected = true;
+    else effectiveDistPct = minPct;
+  } else if (rawDistPct > maxPct) {
+    if (shouldReject) rejected = true;
+    else effectiveDistPct = maxPct;
+  }
+
+  const slPrice = parseFloat((isLong ? entryPrice * (1 - effectiveDistPct / 100) : entryPrice * (1 + effectiveDistPct / 100)).toFixed(priceDec));
+  return {
+    slDistPct: Number(effectiveDistPct.toFixed(2)),
+    rawSlDistPct: Number(rawDistPct.toFixed(2)),
+    slPrice,
+    rejected,
+  };
 }
 
 // Watchlist Capacity Enforcement and Scheduler Logic
@@ -1126,8 +1211,10 @@ setInterval(() => {
         const isLong = picked.dir === 'long';
         const pInfo = prices.get(picked.symbol)!;
         const entryPrice = pInfo.price;
-        const slDist = entryPrice * ((state.config.sl_distance_pct || 0.8) / 100);
-        const slPrice = isLong ? parseFloat((entryPrice - slDist).toFixed(4)) : parseFloat((entryPrice + slDist).toFixed(4));
+        const tradeDecimals = picked.symbol.includes('DOGE') || picked.symbol.includes('ADA') || picked.symbol.includes('XRP') ? 4 : 2;
+        const slRes = computeSlForCandidate(entryPrice, isLong, state.config, pInfo.ohlc_history, tradeDecimals);
+        const slDist = Math.max(1e-8, entryPrice * (slRes.slDistPct / 100));
+        const slPrice = slRes.slPrice;
         const tpDist = slDist * (state.config.tp_ratio || 2.0);
         const tpPrice = isLong ? parseFloat((entryPrice + tpDist).toFixed(4)) : parseFloat((entryPrice - tpDist).toFixed(4));
 

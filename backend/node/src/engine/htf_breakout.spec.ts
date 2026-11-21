@@ -1,4 +1,3 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { SignalEngineService } from './signalEngine';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { SessionConfig } from '../models/SessionConfig';
@@ -7,22 +6,12 @@ describe('HTF Breakout / Previous-Day Breakout Signal (PDH / PDL Breakout)', () 
   let signalEngine: SignalEngineService;
   let klineStore: KlineStoreService;
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        SignalEngineService,
-        {
-          provide: KlineStoreService,
-          useValue: {
-            getRawCandles: jest.fn(),
-            getLookbackExtremes: jest.fn(),
-          },
-        },
-      ],
-    }).compile();
-
-    signalEngine = module.get<SignalEngineService>(SignalEngineService);
-    klineStore = module.get<KlineStoreService>(KlineStoreService);
+  beforeEach(() => {
+    klineStore = {
+      getRawCandles: jest.fn(),
+      getLookbackExtremes: jest.fn(),
+    } as any as KlineStoreService;
+    signalEngine = new SignalEngineService(klineStore);
   });
 
   // Helper to create test candles
@@ -177,24 +166,114 @@ describe('HTF Breakout / Previous-Day Breakout Signal (PDH / PDL Breakout)', () 
       expect(res.allFired).toBe(true);
     });
 
-    it('should reject overextended entries when max_expansion_pct is set', () => {
-      // With high=110 and max_expansion_pct=5%, cap is 110 * 1.05 = 115.5
+    it('should reject overextended entries when max_expansion_pct (% of HTF ref candle distance) is exceeded for LONG and SHORT', () => {
+      // 6% ref candle distance: High = 110, Low = 103.4 -> span = 6.6 (6.0% of 110)
+      // 10% of 6.0% ref candle distance = 0.60% max expansion -> LONG cap = 110.66
+      const refLongDaily: Candle[] = [
+        makeCandle(1000, 105, 110, 103.4, 109),
+        makeCandle(2000, 109, 111.5, 108, 110.5),
+      ];
       const hourlyCandles: Candle[] = [
-        makeCandle(1500, 108, 118, 107, 116.0), // 116.0 > 115.5 cap
+        makeCandle(1500, 108, 111, 107, 110.5), // +0.45% <= 0.60% -> passes
       ];
 
-      jest.spyOn(klineStore, 'getRawCandles').mockImplementation((s, i) => i === '1d' ? dailyCandles : hourlyCandles);
+      jest.spyOn(klineStore, 'getRawCandles').mockImplementation((_s, i) => (i === '1d' ? refLongDaily : hourlyCandles));
 
       const config: Partial<SessionConfig> = {
         enabled_signals: ['htf_breakout'],
+        sl_type: 'pct',
+        sl_distance_pct: 2.0,
         signal_params: {
-          htf_breakout_max_expansion_pct: 5.0,
+          htf_breakout_max_expansion_pct: 10,
         },
       };
 
-      const res = signalEngine.checkEntry('TESTUSDT', config as any, '1h', 'LONG', 'entry', false);
-      expect(res.allFired).toBe(false);
-      expect(res.details?.htf_breakout.description).toContain('expanded > 5%');
+      const passRes = signalEngine.checkEntry('TESTUSDT', config as any, '1h', 'LONG', 'entry', false);
+      expect(passRes.allFired).toBe(true);
+      expect(passRes.details?.htf_breakout.max_expansion_pct).toBe(10);
+      expect(passRes.details?.htf_breakout.ref_range_pct).toBeCloseTo(6.0, 3);
+      expect(passRes.details?.htf_breakout.effective_max_expansion_pct).toBeCloseTo(0.6, 5);
+      expect(passRes.details?.htf_breakout.expansion_cap).toBeCloseTo(110.66, 4);
+
+      hourlyCandles[0].close = 110.8; // +0.73% > 0.60% -> rejects
+      const rejectRes = signalEngine.checkEntry('TESTUSDT', config as any, '1h', 'LONG', 'entry', false);
+      expect(rejectRes.allFired).toBe(false);
+      expect(rejectRes.details?.htf_breakout.rejected).toBe(true);
+      expect(rejectRes.details?.htf_breakout.description).toContain('0.60% (10% of 6.00% 1d range)');
+
+      // SHORT: 6% ref candle distance: High = 95.4, Low = 90 -> span = 5.4 (6.0% of 90)
+      // 10% of 6.0% = 0.60% -> SHORT cap = 90 - 5.4 * 0.10 = 89.46
+      const refShortDaily: Candle[] = [
+        makeCandle(1000, 94, 95.4, 90, 91),
+        makeCandle(2000, 91, 92, 89, 89.4),
+      ];
+      hourlyCandles[0] = makeCandle(1500, 91, 91.5, 89.3, 89.4); // -0.67% beyond 90 -> rejects
+      jest.spyOn(klineStore, 'getRawCandles').mockImplementation((_s, i) => (i === '1d' ? refShortDaily : hourlyCandles));
+
+      const shortReject = signalEngine.checkEntry('TESTUSDT', config as any, '1h', 'SHORT', 'entry', false);
+      expect(shortReject.allFired).toBe(false);
+      expect(shortReject.details?.htf_breakout.rejected).toBe(true);
+      expect(shortReject.details?.htf_breakout.ref_range_pct).toBeCloseTo(6.0, 3);
+      expect(shortReject.details?.htf_breakout.expansion_cap).toBeCloseTo(89.46, 4);
+    });
+
+    it('should keep max_expansion_pct independent of sl_max_pct/sl_distance_pct and handle body/close_only ref ranges', () => {
+      // dailyCandles: Open 100, High 110, Low 90, Close 105 (full wick span 20, body span 5)
+      const hourlyCandles: Candle[] = [
+        makeCandle(1500, 108, 112, 107, 111.5), // +1.36% beyond 110
+      ];
+      jest.spyOn(klineStore, 'getRawCandles').mockImplementation((_s, i) => (i === '1d' ? dailyCandles : hourlyCandles));
+
+      // With high_low: ref span = 20 -> 10% = +2.0 -> cap = 112.0 (111.5 passes regardless of tight SL settings)
+      const tightSlCfg: Partial<SessionConfig> = {
+        enabled_signals: ['htf_breakout'],
+        sl_type: 'pct',
+        sl_distance_pct: 0.5,
+        sl_max_pct: 1.0,
+        signal_params: {
+          htf_breakout_max_expansion_pct: 10,
+        },
+      };
+      const wideSlCfg: Partial<SessionConfig> = {
+        ...tightSlCfg,
+        sl_type: 'lookback_low/high',
+        sl_distance_pct: 10.0,
+        sl_max_pct: 10.0,
+      };
+
+      const resTight = signalEngine.checkEntry('TESTUSDT', tightSlCfg as any, '1h', 'LONG', 'entry', false);
+      const resWide = signalEngine.checkEntry('TESTUSDT', wideSlCfg as any, '1h', 'LONG', 'entry', false);
+      expect(resTight.allFired).toBe(true);
+      expect(resTight.details?.htf_breakout.expansion_cap).toBeCloseTo(112.0, 4);
+      expect(resWide.details?.htf_breakout.expansion_cap).toBeCloseTo(112.0, 4);
+      expect(resTight.details?.htf_breakout.effective_max_expansion_pct).toBeCloseTo(
+        resWide.details?.htf_breakout.effective_max_expansion_pct,
+        5,
+      );
+
+      // open_close_body: body range 100..105 (span 5) -> 10% cap = 105 + 0.5 = 105.5
+      hourlyCandles[0].close = 105.4;
+      const bodyPass = signalEngine.checkEntry('TESTUSDT', {
+        ...tightSlCfg,
+        signal_params: {
+          htf_breakout_reference_level: 'open_close_body',
+          htf_breakout_max_expansion_pct: 10,
+        },
+      } as any, '1h', 'LONG', 'entry', false);
+      expect(bodyPass.allFired).toBe(true);
+      expect(bodyPass.details?.htf_breakout.expansion_cap).toBeCloseTo(105.5, 4);
+
+      // close_only: falls back to full wick range (20) -> cap = 105 + 2.0 = 107.0
+      hourlyCandles[0].close = 106.5;
+      const closeOnlyPass = signalEngine.checkEntry('TESTUSDT', {
+        ...tightSlCfg,
+        signal_params: {
+          htf_breakout_reference_level: 'close_only',
+          htf_breakout_max_expansion_pct: 10,
+        },
+      } as any, '1h', 'LONG', 'entry', false);
+      expect(closeOnlyPass.allFired).toBe(true);
+      expect(closeOnlyPass.details?.htf_breakout.expansion_cap).toBeCloseTo(107.0, 4);
     });
 
     it('should support closed_candle_confirm mode', () => {

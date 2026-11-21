@@ -9,7 +9,9 @@ import {
   computeConditionValueDelta,
   buildMacdFilterModel,
   buildHtfLadderModel,
+  computeHtfLadderDomain,
   buildCandidateConditionsModel,
+  evaluateSlCheck,
   pickNicePercentBound,
   pickNiceRatioMax,
   buildRunwayRTicks,
@@ -178,15 +180,20 @@ test('CandidateConditionsGauge helper suite', async (t) => {
     assert.strictEqual(offScale.dialOverText, '+119% past · off-scale');
   });
 
-  await t.test('buildHtfLadderModel computes Fresh (0-25%), Stale (25-60%), Late (60-100%), and Rejected (>100%) zones from max_expansion_pct', () => {
+  await t.test('buildHtfLadderModel computes Fresh (0-25%), Stale (25-60%), Late (60-100%), and Rejected (>100%) zones as % of HTF ref candle distance independent of SL', () => {
+    // 6% ref candle distance (100 - 94 = 6) with 10% breakout cap -> 0.6% max expansion above level 100 (= 100.6)
+    // Intentionally set conflicting sl_distance_pct (2.0%) and sl_max_pct (1.5%) to verify zero SL coupling
     const cfg = {
       scan_interval: '5m',
       entry_side: 'long',
+      sl_type: 'pct',
+      sl_distance_pct: 2.0,
+      sl_max_pct: 1.5,
       signal_params: {
         htf_breakout_ref_timeframe: '1d',
         htf_breakout_trigger_timeframe: '1h',
         htf_breakout_mode: 'closed_candle_confirm',
-        htf_breakout_max_expansion_pct: 2.0,
+        htf_breakout_max_expansion_pct: 10,
       },
     };
 
@@ -194,7 +201,27 @@ test('CandidateConditionsGauge helper suite', async (t) => {
       sigKey: 'htf_breakout',
       signalDetail: {
         ref_high: 100,
-        ref_low: 95,
+        ref_low: 94,
+        live_price: 100.12,
+        closed_value: 100.12,
+        fired: true,
+      },
+      strategyConfig: cfg,
+      isLong: true,
+    });
+    assert.strictEqual(freshLadder.maxExpansionPct, 10);
+    assert.strictEqual(freshLadder.refRangePct, 6);
+    assert.strictEqual(freshLadder.effectiveMaxExpPct, 0.6);
+    assert.strictEqual(Number(freshLadder.expansionCap.toFixed(2)), 100.6);
+    assert.strictEqual(freshLadder.zone, 'fresh');
+    assert.strictEqual(freshLadder.candleConfirmState, 'closed_beyond');
+    assert.strictEqual(Math.round(freshLadder.capUsedPct), 20);
+
+    const staleLadder = buildHtfLadderModel({
+      sigKey: 'htf_breakout',
+      signalDetail: {
+        ref_high: 100,
+        ref_low: 94,
         live_price: 100.3,
         closed_value: 100.3,
         fired: true,
@@ -202,15 +229,14 @@ test('CandidateConditionsGauge helper suite', async (t) => {
       strategyConfig: cfg,
       isLong: true,
     });
-    assert.strictEqual(freshLadder.zone, 'fresh');
-    assert.strictEqual(freshLadder.candleConfirmState, 'closed_beyond');
-    assert.strictEqual(Math.round(freshLadder.capUsedPct), 15);
+    assert.strictEqual(staleLadder.zone, 'stale');
+    assert.strictEqual(Math.round(staleLadder.capUsedPct), 50);
 
     const wickedLadder = buildHtfLadderModel({
       sigKey: 'htf_breakout',
       signalDetail: {
         ref_high: 100,
-        ref_low: 95,
+        ref_low: 94,
         live_price: 100.25,
         closed_value: 99.8,
         fired: false,
@@ -225,9 +251,9 @@ test('CandidateConditionsGauge helper suite', async (t) => {
       sigKey: 'htf_breakout',
       signalDetail: {
         ref_high: 100,
-        ref_low: 95,
-        live_price: 102.4,
-        closed_value: 102.4,
+        ref_low: 94,
+        live_price: 100.7,
+        closed_value: 100.7,
         fired: false,
         rejected: true,
       },
@@ -272,8 +298,10 @@ test('CandidateConditionsGauge helper suite', async (t) => {
         entry_side: 'long',
         enabled_signals: ['htf_breakout', 'ema_dual'],
         signal_logic: 'all',
+        sl_type: 'pct',
+        sl_distance_pct: 5.0,
         signal_params: {
-          htf_breakout_max_expansion_pct: 2.0,
+          htf_breakout_max_expansion_pct: 40,
         },
       },
       closedTrades: [],
@@ -695,6 +723,296 @@ test('CandidateConditionsGauge helper suite', async (t) => {
     const distLiveToTp = rw.tpPct - rw.livePct;
     assert.ok(Math.abs(distEntryToLive - distLiveToTp) <= 0.3, `Expected equal spacing, got ${distEntryToLive} vs ${distLiveToTp}`);
     assert.ok(Array.isArray(rw.rTicks) && rw.rTicks.some((t) => t.label === '0R') && rw.rTicks.some((t) => t.label === '+2R'));
+  });
+
+  await t.test('buildHtfLadderModel disables breakout hard cap when max_expansion_pct is 0, preserves opp.sl_dist_pct, and keeps SL Check separate', () => {
+    const cfgReject = {
+      scan_interval: '5m',
+      entry_side: 'long',
+      sl_type: 'lookback_low/high',
+      sl_lookback_period: 5,
+      sl_max_pct: 3.0,
+      sl_out_of_bounds_action: 'reject',
+      signal_params: {
+        htf_breakout_ref_timeframe: '1d',
+        htf_breakout_trigger_timeframe: '1h',
+        htf_breakout_mode: 'closed_candle_confirm',
+        htf_breakout_max_expansion_pct: 0,
+      },
+    };
+
+    // Case 1: opp.sl_dist_pct (1.80%) must NOT be clobbered by signalDetail.slPrice (1d ref_low = 90)
+    // With max_expansion_pct = 0, breakout cap is disabled (no SL max masquerading as breakout cap)
+    const withinSlLadder = buildHtfLadderModel({
+      sigKey: 'htf_breakout',
+      opp: { sl_dist_pct: 1.80, close: 100.5 },
+      signalDetail: {
+        ref_high: 100,
+        ref_low: 90,
+        slPrice: 90,
+        live_price: 100.5,
+        closed_value: 100.5,
+        fired: true,
+      },
+      strategyConfig: cfgReject,
+      isLong: true,
+    });
+    assert.strictEqual(withinSlLadder.capUsesSlLookback, false);
+    assert.strictEqual(withinSlLadder.hasHardCap, false);
+    assert.strictEqual(withinSlLadder.slDistPct, 1.80);
+    assert.strictEqual(Math.round(withinSlLadder.slCapUsedPct), 60);
+    assert.strictEqual(withinSlLadder.refRangePct, 10);
+    assert.strictEqual(withinSlLadder.zone, 'fresh');
+    assert.strictEqual(withinSlLadder.slRejected, false);
+    assert.strictEqual(withinSlLadder.isOverCap, false);
+
+    // Case 2: opp.sl_dist_pct 5.4% (> 3.0% sl_max_pct) flags slRejected without falsely tripping breakout isOverCap
+    const overSlLadder = buildHtfLadderModel({
+      sigKey: 'htf_breakout',
+      opp: { sl_dist_pct: 5.4, close: 100.2 },
+      signalDetail: {
+        ref_high: 100,
+        ref_low: 92,
+        slPrice: 92,
+        live_price: 100.2,
+        closed_value: 100.2,
+        fired: true,
+      },
+      strategyConfig: cfgReject,
+      isLong: true,
+    });
+    assert.strictEqual(overSlLadder.slCapHeadroomExhausted, true);
+    assert.ok(overSlLadder.expansionCap >= overSlLadder.breakoutLevel, 'expansionCap must not invert below breakoutLevel for LONG');
+    assert.strictEqual(overSlLadder.slRejected, true);
+    assert.strictEqual(overSlLadder.isOverCap, false);
+
+    // Case 3: With clamp mode, SL exceeding max shows slClamped without rejecting breakout ladder
+    const clampedLadder = buildHtfLadderModel({
+      sigKey: 'htf_breakout',
+      opp: { sl_dist_pct: 4.5, close: 100.2 },
+      signalDetail: {
+        ref_high: 100,
+        ref_low: 92,
+        live_price: 100.2,
+        closed_value: 100.2,
+        fired: true,
+      },
+      strategyConfig: { ...cfgReject, sl_out_of_bounds_action: 'clamp' },
+      isLong: true,
+    });
+    assert.strictEqual(clampedLadder.slClamped, true);
+    assert.strictEqual(clampedLadder.slRejected, false);
+    assert.strictEqual(clampedLadder.isOverCap, false);
+    assert.strictEqual(clampedLadder.zone, 'fresh');
+  });
+
+  await t.test('buildCandidateConditionsModel renders __sl_check__ widget and blocks ENTRY READY when SL exceeds sl_max_pct', () => {
+    const baseOpp = {
+      symbol: 'KERNELUSDT',
+      dir: 'long',
+      pct: 3.5,
+      close: 101.0,
+      sl_dist_pct: 4.5,
+      signalResult: {
+        allFired: true,
+        firedSignals: ['ema_dual'],
+        signals: {
+          ema_dual: {
+            fired: true,
+            value: 101.0,
+            threshold: 100.2,
+            threshold_is_price: true,
+          },
+        },
+      },
+    };
+
+    const rejectModel = buildCandidateConditionsModel({
+      opp: baseOpp,
+      strategyConfig: {
+        scan_interval: '5m',
+        scan_pct_threshold: 2.0,
+        entry_side: 'long',
+        enabled_signals: ['ema_dual'],
+        signal_logic: 'all',
+        sl_type: 'lookback_low/high',
+        sl_lookback_period: 5,
+        sl_max_pct: 3.0,
+        sl_min_pct: 0.3,
+        sl_out_of_bounds_action: 'reject',
+      },
+      closedTrades: [],
+    });
+
+    const slCardRej = rejectModel.conditions.find(c => c.key === '__sl_check__');
+    assert.ok(slCardRej, 'Entry conditions must include SL Check gate widget');
+    assert.strictEqual(slCardRej.connector, 'GATE');
+    assert.strictEqual(slCardRej.stateLabel, 'REJECTED');
+    assert.strictEqual(slCardRej.dialZone, 'blocked');
+    assert.strictEqual(slCardRej.dialOverText, '150% of max SL');
+    assert.strictEqual(slCardRej.dialScale.invertTrack, true);
+    assert.strictEqual(rejectModel.overallStatus, 'SL EXCEEDS MAX');
+    assert.strictEqual(rejectModel.overallTone, 'danger');
+
+    // Clamp action allows entry readiness while flagging CLAMPED on the SL Check widget
+    const clampModel = buildCandidateConditionsModel({
+      opp: baseOpp,
+      strategyConfig: {
+        scan_interval: '5m',
+        scan_pct_threshold: 2.0,
+        entry_side: 'long',
+        enabled_signals: ['ema_dual'],
+        signal_logic: 'all',
+        sl_type: 'lookback_low/high',
+        sl_lookback_period: 5,
+        sl_max_pct: 3.0,
+        sl_min_pct: 0.3,
+        sl_out_of_bounds_action: 'clamp',
+      },
+      closedTrades: [],
+    });
+    const slCardClamp = clampModel.conditions.find(c => c.key === '__sl_check__');
+    assert.ok(slCardClamp);
+    assert.strictEqual(slCardClamp.stateLabel, 'CLAMPED');
+    assert.strictEqual(slCardClamp.dialZone, 'warming');
+    assert.strictEqual(clampModel.overallStatus, 'ENTRY READY');
+
+    // Fixed SL (sl_type === 'pct') does NOT enforce or display sl_max_pct cap percentages
+    const fixedSlModel = buildCandidateConditionsModel({
+      opp: { ...baseOpp, sl_dist_pct: 6.0 },
+      strategyConfig: {
+        scan_interval: '5m',
+        scan_pct_threshold: 2.0,
+        entry_side: 'long',
+        enabled_signals: ['ema_dual'],
+        signal_logic: 'all',
+        sl_type: 'pct',
+        sl_distance_pct: 6.0,
+        sl_max_pct: 3.0,
+        sl_out_of_bounds_action: 'reject',
+      },
+      closedTrades: [],
+    });
+    const fixedSlCard = fixedSlModel.conditions.find(c => c.key === '__sl_check__');
+    assert.ok(fixedSlCard);
+    assert.strictEqual(fixedSlCard.stateLabel, 'PASS');
+    assert.strictEqual(fixedSlCard.targetText, 'Fixed SL');
+    assert.strictEqual(fixedSlCard.dialOverText, '6.00% fixed');
+    assert.strictEqual(fixedSlModel.overallStatus, 'ENTRY READY');
+
+    // Direct evaluateSlCheck sanity check
+    const slCheck = evaluateSlCheck({
+      opp: { sl_dist_pct: 1.5 },
+      strategyConfig: { sl_max_pct: 3.0, sl_min_pct: 0.3, sl_type: 'pct', sl_out_of_bounds_action: 'reject' },
+      livePrice: 100,
+    });
+    assert.strictEqual(slCheck.slCapUsedPct, 50);
+    assert.strictEqual(slCheck.slCapRoomPct, 1.5);
+    assert.strictEqual(slCheck.slStatus, 'pass');
+  });
+
+  await t.test('computeHtfLadderDomain preserves strict 1:1 price proportion when Cap is Off, when Cap is On (up to 6x SL), and when Over Cap (up to 2.5x cap)', () => {
+    // 1. Cap Off (Screenshot SHORT scenario: 1d low $3,396.70, live $3,386.15, SL $3,420.01)
+    const capOff = computeHtfLadderDomain({
+      isLong: false,
+      breakoutLevel: 3396.70,
+      expansionCap: 3362.73, // synthetic fallback should be ignored when hasHardCap=false
+      slPrice: 3420.01,
+      livePrice: 3386.15,
+      hasHardCap: false,
+    });
+    assert.strictEqual(capOff.slScaleBreak, false);
+    assert.strictEqual(capOff.overCapActive, false);
+    // Open skirt below breakoutLevel must NOT inflate to a full synthetic -1.0% ($3,362.73) box larger than SL ($23.31)
+    const slSpan = capOff.slVisualPrice - 3396.70; // 23.31
+    const breakoutSkirtSpan = 3396.70 - capOff.effectiveCapTarget;
+    assert.ok(breakoutSkirtSpan < slSpan, `Expected uncapped skirt (${breakoutSkirtSpan.toFixed(2)}) < SL span (${slSpan.toFixed(2)})`);
+    assert.ok(capOff.effectiveCapTarget < 3386.15, 'Live price stays inside open skirt bounds');
+
+    // 2. Cap On with SL = 5x capDist (must remain 1:1 linear without premature scale break)
+    const capOnExact = computeHtfLadderDomain({
+      isLong: true,
+      breakoutLevel: 100.0,
+      expansionCap: 100.3, // 0.30% cap
+      slPrice: 98.5,       // 1.50% SL = 5.0x capDist
+      livePrice: 100.15,   // exact midpoint of cap
+      hasHardCap: true,
+    });
+    assert.strictEqual(capOnExact.slScaleBreak, false);
+    assert.strictEqual(capOnExact.slVisualPrice, 98.5);
+    const yRatioCap = (100.3 - 100.0) / (capOnExact.pMax - capOnExact.pMin);
+    const yRatioSl = (100.0 - 98.5) / (capOnExact.pMax - capOnExact.pMin);
+    assert.ok(Math.abs(yRatioSl / yRatioCap - 5.0) < 1e-6, 'SL/Cap pixel ratio must equal exact 5.0:1 price ratio');
+
+    // 3. Over-Cap move at 2.0x capDist past expansionCap must still show true proportion without clamping at 0.36x
+    const overCap = computeHtfLadderDomain({
+      isLong: true,
+      breakoutLevel: 100.0,
+      expansionCap: 100.5, // capDist = 0.5
+      slPrice: 99.0,
+      livePrice: 101.5,    // +1.0 past cap = 2.0x capDist
+      hasHardCap: true,
+    });
+    assert.strictEqual(overCap.overCapActive, true);
+    assert.ok(overCap.pMax > 101.5, `Expected pMax (${overCap.pMax}) > livePrice (101.5) for 2.0x over-cap proportion`);
+
+    // 4. Fixed SL ahead of breakoutLevel (Screenshot LONG scenario: 1d high $0.1370, live $0.1393, Fixed SL 1% = $0.13791)
+    const slAhead = computeHtfLadderDomain({
+      isLong: true,
+      breakoutLevel: 0.1370,
+      expansionCap: 0.13711,
+      slPrice: 0.13791,
+      livePrice: 0.1393,
+      hasHardCap: true,
+    });
+    assert.strictEqual(slAhead.slBehindBreakout, false);
+    assert.strictEqual(slAhead.slScaleBreak, false);
+    assert.strictEqual(slAhead.slVisualPrice, 0.13791, 'SL ahead of breakoutLevel must sit above 1d high, never flipped below it');
+
+    // 5. buildHtfLadderModel must ignore stale un-normalized expansion_cap when effective_max_expansion_pct is absent
+    const coherentModel = buildHtfLadderModel({
+      sigKey: 'htf_breakout',
+      signalDetail: {
+        ref_high: 0.1370,
+        ref_low: 0.1362,
+        live_price: 0.1393,
+        closed_value: 0.1393,
+        expansion_cap: 0.1507, // stale +10% flat price cap without effective_max_expansion_pct
+        fired: true,
+      },
+      strategyConfig: {
+        entry_side: 'long',
+        sl_type: 'pct',
+        sl_distance_pct: 1.0,
+        signal_params: {
+          htf_breakout_max_expansion_pct: 10,
+        },
+      },
+      isLong: true,
+    });
+    assert.ok(Math.abs(coherentModel.expansionCap - 0.13708) < 0.0001, `Expected cap ~0.13708 (10% of 0.0008 span), got ${coherentModel.expansionCap}`);
+
+    // 6. SL below sl_min_pct under 'reject' mode must reject, while 'clamp' widens to sl_min_pct
+    const minRej = evaluateSlCheck({
+      opp: { sl_dist_pct: 0.12 },
+      strategyConfig: { sl_type: 'lookback_low/high', sl_min_pct: 0.3, sl_max_pct: 3.0, sl_out_of_bounds_action: 'reject' },
+      livePrice: 100,
+    });
+    assert.strictEqual(minRej.slBelowMin, true);
+    assert.strictEqual(minRej.slRejected, true);
+    assert.strictEqual(minRej.slWidened, false);
+    assert.strictEqual(minRej.slStatus, 'rejected');
+
+    // 7. When backend clamps wide SL from raw 5.2% -> 3.0%, evaluateSlCheck detects clamping via raw_sl_dist_pct
+    const clampedFromBackend = evaluateSlCheck({
+      opp: { sl_dist_pct: 3.0, raw_sl_dist_pct: 5.2 },
+      strategyConfig: { sl_type: 'lookback_low/high', sl_min_pct: 0.3, sl_max_pct: 3.0, sl_out_of_bounds_action: 'clamp' },
+      livePrice: 100,
+    });
+    assert.strictEqual(clampedFromBackend.slDistPct, 5.2);
+    assert.strictEqual(clampedFromBackend.effectiveSlDistPct, 3.0);
+    assert.strictEqual(clampedFromBackend.slClamped, true);
+    assert.strictEqual(clampedFromBackend.slRejected, false);
   });
 });
 

@@ -113,32 +113,30 @@ export const SmoothHeightContainer = ({
 };
 
 /**
- * Smooth crossfade + subtle vertical settle for mode/tab/view swaps.
+ * Smooth cross-settle without exit-to-blank gaps for route/tab/view swaps.
+ * Mounts incoming content immediately on frame 1 (no `mode="wait"` blank void).
  */
 export const SmoothSwap = ({
   contentKey,
   children,
   className = '',
-  duration = 0.18,
-  yOffset = 4,
+  duration = 0.14,
+  yOffset = 3,
 }) => {
   const prefersReduced = useReducedMotion();
   const effectiveDuration = prefersReduced ? 0 : duration;
   const effectiveY = prefersReduced ? 0 : yOffset;
 
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={contentKey}
-        initial={{ opacity: 0, y: effectiveY }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -Math.min(3, effectiveY) }}
-        transition={{ duration: effectiveDuration, ease: MOTION_EASE.outExpo }}
-        className={className}
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
+    <motion.div
+      key={contentKey}
+      initial={prefersReduced ? false : { opacity: 0.92, y: effectiveY }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: effectiveDuration, ease: MOTION_EASE.outExpo }}
+      className={className}
+    >
+      {children}
+    </motion.div>
   );
 };
 

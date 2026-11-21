@@ -61,7 +61,7 @@ describe('Strategy Diagnostics & UX Clarity', () => {
     const htfSummary = getSignalParamsSummary(config, 'htf_breakout', 'entry');
     assert.strictEqual(htfSummary.timeframe, '1d→1h');
     assert.ok(htfSummary.paramsText.includes('close_break'));
-    assert.ok(htfSummary.paramsText.includes('MaxExp≤1.5%'));
+    assert.ok(htfSummary.paramsText.includes('MaxExp≤1.5%Ref'));
 
     const st2Summary = getSignalParamsSummary(config, 'supertrend_2', 'entry');
     assert.strictEqual(formatSignalLabel('supertrend_2'), 'Supertrend #2');

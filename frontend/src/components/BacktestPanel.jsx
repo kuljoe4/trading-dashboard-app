@@ -7,6 +7,7 @@ import { EquityCurve } from './Analytics'
 import {
   SectionLabel, StatCard, cn, Tooltip, Btn, CandlestickChart
 } from './ui/primitives'
+import { SkeletonBlock, BacktestResultsSkeleton } from './ui/Skeletons'
 import {
   BarChart3, Play, RefreshCw, CheckCircle2, AlertCircle, Clock, Search,
   Sliders, ShieldCheck, Zap, Layers, Award, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight, Check, X
@@ -284,7 +285,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
             <div className="flex flex-col gap-1.5 md:col-span-1">
               <label className="text-[10px] font-bold uppercase tracking-wider text-dim">Choose Strategy Preset</label>
               {loadingPresets ? (
-                <div className="text-xs text-dim animate-pulse py-2">Loading presets...</div>
+                <SkeletonBlock className="h-[34px] w-full rounded-xl" />
               ) : presets.length === 0 ? (
                 <div className="text-xs text-dim py-2">No saved presets found in database.</div>
               ) : (
@@ -436,9 +437,11 @@ export const BacktestPanel = ({ onApplyConfig }) => {
       )}
 
       {/* Results Workspace View */}
-      {results && (
+      {isExecuting ? (
+        <BacktestResultsSkeleton />
+      ) : results && (
         <motion.div
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0.94, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           className="flex flex-col gap-6"
         >

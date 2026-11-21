@@ -156,7 +156,7 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
     const refLabel = refLvl === 'open_close_body' ? 'Body' : refLvl === 'close_only' ? 'Close' : 'H/L';
     tokens.push(`${mode} · ${refLabel}(${lb})`);
     if (buf > 0) tokens.push(`Buf +${buf}%`);
-    if (maxExp > 0) tokens.push(`MaxExp≤${maxExp}%`);
+    if (maxExp > 0) tokens.push(`MaxExp≤${maxExp}%Ref`);
   } else if (baseType === 'trigger_candle_exit' || baseType === 'entry_candle_boundary') {
     const trigRaw = p('trigger_candle_exit_timeframe', config.trigger_candle_exit_timeframe || 'default');
     if (trigRaw && trigRaw !== 'default') timeframe = trigRaw;

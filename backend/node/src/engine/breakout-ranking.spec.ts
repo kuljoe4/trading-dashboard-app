@@ -42,4 +42,49 @@ describe('breakout opportunity ranking', () => {
 
     expect(ranked.map(item => item.symbol)).toEqual(['HIGH', 'LOW']);
   });
+
+  it('uses effective_max_expansion_pct (derived from ref candle range) instead of raw % parameter when classifying cap room and past_cap', () => {
+    const ranked = rankByBreakoutOpportunity([
+      {
+        symbol: 'OVER_EFF',
+        score: 95,
+        signalResult: {
+          details: {
+            htf_breakout: {
+              fired: false,
+              rejected: true,
+              value: 100.8,
+              threshold: 100,
+              expansion_pct: 0.8,
+              max_expansion_pct: 10,
+              effective_max_expansion_pct: 0.6,
+            },
+          },
+        },
+      },
+      {
+        symbol: 'WITHIN_EFF',
+        score: 80,
+        signalResult: {
+          details: {
+            htf_breakout: {
+              fired: true,
+              rejected: false,
+              value: 100.3,
+              threshold: 100,
+              expansion_pct: 0.3,
+              max_expansion_pct: 10,
+              effective_max_expansion_pct: 0.6,
+            },
+          },
+        },
+      },
+    ], config);
+
+    expect(ranked.map(item => item.symbol)).toEqual(['WITHIN_EFF', 'OVER_EFF']);
+    expect(ranked[0].breakout_rank?.cap_pct).toBeCloseTo(0.6);
+    expect(ranked[0].breakout_rank?.cap_room_pct).toBeCloseTo(0.3);
+    expect(ranked[0].breakout_rank?.status).toBe('within_cap');
+    expect(ranked[1].breakout_rank?.status).toBe('past_cap');
+  });
 });

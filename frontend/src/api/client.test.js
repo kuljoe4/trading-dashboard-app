@@ -298,7 +298,9 @@ describe('sanitizeSessionConfig', () => {
       htf_ema_slow_period: 26,
       htf_ema_cross_max_boost: 30.0,
       htf_ema_cross_rr_weight: 2.0,
-      force_risk_release: false
+      force_risk_release: false,
+      release_risk_on_est_pnl_be: true,
+      release_risk_est_pnl_min_usdt: -2.5
     }
     const sanitized = sanitizeSessionConfig(config)
     assert.strictEqual(sanitized.reject_entry_if_sl_exceeds_max, true)
@@ -310,6 +312,8 @@ describe('sanitizeSessionConfig', () => {
     assert.strictEqual(sanitized.htf_ema_cross_max_boost, 30.0)
     assert.strictEqual(sanitized.htf_ema_cross_rr_weight, 2.0)
     assert.strictEqual(sanitized.force_risk_release, false)
+    assert.strictEqual(sanitized.release_risk_on_est_pnl_be, true)
+    assert.strictEqual(sanitized.release_risk_est_pnl_min_usdt, -2.5)
   })
 })
 

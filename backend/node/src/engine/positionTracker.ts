@@ -1205,18 +1205,18 @@ export class PositionTrackerService {
       trade.est_pnl_to_realize = estPnl;
     }
 
-    // SRE / Capital Safety: Only release risk on est_pnl_be if current SL guarantees breakeven
-    const isTradeLong: boolean = trade.direction === 'LONG';
-    const feeOffset = Number(trade.entry_price) * 0.0008; // 0.08% taker fee drag
-    const slGuaranteesBreakeven: boolean = Number(trade.current_sl) > 0 && (
-      isTradeLong
-        ? Number(trade.current_sl) >= Number(trade.entry_price) + feeOffset
-        : Number(trade.current_sl) <= Number(trade.entry_price) - feeOffset
-    );
+    // Evaluate Est. P&L Risk Release against configurable USDT floor threshold (default 0 = breakeven)
+    const rawEstPnlMin = activeConfig?.release_risk_est_pnl_min_usdt;
+    const estPnlThresholdUsdt: number = (
+      rawEstPnlMin !== undefined &&
+      rawEstPnlMin !== null &&
+      (rawEstPnlMin as any) !== '' &&
+      Number.isFinite(Number(rawEstPnlMin))
+    ) ? Number(rawEstPnlMin) : 0;
 
-    if (activeConfig?.release_risk_on_est_pnl_be && estPnl !== undefined && estPnl >= 0 && slGuaranteesBreakeven) {
+    if (activeConfig?.release_risk_on_est_pnl_be && estPnl !== undefined && estPnl >= estPnlThresholdUsdt) {
       isBreakevenOrBetter = true;
-      lockReason = 'EST_PNL_BREAKEVEN';
+      lockReason = estPnlThresholdUsdt === 0 ? 'EST_PNL_BREAKEVEN' : 'EST_PNL_THRESHOLD';
     }
 
     const isForcedRelease: boolean = trade.strategy_config?.force_risk_release === true || config?.force_risk_release === true;

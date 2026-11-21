@@ -294,6 +294,7 @@ SignalListWithCollapse.displayName = 'SignalListWithCollapse';
 
 const TAB_ERROR_MAP = {
   slippage_warning_threshold: 'risk',
+  release_risk_est_pnl_min_usdt: 'risk',
   scan_interval: 'scan',
   discovery_mode: 'scan',
   scan_lookback: 'scan',
@@ -322,6 +323,7 @@ const SECTION_ERROR_MAP = {
   scanner_weights_trend: 'scan_global',
   scanner_signal_depth: 'scan_global',
   slippage_warning_threshold: 'risk_guards',
+  release_risk_est_pnl_min_usdt: 'risk_guards',
   risk_pct_per_trade: 'risk_guards',
   max_open_trades: 'risk_guards',
   martingale_multiplier: 'risk_martingale',
@@ -2697,6 +2699,7 @@ const flattenConfig = (config) => {
             ? config.anti_whipsaw_timeframes.split(',').map(s => s.trim()).filter(Boolean)
             : []),
       release_risk_on_est_pnl_be: !!config.release_risk_on_est_pnl_be,
+      release_risk_est_pnl_min_usdt: config.release_risk_est_pnl_min_usdt !== undefined && config.release_risk_est_pnl_min_usdt !== null && config.release_risk_est_pnl_min_usdt !== '' ? Number(config.release_risk_est_pnl_min_usdt) : 0,
       smart_watchlist_enabled: !!config.smart_watchlist_enabled,
       smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
       scanner_signal_depth: config.scanner_signal_depth || 10,
@@ -2849,6 +2852,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       'switched_sl_distance_pct', 'peak_rr_switch_threshold', 'peak_rr_switch_count',
       'trailing_activation_rr', 'auto_scale_max_overshoot',
       'auto_adjust_max_trades_min', 'auto_adjust_max_trades_max', 'auto_adjust_max_trades_step',
+      'release_risk_est_pnl_min_usdt',
       'scan_window_duration_sec', 'scan_check_interval_sec',
       'martingale_multiplier', 'martingale_max_steps', 'martingale_reset_threshold_pct'
     ];
@@ -3621,6 +3625,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       errs.risk_pct_per_trade_warn = 'Aggressive (>4%)'
     }
 
+    if (c.release_risk_on_est_pnl_be) {
+      const minEstVal = c.release_risk_est_pnl_min_usdt;
+      if (minEstVal !== undefined && minEstVal !== null && minEstVal !== '' && (!Number.isFinite(Number(minEstVal)) || Number(minEstVal) < -100000 || Number(minEstVal) > 100000)) {
+        errs.release_risk_est_pnl_min_usdt = 'Invalid USDT';
+      }
+    }
+
     if (c.martingale_enabled) {
       if (c.martingale_multiplier < 1 || c.martingale_multiplier > 10) errs.martingale_multiplier = 'Must be 1-10';
       if (c.martingale_reset_threshold_pct < CONFIG_LIMITS.RISK_PER_TRADE_MIN || c.martingale_reset_threshold_pct > CONFIG_LIMITS.RISK_PER_TRADE_MAX) errs.martingale_reset_threshold_pct = `Must be ${CONFIG_LIMITS.RISK_PER_TRADE_MIN}-${CONFIG_LIMITS.RISK_PER_TRADE_MAX}`;
@@ -4157,6 +4168,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'switched_sl_distance_pct', 'peak_rr_switch_threshold', 'peak_rr_switch_count',
       'trailing_activation_rr', 'auto_scale_max_overshoot',
       'auto_adjust_max_trades_min', 'auto_adjust_max_trades_max', 'auto_adjust_max_trades_step',
+      'release_risk_est_pnl_min_usdt',
       'scan_window_duration_sec', 'scan_check_interval_sec',
       'martingale_multiplier', 'martingale_max_steps', 'martingale_reset_threshold_pct'
     ];
@@ -4865,7 +4877,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         trades_period_min: 60,
         max_trades_24h: CONFIG_LIMITS.MAX_TRADES_24H_DEFAULT,
         min_trade_interval_min: CONFIG_LIMITS.MIN_TRADE_INTERVAL_DEFAULT,
-        trades_jitter_pct: CONFIG_LIMITS.TRADES_JITTER_DEFAULT
+        trades_jitter_pct: CONFIG_LIMITS.TRADES_JITTER_DEFAULT,
+        release_risk_on_est_pnl_be: false,
+        release_risk_est_pnl_min_usdt: 0,
       });
     }
 
@@ -6454,16 +6468,31 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 })}
               </div>
 
-              <div className="flex items-start justify-between gap-4 p-3.5 my-4 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
-                <CollapsibleHelpTitle
-                  title="Est. P&L Risk Release"
-                  titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
-                  helpText="Release risk lock (risk_usdt = 0) when active estimated P&L reaches or exceeds breakeven, even before physical SL ratchets."
-                />
-                <Toggle
-                  value={cfg.release_risk_on_est_pnl_be || false}
-                  onChange={(v) => setField('release_risk_on_est_pnl_be', v)}
-                />
+              <div className="p-4 my-4 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all flex flex-col gap-4">
+                <div className="flex items-start justify-between gap-4">
+                  <CollapsibleHelpTitle
+                    title="Est. P&L Risk Release"
+                    titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
+                    helpText="Release risk lock (risk_usdt = 0) when active estimated P&L to realize reaches or exceeds your configured USDT threshold (default $0 breakeven; supports negative, 0, or positive numbers), even before physical SL ratchets."
+                  />
+                  <Toggle
+                    value={cfg.release_risk_on_est_pnl_be || false}
+                    onChange={(v) => setField('release_risk_on_est_pnl_be', v)}
+                  />
+                </div>
+
+                {cfg.release_risk_on_est_pnl_be && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-border/20">
+                    {renderField('Min Est. P&L (USDT)', 'release_risk_est_pnl_min_usdt', 'number', null, {
+                      min: -100000,
+                      max: 100000,
+                      step: 0.5,
+                      inputMode: 'text',
+                      placeholder: '0',
+                      helpText: "Threshold for Estimated P&L to realize in USDT (default 0). Set 0 for breakeven, a positive number to require a profit buffer (e.g. 5), or a negative number to release risk earlier once floor loss narrows (e.g. -2)."
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Dynamic Auto-Adjust Max Open Trades on Zero Risk */}

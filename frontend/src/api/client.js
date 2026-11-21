@@ -280,6 +280,7 @@ const sessionConfigAllowedKeys = [
   'anti_whipsaw_timeframes',
   'allow_knife_when_gated',
   'release_risk_on_est_pnl_be',
+  'release_risk_est_pnl_min_usdt',
   'signal_timeframes',
   'paused',
   'paused_strategies',

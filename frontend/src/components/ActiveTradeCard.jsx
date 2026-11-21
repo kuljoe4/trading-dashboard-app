@@ -467,7 +467,11 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             {isRiskReleased ? (
               <>
                 <span className="text-dim/40 text-[8.5px]">·</span>
-                <Tooltip content={`INITIAL RISK PROTECTED: Stop Loss moved to entry or better (${trade.risk_lock_reason || 'SL_AT_BREAKEVEN'}). Initial risk is 0.00R.`}>
+                <Tooltip content={
+                  trade.risk_lock_reason === 'EST_PNL_THRESHOLD' || trade.risk_lock_reason === 'EST_PNL_BREAKEVEN'
+                    ? `ESTIMATED P&L RISK RELEASE: Floor estimated P&L reached configured release threshold (${trade.risk_lock_reason}). Active risk is $0.00.`
+                    : `INITIAL RISK PROTECTED: Stop Loss moved to entry or better (${trade.risk_lock_reason || 'SL_AT_BREAKEVEN'}). Initial risk is 0.00R.`
+                }>
                   <span className="text-green text-[8.5px] font-semibold uppercase tracking-wider flex items-center gap-1 cursor-help shrink-0 font-mono leading-none">
                     <Lock size={9} className="text-green shrink-0" />
                     <span>PROTECTED</span>

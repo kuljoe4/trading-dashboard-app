@@ -881,6 +881,12 @@ export class SessionConfig {
   release_risk_on_est_pnl_be?: boolean = false;
 
   @IsNumber()
+  @Min(-100000)
+  @Max(100000)
+  @IsOptional()
+  release_risk_est_pnl_min_usdt?: number = 0;
+
+  @IsNumber()
   @Min(1)
   @Max(365)
   @IsOptional()

@@ -739,6 +739,7 @@ const defaultConfig = {
   trailing_stop_distance_pct: 1.0,
   trailing_stop_rr: 1.0,
   release_risk_on_est_pnl_be: false,
+  release_risk_est_pnl_min_usdt: 0,
   scanner_weights: {
     momentum: 0.5,
     volatility: 0.3,

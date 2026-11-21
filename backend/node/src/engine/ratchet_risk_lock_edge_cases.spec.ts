@@ -196,6 +196,55 @@ describe('Ratchet Catch-up & Risk Lock Release Edge Cases', () => {
       expect(trade.risk_usdt).toBe(10); // Re-locked initial risk
     });
 
+    it('should release risk lock early when estPnl meets custom positive or negative release_risk_est_pnl_min_usdt threshold', () => {
+      // 1. Positive threshold (+5 USDT) triggered by exit signal before physical SL moves above entry
+      const tradePos: Partial<Trade> = {
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90, // SL still at -10
+        qty: 1,
+        risk_usdt: 10,
+        exit_signals_status: {
+          ema_cross: { fired: false, active: true, label: 'EMA Cross', value: 107, unit: 'USDT', threshold_is_price: true, threshold: 106, remaining_delay: 0 }, // estPnl = +6
+        },
+      };
+      const cfgPos: Partial<SessionConfig> = {
+        release_risk_on_est_pnl_be: true,
+        release_risk_est_pnl_min_usdt: 5,
+      };
+      tracker.refreshTradeRisk(tradePos as Trade, true, 107, cfgPos as SessionConfig);
+      expect(tradePos.risk_usdt).toBe(0);
+      expect(tradePos.risk_lock_reason).toBe('EST_PNL_THRESHOLD');
+
+      // If signal threshold drops so estPnl (+3) < configured +5 while SL is still underwater, risk re-locks
+      tradePos.exit_signals_status = {
+        ema_cross: { fired: false, active: true, label: 'EMA Cross', value: 104, unit: 'USDT', threshold_is_price: true, threshold: 103, remaining_delay: 0 }, // estPnl = +3
+      };
+      tracker.refreshTradeRisk(tradePos as Trade, true, 104, cfgPos as SessionConfig);
+      expect(tradePos.risk_usdt).toBe(10);
+      expect(tradePos.risk_lock_reason).toBe('SL_BELOW_ENTRY');
+
+      // 2. Negative threshold (-2 USDT) releases risk once ratcheted SL narrows floor loss to -1.5 USDT
+      const tradeNeg: Partial<Trade> = {
+        symbol: 'ETHUSDT',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 98.5, // estPnl = -1.5 (>= -2 threshold)
+        qty: 1,
+        risk_usdt: 1.5,
+      };
+      const cfgNeg: Partial<SessionConfig> = {
+        release_risk_on_est_pnl_be: true,
+        release_risk_est_pnl_min_usdt: -2,
+      };
+      tracker.refreshTradeRisk(tradeNeg as Trade, true, 101, cfgNeg as SessionConfig);
+      expect(tradeNeg.risk_usdt).toBe(0);
+      expect(tradeNeg.risk_lock_reason).toBe('EST_PNL_THRESHOLD');
+    });
+
     it('should release risk lock when rr_sequence_index >= 0 even if exchange rounding placed current_sl 1 tick below entry', () => {
       const trade: Partial<Trade> = {
         symbol: 'ADAUSDT',

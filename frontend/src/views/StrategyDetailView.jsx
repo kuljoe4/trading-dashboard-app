@@ -768,7 +768,14 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
         criteria: [
           { label: 'Trailing Stop', value: strategyConfig.trailing_stop_enabled ? `${strategyConfig.trailing_stop_distance_pct || 1.0}% (Act ≥ ${strategyConfig.trailing_activation_rr ?? 0}R)` : 'Disabled' },
           { label: 'Guard Ladder', value: (strategyConfig.live_rr_sequence || [1, 2, 4]).map((v, i) => `${v}R→${(strategyConfig.exit_rr_sequence || [0, 1, 2])[i] ?? 0}R`).join(', ') },
-          { label: 'Risk Release', value: strategyConfig.force_risk_release ? 'Force ON' : 'At Breakeven SL' },
+          {
+            label: 'Risk Release',
+            value: strategyConfig.force_risk_release
+              ? 'Force ON'
+              : (strategyConfig.release_risk_on_est_pnl_be
+                  ? `Est P&L ≥ ${Number(strategyConfig.release_risk_est_pnl_min_usdt ?? 0).toFixed(2).replace(/\.00$/, '')} USDT`
+                  : 'At Breakeven SL')
+          },
           { label: 'Guard Buffer', value: `${strategyConfig.trailing_guard_buffer_pct ?? 0.1}%` }
         ],
         protocolNote: 'Gapless Cancel-then-Replace SL updates with automatic re-arm rollback and 0.01% min delta guard.'

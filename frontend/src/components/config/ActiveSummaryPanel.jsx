@@ -997,10 +997,13 @@ export const ActiveSummaryPanel = React.memo(({
             {slType !== 'pct' && errors?.sl_distance_pct &&
               renderField('Distance %', 'sl_distance_pct', 'number', null, { min: 0.1, max: 50, step: 0.1 })}
             {cfg.release_risk_on_est_pnl_be && (
-              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border border-border/50 bg-surface/40 min-h-[36px]">
-                <span className="text-[11px] font-semibold text-text truncate">Est. P&amp;L Risk Release</span>
-                <Toggle value={true} onChange={(v) => setField('release_risk_on_est_pnl_be', v)} />
-              </div>
+              <>
+                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border border-border/50 bg-surface/40 min-h-[36px]">
+                  <span className="text-[11px] font-semibold text-text truncate">Est. P&amp;L Risk Release</span>
+                  <Toggle value={true} onChange={(v) => setField('release_risk_on_est_pnl_be', v)} />
+                </div>
+                {renderField('Min Est. P&L (USDT)', 'release_risk_est_pnl_min_usdt', 'number', null, { min: -100000, max: 100000, step: 0.5, inputMode: 'text' })}
+              </>
             )}
           </div>
         )}

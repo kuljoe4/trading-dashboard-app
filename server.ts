@@ -273,6 +273,7 @@ const state = {
     trailing_stop_distance_pct: 1.0,
     trailing_stop_rr: 1.0,
     release_risk_on_est_pnl_be: false,
+    release_risk_est_pnl_min_usdt: 0,
     scanner_weights: {
       momentum: 0.5,
       volatility: 0.3,
@@ -1151,7 +1152,46 @@ setInterval(() => {
         trade.exit_signals_status = nextExitStatuses;
       }
 
-      slUsed += (Math.abs(trade.entry_price - trade.sl_price) * trade.quantity);
+      const slPriceForEst = Number(trade.current_sl || trade.sl_price || 0);
+      let maxEstPnl = slPriceForEst > 0
+        ? (isLong ? (slPriceForEst - trade.entry_price) * trade.quantity : (trade.entry_price - slPriceForEst) * trade.quantity)
+        : undefined;
+      if (trade.exit_signals_status) {
+        for (const sigStatus of Object.values(trade.exit_signals_status as Record<string, any>)) {
+          if (sigStatus?.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
+            const sigPnl = isLong
+              ? (sigStatus.threshold - trade.entry_price) * trade.quantity
+              : (trade.entry_price - sigStatus.threshold) * trade.quantity;
+            if (maxEstPnl === undefined || sigPnl > maxEstPnl) {
+              maxEstPnl = sigPnl;
+            }
+          }
+        }
+      }
+      if (maxEstPnl !== undefined && Number.isFinite(maxEstPnl)) {
+        trade.est_pnl_to_realize = parseFloat(maxEstPnl.toFixed(2));
+      }
+
+      const rawMinEst = tCfg.release_risk_est_pnl_min_usdt;
+      const minEstThreshold = (rawMinEst !== undefined && rawMinEst !== null && rawMinEst !== '' && Number.isFinite(Number(rawMinEst)))
+        ? Number(rawMinEst)
+        : 0;
+      const slAtBe = slPriceForEst > 0 && (isLong ? slPriceForEst >= trade.entry_price * 0.9999 : slPriceForEst <= trade.entry_price * 1.0001);
+      const estPnlReleased = Boolean(tCfg.release_risk_on_est_pnl_be) && maxEstPnl !== undefined && maxEstPnl >= minEstThreshold;
+      const forceReleased = tCfg.force_risk_release === true;
+      const tradeRiskUsdt = (slAtBe || estPnlReleased || forceReleased)
+        ? 0
+        : (Math.abs(trade.entry_price - (slPriceForEst || trade.entry_price)) * trade.quantity);
+      trade.risk_usdt = parseFloat(tradeRiskUsdt.toFixed(4));
+      trade.risk_lock_reason = forceReleased
+        ? 'FORCED_RISK_RELEASE'
+        : estPnlReleased
+          ? (minEstThreshold === 0 ? 'EST_PNL_BREAKEVEN' : 'EST_PNL_THRESHOLD')
+          : slAtBe
+            ? 'SL_AT_BREAKEVEN'
+            : 'SL_BELOW_ENTRY';
+
+      slUsed += tradeRiskUsdt;
 
       // Check Stop-Loss
       if (isLong && pInfo.price <= trade.sl_price) {

@@ -442,7 +442,9 @@ export function getStrategyRulesDiagnostics({
     reasonText: [
       strategyConfig.force_risk_release ? 'Force risk release ON' : null,
       strategyConfig.release_risk_on_est_pnl_be
-        ? `Est PnL release ≥ $${Number(strategyConfig.release_risk_est_pnl_min_usdt ?? 0).toFixed(2).replace(/\.00$/, '')}`
+        ? (strategyConfig.release_risk_est_pnl_mode === 'rr'
+            ? `Est PnL release ≥ ${Number(strategyConfig.release_risk_est_pnl_min_rr ?? 0).toFixed(2).replace(/\.00$/, '')}R`
+            : `Est PnL release ≥ $${Number(strategyConfig.release_risk_est_pnl_min_usdt ?? 0).toFixed(2).replace(/\.00$/, '')}`)
         : null,
     ].filter(Boolean).join(' · ') || 'Gapless Cancel-then-Replace SL protection',
   });

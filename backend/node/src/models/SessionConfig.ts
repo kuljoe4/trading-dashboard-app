@@ -880,11 +880,21 @@ export class SessionConfig {
   @IsOptional()
   release_risk_on_est_pnl_be?: boolean = false;
 
+  @IsEnum(['usdt', 'rr'])
+  @IsOptional()
+  release_risk_est_pnl_mode?: 'usdt' | 'rr' = 'usdt';
+
   @IsNumber()
   @Min(-100000)
   @Max(100000)
   @IsOptional()
   release_risk_est_pnl_min_usdt?: number = 0;
+
+  @IsNumber()
+  @Min(-1000)
+  @Max(1000)
+  @IsOptional()
+  release_risk_est_pnl_min_rr?: number = 0;
 
   @IsNumber()
   @Min(1)

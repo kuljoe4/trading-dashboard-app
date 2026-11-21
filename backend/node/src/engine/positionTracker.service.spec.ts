@@ -463,6 +463,63 @@ describe('PositionTrackerService', () => {
   });
 
   describe('checkExitConditions with lock_sl action', () => {
+    it('re-evaluates USDT and R:R risk release when exit estimates refresh without an SL move', () => {
+      const trade = {
+        symbol: 'EST_RELEASE_E2E',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        qty: 2,
+        initial_risk_usdt: 20,
+        status: 'OPEN',
+        risk_usdt: 20,
+        updated_at: new Date(),
+        exit_signals_status: {},
+      } as any;
+      service.addTrade(trade);
+
+      let estimatePrice = 105;
+      mockOrderManager.checkExitSignals.mockImplementation((_symbol: string, activeTrade: any) => {
+        activeTrade.exit_signals_status = {
+          ema_cross: {
+            fired: false,
+            active: true,
+            remaining_delay: 0,
+            label: 'EMA Cross',
+            value: estimatePrice,
+            threshold: estimatePrice,
+            threshold_is_price: true,
+            unit: 'price',
+          },
+        };
+        return { exitTriggered: false, exitSignalType: undefined };
+      });
+
+      const usdtConfig = {
+        release_risk_on_est_pnl_be: true,
+        release_risk_est_pnl_mode: 'usdt',
+        release_risk_est_pnl_min_usdt: 10,
+      } as SessionConfig;
+      expect(service.checkExitConditions(trade.symbol, 106, usdtConfig)).toBeNull();
+      expect(trade.risk_usdt).toBe(0);
+      expect(trade.risk_lock_reason).toBe('EST_PNL_THRESHOLD');
+
+      estimatePrice = 104;
+      expect(service.checkExitConditions(trade.symbol, 106, usdtConfig)).toBeNull();
+      expect(trade.risk_usdt).toBe(20);
+
+      estimatePrice = 105;
+      const rrConfig = {
+        ...usdtConfig,
+        release_risk_est_pnl_mode: 'rr',
+        release_risk_est_pnl_min_rr: 0.5,
+      } as SessionConfig;
+      expect(service.checkExitConditions(trade.symbol, 106, rrConfig)).toBeNull();
+      expect(trade.risk_usdt).toBe(0);
+      expect(trade.risk_lock_reason).toBe('EST_PNL_RR_THRESHOLD');
+    });
+
     it('should lock SL instead of closing when lock_sl action is configured', async () => {
       const trade = {
         symbol: 'LOCK_SL_TEST',

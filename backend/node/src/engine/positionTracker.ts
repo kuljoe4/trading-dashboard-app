@@ -918,6 +918,11 @@ export class PositionTrackerService {
       interval,
     );
 
+    // Exit signal thresholds are dynamic and can change without any physical SL move.
+    // Re-evaluate estimated P&L risk release on every refreshed signal snapshot so
+    // USDT/R:R release and re-locking happen in the same engine tick.
+    this.refreshTradeRisk(trade, false, currentPrice, config);
+
     if (exitTriggered) {
       // DYNAMIC MULTI-LAYER ACTIONS: Check if any of the active fired signals trigger a 'close' vs 'lock_sl'
       // BOLT OPTIMIZATION: Single-pass for...in traversal to accumulate keys and check close action without array allocations
@@ -1205,7 +1210,9 @@ export class PositionTrackerService {
       trade.est_pnl_to_realize = estPnl;
     }
 
-    // Evaluate Est. P&L Risk Release against configurable USDT floor threshold (default 0 = breakeven)
+    // Evaluate Est. P&L Risk Release against the configured USDT or R:R floor.
+    // R:R is normalized by the trade's immutable initial risk, never by the shrinking live risk.
+    const releaseMode = activeConfig?.release_risk_est_pnl_mode === 'rr' ? 'rr' : 'usdt';
     const rawEstPnlMin = activeConfig?.release_risk_est_pnl_min_usdt;
     const estPnlThresholdUsdt: number = (
       rawEstPnlMin !== undefined &&
@@ -1214,9 +1221,30 @@ export class PositionTrackerService {
       Number.isFinite(Number(rawEstPnlMin))
     ) ? Number(rawEstPnlMin) : 0;
 
-    if (activeConfig?.release_risk_on_est_pnl_be && estPnl !== undefined && estPnl >= estPnlThresholdUsdt) {
+    const rawEstPnlMinRr = activeConfig?.release_risk_est_pnl_min_rr;
+    const estPnlThresholdRr: number = (
+      rawEstPnlMinRr !== undefined &&
+      rawEstPnlMinRr !== null &&
+      (rawEstPnlMinRr as any) !== '' &&
+      Number.isFinite(Number(rawEstPnlMinRr))
+    ) ? Number(rawEstPnlMinRr) : 0;
+    const derivedInitialRisk = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl)) * Number(trade.qty || 0);
+    const initialRiskUsdt = Number(trade.initial_risk_usdt) > 0
+      ? Number(trade.initial_risk_usdt)
+      : derivedInitialRisk;
+    const estPnlRr = estPnl !== undefined && initialRiskUsdt > 0
+      ? roundEight(estPnl / initialRiskUsdt)
+      : undefined;
+    const releaseThresholdReached = releaseMode === 'rr'
+      ? estPnlRr !== undefined && estPnlRr >= estPnlThresholdRr
+      : estPnl !== undefined && estPnl >= estPnlThresholdUsdt;
+
+    if (activeConfig?.release_risk_on_est_pnl_be && releaseThresholdReached) {
       isBreakevenOrBetter = true;
-      lockReason = estPnlThresholdUsdt === 0 ? 'EST_PNL_BREAKEVEN' : 'EST_PNL_THRESHOLD';
+      const configuredThreshold = releaseMode === 'rr' ? estPnlThresholdRr : estPnlThresholdUsdt;
+      lockReason = configuredThreshold === 0
+        ? 'EST_PNL_BREAKEVEN'
+        : (releaseMode === 'rr' ? 'EST_PNL_RR_THRESHOLD' : 'EST_PNL_THRESHOLD');
     }
 
     const isForcedRelease: boolean = trade.strategy_config?.force_risk_release === true || config?.force_risk_release === true;

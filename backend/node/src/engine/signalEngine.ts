@@ -828,7 +828,19 @@ export class SignalEngineService {
           metric: 'Engulfing',
           description: sequential
             ? `Previous ${streakReq} candles not ${side === 'LONG' ? 'bearish' : 'bullish'}`
-            : `No ${streakReq}-candle ${side === 'LONG' ? 'bearish' : 'bullish'} streak found in last ${lookback} candles`
+            : `No ${streakReq}-candle ${side === 'LONG' ? 'bearish' : 'bullish'} streak found in last ${lookback} candles`,
+          engulfing_pattern: {
+            direction: side === 'SHORT' ? 'bearish' : 'bullish',
+            mode,
+            lookback,
+            streak_required: streakReq,
+            streak_found: 0,
+            sequential,
+            volume_confirm: volConfirm,
+            close_only: closeOnlyMode,
+            soft_mode: softMode,
+            state: 'waiting_streak',
+          },
         };
       }
 
@@ -1006,6 +1018,21 @@ export class SignalEngineService {
         mode,
         expansion_pct: currExpansionPct > 0 ? parseFloat(currExpansionPct.toFixed(2)) : 0,
         max_expansion_pct: maxExpansion > 0 ? maxExpansion : undefined,
+        engulfing_pattern: {
+          direction: side === 'SHORT' ? 'bearish' : 'bullish',
+          mode,
+          lookback,
+          streak_required: streakReq,
+          streak_found: Math.max(0, foundStreakEnd - foundStreakStart),
+          sequential,
+          volume_confirm: volConfirm,
+          close_only: closeOnlyMode,
+          soft_mode: softMode,
+          already_engulfed: alreadyEngulfed,
+          expansion_pct: currExpansionPct > 0 ? parseFloat(currExpansionPct.toFixed(2)) : 0,
+          max_expansion_pct: maxExpansion > 0 ? maxExpansion : null,
+          state: fired ? 'confirmed' : (alreadyEngulfed ? 'late' : 'waiting_break'),
+        },
       };
     } catch (error) {
       this.logger.debug(`Engulfing signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -2183,13 +2210,18 @@ export class SignalEngineService {
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType: string = 'macd_impulse',
   ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
-      const fastPeriod = parseInt(params.macd_fast || '12', 10);
-      const slowPeriod = parseInt(params.macd_slow || '26', 10);
-      const signalPeriod = parseInt(params.macd_signal || '9', 10);
-      const strictExpansion = params.macd_strict_expansion === true || params.macd_strict_expansion === 'true';
+      const fastPeriod = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_impulse', 'macd_fast', '12')), 10) || 12;
+      const slowPeriod = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_impulse', 'macd_slow', '26')), 10) || 26;
+      const signalPeriod = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_impulse', 'macd_signal', '9')), 10) || 9;
+      const strictExpansionVal = this.resolveSignalParam(params, signalType, 'macd_impulse', 'macd_strict_expansion', true);
+      const strictExpansion = strictExpansionVal === true || strictExpansionVal === 'true';
+      const maxEntryCandle = Math.min(2, Math.max(1, parseInt(String(
+        this.resolveSignalParam(params, signalType, 'macd_impulse', 'macd_impulse_max_entry_candle', 2)
+      ), 10) || 2));
 
       const maxPeriod = Math.max(fastPeriod, slowPeriod) + signalPeriod;
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
@@ -2270,9 +2302,9 @@ export class SignalEngineService {
                 },
                 {
                   key: 'bar_window',
-                  label: 'Window (1–2 bars)',
+                  label: `Window (1–${maxEntryCandle} bars)`,
                   passed: false,
-                  value: '0 / 2 bars',
+                  value: `0 / ${maxEntryCandle} bars`,
                 },
                 ...(strictExpansion
                   ? [
@@ -2296,7 +2328,7 @@ export class SignalEngineService {
           idx--;
         }
 
-        if (count === 1 || count === 2) {
+        if (count >= 1 && count <= maxEntryCandle) {
           fired = true;
           description = `MACD Impulse Green #${count}`;
 
@@ -2323,8 +2355,8 @@ export class SignalEngineService {
           }
         } else {
           fired = false;
-          rejected = count > 2;
-          description = `Rejected: Green bar count is ${count} (Entry Window: 1-2)`;
+          rejected = count > maxEntryCandle;
+          description = `Rejected: Green bar count is ${count} (Entry Window: 1-${maxEntryCandle})`;
         }
       } else if (side === 'SHORT') {
         if (currHist >= 0) {
@@ -2358,9 +2390,9 @@ export class SignalEngineService {
                 },
                 {
                   key: 'bar_window',
-                  label: 'Window (1–2 bars)',
+                  label: `Window (1–${maxEntryCandle} bars)`,
                   passed: false,
-                  value: '0 / 2 bars',
+                  value: `0 / ${maxEntryCandle} bars`,
                 },
                 ...(strictExpansion
                   ? [
@@ -2384,7 +2416,7 @@ export class SignalEngineService {
           idx--;
         }
 
-        if (count === 1 || count === 2) {
+        if (count >= 1 && count <= maxEntryCandle) {
           fired = true;
           description = `MACD Impulse Red #${count}`;
 
@@ -2411,22 +2443,22 @@ export class SignalEngineService {
           }
         } else {
           fired = false;
-          rejected = count > 2;
-          description = `Rejected: Red bar count is ${count} (Entry Window: 1-2)`;
+          rejected = count > maxEntryCandle;
+          description = `Rejected: Red bar count is ${count} (Entry Window: 1-${maxEntryCandle})`;
         }
       }
 
       if (minimal) return fired;
 
       const isAlignedColor = side === 'SHORT' ? currHist < 0 : currHist > 0;
-      const windowPassed = count >= 1 && count <= 2;
+      const windowPassed = count >= 1 && count <= maxEntryCandle;
 
       return {
         fired,
         rejected,
         status: fired ? 'fired' : rejected ? 'blocked' : 'approaching',
         value: count,
-        threshold: 2,
+        threshold: maxEntryCandle,
         insufficientData,
         unit: 'bars',
         metric: 'MACD Impulse',
@@ -2440,6 +2472,9 @@ export class SignalEngineService {
           histogram: roundTo(currHist, 8),
           prev_histogram: roundTo(prevHist, 8),
           recent_hist: recentHist,
+          bar_count: count,
+          max_entry_candle: maxEntryCandle,
+          strict_expansion: strictExpansion,
           aligned: fired,
           rejected,
           expected_sign: side === 'SHORT' ? 'negative' : 'positive',
@@ -2453,10 +2488,10 @@ export class SignalEngineService {
             },
             {
               key: 'bar_window',
-              label: 'Window (1–2 bars)',
+              label: `Window (1–${maxEntryCandle} bars)`,
               passed: windowPassed,
-              rejected: count > 2,
-              value: `Bar #${count} / 2`,
+              rejected: count > maxEntryCandle,
+              value: `Bar #${count} / ${maxEntryCandle}`,
             },
             ...(strictExpansion
               ? [
@@ -2500,10 +2535,10 @@ export class SignalEngineService {
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType: string = 'macd_pbc',
   ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
-      const signalType = 'macd_pbc';
       const fastPeriod = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_pbc', 'macd_fast', config.macd_fast || '12')), 10) || 12;
       const slowPeriod = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_pbc', 'macd_slow', config.macd_slow || '26')), 10) || 26;
       const signalPeriod = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_pbc', 'macd_signal', config.macd_signal || '9')), 10) || 9;

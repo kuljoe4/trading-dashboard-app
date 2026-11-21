@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { cn, Tooltip } from './primitives';
 import { price as fmtPrice } from '../../lib/formatters';
-import { computeConditionMeter, buildHtfLadderModel, buildMacdFilterModel, computeConditionValueDelta } from '../../utils/candidateConditions';
-import { ConditionDial, HtfBreakoutLadder, MacdFilterStrip } from './CandidateConditionsGauge';
+import { computeConditionMeter, buildHtfLadderModel, buildMacdFilterModel, buildEngulfingPatternModel, computeConditionValueDelta } from '../../utils/candidateConditions';
+import { ConditionDial, HtfBreakoutLadder, MacdFilterStrip, EngulfingPatternStrip } from './CandidateConditionsGauge';
 
 const ZONE_TEXT_CLASS = {
   watching: 'text-dim',
@@ -169,6 +169,16 @@ export const SignalGauge = React.memo(({
       isExit: effectiveIsExit,
     });
   }, [finalInsufficient, s, propSignalKey, finalLabel, strategyConfig, isLong, effectiveIsExit]);
+  const engulfingPattern = useMemo(() => {
+    if (finalInsufficient) return null;
+    return buildEngulfingPatternModel({
+      sigKey: s.key || propSignalKey || finalLabel,
+      signalDetail: s,
+      strategyConfig,
+      isLong,
+      isExit: effectiveIsExit,
+    });
+  }, [finalInsufficient, s, propSignalKey, finalLabel, strategyConfig, isLong, effectiveIsExit]);
 
   const prevItemRef = useRef(null);
   const [changeInfo, setChangeInfo] = useState(null);
@@ -295,6 +305,7 @@ export const SignalGauge = React.memo(({
               {macdFilter && (
                 <MacdFilterStrip macdFilter={macdFilter} changeInfo={changeInfo} />
               )}
+              {engulfingPattern && <EngulfingPatternStrip pattern={engulfingPattern} />}
             </div>
           </>
         )}

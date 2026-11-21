@@ -1176,9 +1176,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
   );
 });
 
-/**
- * Subtle single-line MACD Filter / Histogram readout with zero background/border CLS.
- */
+/** Compact histogram phase/window visualization for MACD filters and impulse entries. */
 export const MacdFilterStrip = React.memo(function MacdFilterStrip({ macdFilter, changeInfo = null }) {
   if (!macdFilter || !macdFilter.enabled) return null;
 
@@ -1199,26 +1197,80 @@ export const MacdFilterStrip = React.memo(function MacdFilterStrip({ macdFilter,
       ? 'text-purple-400'
       : 'text-red';
 
-  const statusLabel = macdFilter.aligned ? 'Aligned' : 'Not aligned';
+  const isImpulse = macdFilter.mode === 'macd_impulse';
+  const barCount = Number(macdFilter.barCount ?? macdFilter.gates?.find((g) => g.key === 'bar_window')?.value?.match?.(/#(\d+)/)?.[1]);
+  const maxEntryCandle = Number(macdFilter.maxEntryCandle ?? macdFilter.gates?.find((g) => g.key === 'bar_window')?.value?.match?.(/\/\s*(\d+)/)?.[1]) || 2;
+  const isLate = isImpulse && Number.isFinite(barCount) && barCount > maxEntryCandle;
+  const statusLabel = macdFilter.aligned ? (isImpulse ? 'ENTRY OPEN' : 'ALIGNED') : isLate ? 'LATE' : macdFilter.rejected ? 'BLOCKED' : 'WAITING';
+  const bars = (Array.isArray(macdFilter.recentHist) ? macdFilter.recentHist : []).slice(-6);
+  const maxAbs = Math.max(0.00000001, ...bars.map((v) => Math.abs(Number(v) || 0)));
   void changeInfo;
 
   return (
     <div
-      className="flex items-center justify-between gap-2 text-[9.5px] font-mono tabular-nums"
+      className="rounded-lg border border-border/35 bg-bg/45 px-2 py-1.5 flex flex-col gap-1.5 text-[9.5px] font-mono tabular-nums"
       data-testid="macd-filter-strip"
     >
-      <span className="text-dim truncate">
-        {isEmaFilter ? 'MACD filter' : 'MACD hist'}
-      </span>
-      <span className="truncate font-semibold">
-        <span className={cn('transition-colors duration-300', statusColorClass)}>
-          {statusLabel}
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <span className="text-dim truncate">{isEmaFilter ? 'MACD filter' : isImpulse ? 'MACD impulse' : 'MACD histogram'}</span>
+        <span className={cn('font-black tracking-wider transition-colors duration-300', statusColorClass)}>{statusLabel}</span>
+      </div>
+      <div className="flex items-end gap-1 h-7" aria-label={`${histColorLabel}; ${statusLabel}`}>
+        {bars.length > 0 ? bars.map((value, idx) => {
+          const n = Number(value) || 0;
+          const height = Math.max(3, Math.round((Math.abs(n) / maxAbs) * 24));
+          const eligible = isImpulse && idx >= bars.length - maxEntryCandle && (n >= 0) === isHistGreen;
+          return (
+            <span
+              key={`${idx}-${n}`}
+              className={cn('flex-1 min-w-[3px] max-w-3 rounded-t-sm transition-all', n >= 0 ? 'bg-green/75' : 'bg-red/75', eligible && 'ring-1 ring-accent ring-offset-1 ring-offset-bg')}
+              style={{ height: `${height}px` }}
+              title={`${n >= 0 ? 'Green' : 'Red'} histogram ${n}`}
+            />
+          );
+        }) : <span className="text-dim self-center">Histogram warming up</span>}
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className={cn('font-semibold', histColorClass)}>{histColorLabel}</span>
+        {isImpulse ? (
+          <span className={cn('font-bold', isLate ? 'text-purple-400' : macdFilter.aligned ? 'text-green' : 'text-dim')}>
+            Candle {Number.isFinite(barCount) ? barCount : '—'} / {maxEntryCandle}
+          </span>
+        ) : (
+          <span className="text-dim">{macdFilter.histogramText || '---'}</span>
+        )}
+      </div>
+    </div>
+  );
+});
+
+export const EngulfingPatternStrip = React.memo(function EngulfingPatternStrip({ pattern }) {
+  if (!pattern) return null;
+  const bullish = pattern.direction === 'bullish';
+  const stateLabel = pattern.state === 'confirmed' ? 'CONFIRMED' : pattern.state === 'late' ? 'LATE' : pattern.state === 'waiting_break' ? 'ARMED' : 'BUILDING';
+  const stateClass = pattern.state === 'confirmed' ? 'text-green' : pattern.state === 'late' ? 'text-purple-400' : pattern.state === 'waiting_break' ? 'text-amber' : 'text-dim';
+  const shownStreak = Math.min(5, Math.max(pattern.streakRequired, pattern.streakFound, 1));
+  return (
+    <div className="rounded-lg border border-border/35 bg-bg/45 px-2 py-1.5 flex flex-col gap-1.5 text-[9.5px] font-mono tabular-nums" data-testid="engulfing-pattern-strip">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-dim">{bullish ? 'Bullish' : 'Bearish'} · {String(pattern.mode).replace(/_/g, ' ')}</span>
+        <span className={cn('font-black tracking-wider', stateClass)}>{stateLabel}</span>
+      </div>
+      <div className="flex items-center gap-1 h-8" aria-label={`${pattern.streakFound} of ${pattern.streakRequired} reversal candles found`}>
+        {Array.from({ length: shownStreak }).map((_, idx) => (
+          <span key={idx} className={cn('relative w-3 h-5 rounded-sm border', idx < pattern.streakFound ? (bullish ? 'border-red/70 bg-red/30' : 'border-green/70 bg-green/30') : 'border-border/50 bg-surface/40')}>
+            <span className="absolute left-1/2 -translate-x-1/2 -top-1 -bottom-1 w-px bg-current opacity-50" />
+          </span>
+        ))}
+        <span className="text-dim px-0.5">→</span>
+        <span className={cn('relative w-4 h-7 rounded-sm border-2', pattern.fired ? (bullish ? 'border-green bg-green/30' : 'border-red bg-red/30') : 'border-accent/60 bg-accent/10')}>
+          <span className="absolute left-1/2 -translate-x-1/2 -top-1 -bottom-1 w-px bg-current opacity-60" />
         </span>
-        <span className="text-dim"> · </span>
-        <span className={cn('transition-colors duration-300', histColorClass)}>
-          {histColorLabel}
-        </span>
-      </span>
+      </div>
+      <div className="flex items-center justify-between gap-2 text-dim">
+        <span>{pattern.streakFound}/{pattern.streakRequired} streak · {pattern.sequential ? 'Adjacent' : `Within ${pattern.lookback}`}</span>
+        <span>{pattern.closeOnly ? 'Closed candle' : 'Live candle'}{pattern.volumeConfirm ? ' · Vol' : ''}</span>
+      </div>
     </div>
   );
 });
@@ -1306,7 +1358,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
 
   const valueSignature = useMemo(
     () => `${model.markPrice}:${model.compositeDialPct}:` + model.conditions.map(
-      c => `${c.key}:${c.stateLabel}:${c.liveText}:${c.dialPct}:${c.rawDialPct ?? ''}:${c.ladder?.livePrice ?? ''}:${c.macdFilter?.histogram ?? ''}:${c.macdFilter?.aligned ? 1 : 0}`
+      c => `${c.key}:${c.stateLabel}:${c.liveText}:${c.dialPct}:${c.rawDialPct ?? ''}:${c.ladder?.livePrice ?? ''}:${c.macdFilter?.histogram ?? ''}:${c.macdFilter?.aligned ? 1 : 0}:${c.engulfingPattern?.state ?? ''}:${c.engulfingPattern?.streakFound ?? ''}`
     ).join('|'),
     [model.markPrice, model.compositeDialPct, model.conditions]
   );
@@ -1994,6 +2046,9 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
 
                           {c.macdFilter && (
                             <MacdFilterStrip macdFilter={c.macdFilter} changeInfo={changeInfo} />
+                          )}
+                          {c.engulfingPattern && (
+                            <EngulfingPatternStrip pattern={c.engulfingPattern} />
                           )}
                         </div>
                       </>

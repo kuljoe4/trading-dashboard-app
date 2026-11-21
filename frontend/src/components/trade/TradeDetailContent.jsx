@@ -418,6 +418,8 @@ const getSignalInfo = (key, config) => {
       } else if (base === 'macd_impulse') {
         const strict = resolve('macd_strict_expansion', true);
         params.push({ label: 'Strict', value: strict ? 'Yes' : 'No', rawValue: strict, key: 'macd_strict_expansion', type: 'boolean' });
+        const maxEntryCandle = resolve('macd_impulse_max_entry_candle', 2);
+        params.push({ label: 'Latest Entry Candle', value: maxEntryCandle, key: 'macd_impulse_max_entry_candle', type: 'number' });
       }
       break;
     }

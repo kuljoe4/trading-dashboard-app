@@ -1002,7 +1002,11 @@ export const ActiveSummaryPanel = React.memo(({
                   <span className="text-[11px] font-semibold text-text truncate">Est. P&amp;L Risk Release</span>
                   <Toggle value={true} onChange={(v) => setField('release_risk_on_est_pnl_be', v)} />
                 </div>
-                {renderField('Min Est. P&L (USDT)', 'release_risk_est_pnl_min_usdt', 'number', null, { min: -100000, max: 100000, step: 0.5, inputMode: 'text' })}
+                <span className="text-[10px] text-dim">
+                  {cfg.release_risk_est_pnl_mode === 'rr'
+                    ? `≥ ${Number(cfg.release_risk_est_pnl_min_rr ?? 0)}R`
+                    : `≥ ${Number(cfg.release_risk_est_pnl_min_usdt ?? 0)} USDT`}
+                </span>
               </>
             )}
           </div>

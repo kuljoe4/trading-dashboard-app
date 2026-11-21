@@ -295,6 +295,7 @@ SignalListWithCollapse.displayName = 'SignalListWithCollapse';
 const TAB_ERROR_MAP = {
   slippage_warning_threshold: 'risk',
   release_risk_est_pnl_min_usdt: 'risk',
+  release_risk_est_pnl_min_rr: 'risk',
   scan_interval: 'scan',
   discovery_mode: 'scan',
   scan_lookback: 'scan',
@@ -324,6 +325,7 @@ const SECTION_ERROR_MAP = {
   scanner_signal_depth: 'scan_global',
   slippage_warning_threshold: 'risk_guards',
   release_risk_est_pnl_min_usdt: 'risk_guards',
+  release_risk_est_pnl_min_rr: 'risk_guards',
   risk_pct_per_trade: 'risk_guards',
   max_open_trades: 'risk_guards',
   martingale_multiplier: 'risk_martingale',
@@ -448,6 +450,10 @@ const getSignalParamsSchema = (sigKey, baseType, isEntry = true, isExit = true) 
     addParam('macd_signal', 'number', 9, null, { min: 1 }, 'MACD Signal');
     if (sigKey.includes('impulse')) {
       addParam('macd_strict_expansion', 'boolean', true, null, {}, 'Strict Expanding');
+      addParam('macd_impulse_max_entry_candle', 'number', 2, [
+        { value: 1, label: 'First color-change candle only' },
+        { value: 2, label: 'First or second color-change candle' },
+      ], {}, 'Latest Entry Candle');
     }
     if (sigKey.includes('pbc')) {
       addParam('macd_pbc_trend_ema', 'number', 50, null, { min: 1 }, 'PBC Trend EMA');
@@ -544,6 +550,7 @@ const TOOLTIPS = {
   macd_slow: "The slow EMA period for MACD line calculation.",
   macd_signal: "The signal line EMA period.",
   macd_strict_expansion: "When enabled, consecutive MACD histogram bars must strictly increase (bullish) or decrease (bearish) in magnitude.",
+  macd_impulse_max_entry_candle: "Limits MACD Impulse entry to the first histogram color-change candle, or allows the first and second candles. Later same-color bars are rejected as late entries.",
   macd_pbc_trend_ema: "The EMA period used as the trend filter. Price must be above this for long entries, and below for short entries.",
   macd_pbc_lookback: "The number of previous candles scanned to find a valid histogram contraction pullback.",
   macd_pbc_max_continuation: "Maximum allowed continuation candle index after MACD histogram slope reversal (e.g. 1 limits entry strictly to the 1st candle of continuation, 2 allows 1st or 2nd candle).",
@@ -2699,7 +2706,9 @@ const flattenConfig = (config) => {
             ? config.anti_whipsaw_timeframes.split(',').map(s => s.trim()).filter(Boolean)
             : []),
       release_risk_on_est_pnl_be: !!config.release_risk_on_est_pnl_be,
+      release_risk_est_pnl_mode: config.release_risk_est_pnl_mode === 'rr' ? 'rr' : 'usdt',
       release_risk_est_pnl_min_usdt: config.release_risk_est_pnl_min_usdt !== undefined && config.release_risk_est_pnl_min_usdt !== null && config.release_risk_est_pnl_min_usdt !== '' ? Number(config.release_risk_est_pnl_min_usdt) : 0,
+      release_risk_est_pnl_min_rr: config.release_risk_est_pnl_min_rr !== undefined && config.release_risk_est_pnl_min_rr !== null && config.release_risk_est_pnl_min_rr !== '' ? Number(config.release_risk_est_pnl_min_rr) : 0,
       smart_watchlist_enabled: !!config.smart_watchlist_enabled,
       smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
       scanner_signal_depth: config.scanner_signal_depth || 10,
@@ -2717,6 +2726,7 @@ const flattenConfig = (config) => {
       macd_pbc_trend_ema: config.macd_pbc_trend_ema || 50,
       macd_pbc_lookback: config.macd_pbc_lookback || 10,
       macd_pbc_max_continuation: config.macd_pbc_max_continuation || 2,
+      macd_impulse_max_entry_candle: config.macd_impulse_max_entry_candle || 2,
       required_signals: Array.isArray(config.required_signals) ? config.required_signals : [],
       required_exit_signals: Array.isArray(config.required_exit_signals) ? config.required_exit_signals : [],
       exit_signals: Array.isArray(config.exit_signals) ? config.exit_signals : [],
@@ -2815,7 +2825,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       'htf_breakout_reference_level', 'htf_breakout_lookback', 'htf_breakout_buffer_pct', 'htf_breakout_max_expansion_pct',
       'engulfing_mode', 'engulfing_timing', 'engulfing_volume_confirm', 'engulfing_lookback',
       'engulfing_streak', 'engulfing_sequential', 'engulfing_max_expansion_pct',
-      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
+      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation', 'macd_impulse_max_entry_candle',
     ];
     syncTopLevelKeys.forEach(k => {
       if (sp[k] !== undefined && sp[k] !== null && sp[k] !== '') {
@@ -2841,7 +2851,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       'scanner_signal_depth',
       'engulfing_lookback', 'engulfing_streak', 'engulfing_max_expansion_pct',
       'htf_breakout_lookback', 'htf_breakout_buffer_pct', 'htf_breakout_max_expansion_pct',
-      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
+      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation', 'macd_impulse_max_entry_candle',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
@@ -2853,6 +2863,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       'trailing_activation_rr', 'auto_scale_max_overshoot',
       'auto_adjust_max_trades_min', 'auto_adjust_max_trades_max', 'auto_adjust_max_trades_step',
       'release_risk_est_pnl_min_usdt',
+      'release_risk_est_pnl_min_rr',
       'scan_window_duration_sec', 'scan_check_interval_sec',
       'martingale_multiplier', 'martingale_max_steps', 'martingale_reset_threshold_pct'
     ];
@@ -3626,9 +3637,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
 
     if (c.release_risk_on_est_pnl_be) {
-      const minEstVal = c.release_risk_est_pnl_min_usdt;
-      if (minEstVal !== undefined && minEstVal !== null && minEstVal !== '' && (!Number.isFinite(Number(minEstVal)) || Number(minEstVal) < -100000 || Number(minEstVal) > 100000)) {
-        errs.release_risk_est_pnl_min_usdt = 'Invalid USDT';
+      const releaseMode = c.release_risk_est_pnl_mode === 'rr' ? 'rr' : 'usdt';
+      const thresholdKey = releaseMode === 'rr' ? 'release_risk_est_pnl_min_rr' : 'release_risk_est_pnl_min_usdt';
+      const minEstVal = c[thresholdKey];
+      const limit = releaseMode === 'rr' ? 1000 : 100000;
+      if (minEstVal !== undefined && minEstVal !== null && minEstVal !== '' && (!Number.isFinite(Number(minEstVal)) || Number(minEstVal) < -limit || Number(minEstVal) > limit)) {
+        errs[thresholdKey] = releaseMode === 'rr' ? 'Invalid R:R' : 'Invalid USDT';
       }
     }
 
@@ -4157,7 +4171,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'scanner_signal_depth',
       'engulfing_lookback', 'engulfing_streak', 'engulfing_max_expansion_pct',
       'htf_breakout_lookback', 'htf_breakout_buffer_pct', 'htf_breakout_max_expansion_pct',
-      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
+      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation', 'macd_impulse_max_entry_candle',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
@@ -4169,6 +4183,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'trailing_activation_rr', 'auto_scale_max_overshoot',
       'auto_adjust_max_trades_min', 'auto_adjust_max_trades_max', 'auto_adjust_max_trades_step',
       'release_risk_est_pnl_min_usdt',
+      'release_risk_est_pnl_min_rr',
       'scan_window_duration_sec', 'scan_check_interval_sec',
       'martingale_multiplier', 'martingale_max_steps', 'martingale_reset_threshold_pct'
     ];
@@ -4879,7 +4894,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         min_trade_interval_min: CONFIG_LIMITS.MIN_TRADE_INTERVAL_DEFAULT,
         trades_jitter_pct: CONFIG_LIMITS.TRADES_JITTER_DEFAULT,
         release_risk_on_est_pnl_be: false,
+        release_risk_est_pnl_mode: 'usdt',
         release_risk_est_pnl_min_usdt: 0,
+        release_risk_est_pnl_min_rr: 0,
       });
     }
 
@@ -6473,7 +6490,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <CollapsibleHelpTitle
                     title="Est. P&L Risk Release"
                     titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
-                    helpText="Release risk lock (risk_usdt = 0) when active estimated P&L to realize reaches or exceeds your configured USDT threshold (default $0 breakeven; supports negative, 0, or positive numbers), even before physical SL ratchets."
+                    helpText="Release risk lock (risk_usdt = 0) when active estimated P&L reaches a configured USDT or R:R floor, even before the physical stop-loss ratchets."
                   />
                   <Toggle
                     value={cfg.release_risk_on_est_pnl_be || false}
@@ -6483,14 +6500,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
                 {cfg.release_risk_on_est_pnl_be && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-border/20">
-                    {renderField('Min Est. P&L (USDT)', 'release_risk_est_pnl_min_usdt', 'number', null, {
-                      min: -100000,
-                      max: 100000,
-                      step: 0.5,
-                      inputMode: 'text',
-                      placeholder: '0',
-                      helpText: "Threshold for Estimated P&L to realize in USDT (default 0). Set 0 for breakeven, a positive number to require a profit buffer (e.g. 5), or a negative number to release risk earlier once floor loss narrows (e.g. -2)."
-                    })}
+                    {renderField('Threshold Unit', 'release_risk_est_pnl_mode', 'text', [
+                      { value: 'usdt', label: 'USDT value' },
+                      { value: 'rr', label: 'Risk:Reward (R)' },
+                    ], { helpText: 'Compare the estimated exit floor as absolute USDT or as a multiple of immutable initial trade risk.' })}
+                    {cfg.release_risk_est_pnl_mode === 'rr'
+                      ? renderField('Min Estimated R:R', 'release_risk_est_pnl_min_rr', 'number', null, {
+                          min: -1000,
+                          max: 1000,
+                          step: 0.1,
+                          inputMode: 'text',
+                          placeholder: '0',
+                          helpText: 'Estimated P&L divided by initial trade risk. For example, 0.5 releases at +0.5R.'
+                        })
+                      : renderField('Min Est. P&L (USDT)', 'release_risk_est_pnl_min_usdt', 'number', null, {
+                          min: -100000,
+                          max: 100000,
+                          step: 0.5,
+                          inputMode: 'text',
+                          placeholder: '0',
+                          helpText: 'Use 0 for breakeven, a positive value for a profit buffer, or a negative value to release earlier.'
+                        })}
                   </div>
                 )}
               </div>

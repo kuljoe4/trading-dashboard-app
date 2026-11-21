@@ -110,6 +110,41 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
   });
 
   describe('MACD Impulse entry signal (Phase 4)', () => {
+    it('honors first-only versus first-or-second entry windows for layered MACD signals', () => {
+      const candles = generateCandles(Array(100).fill(100));
+      klineStore.getRawCandles.mockReturnValue(candles);
+      jest.spyOn(service, 'calculateMACD').mockReturnValue({
+        macdLine: Array(100).fill(0),
+        signalLine: Array(100).fill(0),
+        histogram: [...Array(97).fill(-1), -0.5, 0.6, 0.8],
+        insufficientData: false,
+      });
+
+      const firstOnly = new SessionConfig();
+      firstOnly.enabled_signals = ['macd_impulse_2'];
+      firstOnly.signal_params = {
+        macd_fast_2: 12,
+        macd_slow_2: 26,
+        macd_signal_2: 9,
+        macd_strict_expansion_2: false,
+        macd_impulse_2_max_entry_candle: 1,
+      };
+      const firstOnlyResult = service.checkEntry('BTCUSDT', firstOnly, '1m', 'LONG');
+      expect(firstOnlyResult.details?.macd_impulse_2?.fired).toBe(false);
+      expect(firstOnlyResult.details?.macd_impulse_2?.description).toContain('Entry Window: 1-1');
+
+      const firstOrSecond = new SessionConfig();
+      firstOrSecond.enabled_signals = ['macd_impulse_2'];
+      firstOrSecond.signal_params = {
+        ...firstOnly.signal_params,
+        macd_impulse_2_max_entry_candle: 2,
+      };
+      const secondResult = service.checkEntry('BTCUSDT', firstOrSecond, '1m', 'LONG');
+      expect(secondResult.details?.macd_impulse_2?.fired).toBe(true);
+      expect(secondResult.details?.macd_impulse_2?.macd_filter?.bar_count).toBe(2);
+      expect(secondResult.details?.macd_impulse_2?.macd_filter?.max_entry_candle).toBe(2);
+    });
+
     it('should correctly count green histogram bars on color transition', () => {
       const prices = Array(100).fill(100);
       // Create a flat line of 100s, then rise sharply on the last 2 candles

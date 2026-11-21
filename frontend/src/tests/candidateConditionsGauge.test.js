@@ -8,6 +8,7 @@ import {
   computeConditionMeter,
   computeConditionValueDelta,
   buildMacdFilterModel,
+  buildEngulfingPatternModel,
   buildHtfLadderModel,
   computeHtfLadderDomain,
   buildCandidateConditionsModel,
@@ -610,6 +611,52 @@ test('CandidateConditionsGauge helper suite', async (t) => {
     assert.strictEqual(fallbackEmaMacd.enabled, true);
     assert.strictEqual(fallbackEmaMacd.rejected, true);
     assert.strictEqual(fallbackEmaMacd.histogram, -0.015);
+  });
+
+  await t.test('normalizes MACD impulse entry window and Engulfing candle sequence telemetry', () => {
+    const impulse = buildMacdFilterModel({
+      sigKey: 'macd_impulse',
+      signalDetail: {
+        fired: false,
+        rejected: true,
+        macd_filter: {
+          enabled: true,
+          mode: 'macd_impulse',
+          histogram: 0.2,
+          recent_hist: [-0.2, 0.1, 0.2],
+          aligned: false,
+          rejected: true,
+          bar_count: 2,
+          max_entry_candle: 1,
+          strict_expansion: true,
+        },
+      },
+      isLong: true,
+    });
+    assert.strictEqual(impulse.barCount, 2);
+    assert.strictEqual(impulse.maxEntryCandle, 1);
+    assert.strictEqual(impulse.strictExpansion, true);
+
+    const engulfing = buildEngulfingPatternModel({
+      sigKey: 'engulfing',
+      signalDetail: {
+        fired: true,
+        engulfing_pattern: {
+          direction: 'bullish',
+          mode: 'close_range',
+          lookback: 4,
+          streak_required: 2,
+          streak_found: 2,
+          sequential: true,
+          close_only: true,
+          state: 'confirmed',
+        },
+      },
+      isLong: true,
+    });
+    assert.strictEqual(engulfing.state, 'confirmed');
+    assert.strictEqual(engulfing.streakFound, 2);
+    assert.strictEqual(engulfing.closeOnly, true);
   });
 
   await t.test('pickNicePercentBound, pickNiceRatioMax, and buildRunwayRTicks produce clean proportionate scales', () => {

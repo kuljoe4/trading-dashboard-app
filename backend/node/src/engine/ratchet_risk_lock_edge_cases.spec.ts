@@ -245,6 +245,39 @@ describe('Ratchet Catch-up & Risk Lock Release Edge Cases', () => {
       expect(tradeNeg.risk_lock_reason).toBe('EST_PNL_THRESHOLD');
     });
 
+    it('should evaluate estimated risk release in R:R using immutable initial risk', () => {
+      const trade: Partial<Trade> = {
+        symbol: 'RR_RELEASE',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        qty: 2,
+        initial_risk_usdt: 20,
+        risk_usdt: 20,
+        exit_signals_status: {
+          ema_cross: { fired: false, active: true, label: 'EMA Cross', value: 105, unit: 'price', threshold_is_price: true, threshold: 105, remaining_delay: 0 },
+        },
+      };
+      const config: Partial<SessionConfig> = {
+        release_risk_on_est_pnl_be: true,
+        release_risk_est_pnl_mode: 'rr',
+        release_risk_est_pnl_min_rr: 0.5,
+      };
+
+      tracker.refreshTradeRisk(trade as Trade, true, 106, config as SessionConfig);
+      expect(trade.est_pnl_to_realize).toBe(10);
+      expect(trade.risk_usdt).toBe(0);
+      expect(trade.risk_lock_reason).toBe('EST_PNL_RR_THRESHOLD');
+
+      trade.exit_signals_status = {
+        ema_cross: { fired: false, active: true, label: 'EMA Cross', value: 104, unit: 'price', threshold_is_price: true, threshold: 104, remaining_delay: 0 },
+      };
+      tracker.refreshTradeRisk(trade as Trade, true, 106, config as SessionConfig);
+      expect(trade.est_pnl_to_realize).toBe(8);
+      expect(trade.risk_usdt).toBe(20);
+    });
+
     it('should release risk lock when rr_sequence_index >= 0 even if exchange rounding placed current_sl 1 tick below entry', () => {
       const trade: Partial<Trade> = {
         symbol: 'ADAUSDT',

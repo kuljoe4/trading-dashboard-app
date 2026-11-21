@@ -773,7 +773,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
             value: strategyConfig.force_risk_release
               ? 'Force ON'
               : (strategyConfig.release_risk_on_est_pnl_be
-                  ? `Est P&L ≥ ${Number(strategyConfig.release_risk_est_pnl_min_usdt ?? 0).toFixed(2).replace(/\.00$/, '')} USDT`
+                  ? (strategyConfig.release_risk_est_pnl_mode === 'rr'
+                      ? `Est P&L ≥ ${Number(strategyConfig.release_risk_est_pnl_min_rr ?? 0).toFixed(2).replace(/\.00$/, '')}R`
+                      : `Est P&L ≥ ${Number(strategyConfig.release_risk_est_pnl_min_usdt ?? 0).toFixed(2).replace(/\.00$/, '')} USDT`)
                   : 'At Breakeven SL')
           },
           { label: 'Guard Buffer', value: `${strategyConfig.trailing_guard_buffer_pct ?? 0.1}%` }

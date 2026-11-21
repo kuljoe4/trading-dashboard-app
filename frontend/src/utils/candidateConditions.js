@@ -1329,6 +1329,9 @@ export function buildMacdFilterModel({
       expectedSign,
       expectedLabel: raw.expected_label || (expectedSign === 'negative' ? 'Red (-Hist)' : 'Green (+Hist)'),
       gates: Array.isArray(raw.gates) ? raw.gates : [],
+      barCount: Number.isFinite(Number(raw.bar_count)) ? Number(raw.bar_count) : null,
+      maxEntryCandle: Number.isFinite(Number(raw.max_entry_candle)) ? Number(raw.max_entry_candle) : null,
+      strictExpansion: raw.strict_expansion === true,
     };
   }
 
@@ -1433,6 +1436,49 @@ export function buildMacdFilterModel({
   }
 
   return null;
+}
+
+/** Normalizes Engulfing telemetry for a compact candle-sequence visualization. */
+export function buildEngulfingPatternModel({
+  sigKey = '',
+  signalDetail = {},
+  strategyConfig = {},
+  isLong = true,
+  isExit = false,
+} = {}) {
+  const baseType = getBaseSignalType(sigKey);
+  if (baseType !== 'engulfing') return null;
+
+  const params = strategyConfig?.signal_params || {};
+  const raw = signalDetail?.engulfing_pattern || {};
+  const direction = raw.direction || (isExit ? (isLong ? 'bearish' : 'bullish') : (isLong ? 'bullish' : 'bearish'));
+  const mode = String(raw.mode || resolveSignalParamClient(params, sigKey, baseType, 'engulfing_mode', strategyConfig.engulfing_mode || 'range'));
+  const lookback = Math.max(1, Number(raw.lookback ?? resolveSignalParamClient(params, sigKey, baseType, 'engulfing_lookback', strategyConfig.engulfing_lookback || 1)) || 1);
+  const streakRequired = Math.max(1, Number(raw.streak_required ?? resolveSignalParamClient(params, sigKey, baseType, 'engulfing_streak', strategyConfig.engulfing_streak || 1)) || 1);
+  const streakFound = Math.max(0, Number(raw.streak_found ?? (signalDetail.streak_end - signalDetail.streak_start)) || 0);
+  const sequentialRaw = raw.sequential ?? resolveSignalParamClient(params, sigKey, baseType, 'engulfing_sequential', strategyConfig.engulfing_sequential !== false);
+  const volumeRaw = raw.volume_confirm ?? resolveSignalParamClient(params, sigKey, baseType, 'engulfing_volume_confirm', strategyConfig.engulfing_volume_confirm || false);
+  const maxExpansion = Number(raw.max_expansion_pct ?? signalDetail.max_expansion_pct);
+  const expansion = Number(raw.expansion_pct ?? signalDetail.expansion_pct);
+  const fired = Boolean(signalDetail.fired);
+  const late = raw.state === 'late' || /already engulfed|late/i.test(String(signalDetail.description || ''));
+  const state = raw.state || (fired ? 'confirmed' : (late ? 'late' : (streakFound >= streakRequired ? 'waiting_break' : 'waiting_streak')));
+
+  return {
+    direction,
+    mode,
+    lookback,
+    streakRequired,
+    streakFound,
+    sequential: sequentialRaw === true || sequentialRaw === 'true',
+    volumeConfirm: volumeRaw === true || volumeRaw === 'true',
+    closeOnly: Boolean(raw.close_only || mode === 'close_range' || mode === 'close_body'),
+    fired,
+    late,
+    state,
+    expansionPct: Number.isFinite(expansion) ? expansion : null,
+    maxExpansionPct: Number.isFinite(maxExpansion) ? maxExpansion : null,
+  };
 }
 
 /**
@@ -1681,6 +1727,13 @@ export function buildCandidateConditionsModel({
         isLong,
         isExit: true,
       });
+      const engulfingPattern = buildEngulfingPatternModel({
+        sigKey,
+        signalDetail: s,
+        strategyConfig: tradeCfg,
+        isLong,
+        isExit: true,
+      });
 
       return {
         key: sigKey,
@@ -1689,6 +1742,7 @@ export function buildCandidateConditionsModel({
         timeframe: tf,
         paramsText,
         macdFilter,
+        engulfingPattern,
         liveValue: !s.insufficientData && Number.isFinite(Number(effectiveExitValue)) ? Number(effectiveExitValue) : null,
         targetValue: Number.isFinite(Number(s.threshold)) ? Number(s.threshold) : null,
         unit: s.unit || '',
@@ -1988,6 +2042,13 @@ export function buildCandidateConditionsModel({
       isLong,
       isExit: false,
     });
+    const engulfingPattern = buildEngulfingPatternModel({
+      sigKey,
+      signalDetail: s,
+      strategyConfig,
+      isLong,
+      isExit: false,
+    });
 
     return {
       key: sigKey,
@@ -1995,6 +2056,7 @@ export function buildCandidateConditionsModel({
       visualization: ladder ? 'ladder' : 'dial',
       ladder,
       macdFilter,
+      engulfingPattern,
       label: asText(s.label, formatSignalLabel(sigKey)),
       timeframe: tf,
       paramsText,

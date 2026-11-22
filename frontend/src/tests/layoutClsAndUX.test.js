@@ -222,14 +222,16 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
 
     assert.ok(
       alertBannerSource.includes('data-banner-layout="inline"') &&
-      !alertBannerSource.includes('fixed top-2 left-1/2 -translate-x-1/2'),
-      'PersistentAlertBanner must render inline in normal flow so connection banners never overlap headers or cards'
+      alertBannerSource.includes('data-banner-unified="single-strip"') &&
+      !alertBannerSource.includes('fixed top-2 left-1/2 -translate-x-1/2') &&
+      !alertBannerSource.includes('border-l-2'),
+      'PersistentAlertBanner must render all notices inside one inline unified top strip without overlap or thick left accent borders'
     );
 
     assert.ok(
-      dashboardViewSource.includes('if (!gateState && !scannerPaused) return null;') &&
-      !dashboardViewSource.includes('if (!gateState && !scannerPaused && !showResumingFeedback) return null;'),
-      'GateBanner must not mount in document flow solely for transient resume feedback'
+      alertBannerSource.includes('if (gateState || scannerPaused)') &&
+      !alertBannerSource.includes('if (gateState || scannerPaused || isSyncingOnResume)'),
+      'Unified top strip must not mount a gate notice solely for transient resume feedback'
     );
 
     assert.ok(
@@ -253,10 +255,10 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
     );
 
     assert.ok(
-      dashboardViewSource.includes('const DashboardTopBannerDock = React.memo(') &&
-      dashboardViewSource.includes('data-banner-layout="inline"') &&
-      !dashboardViewSource.includes('fixed left-1/2 -translate-x-1/2'),
-      'DashboardView BanBanner, Agreement banner, and GateBanner must render inline in normal flow without overlapping headers or connection alerts'
+      !dashboardViewSource.includes('DashboardTopBannerDock') &&
+      !dashboardViewSource.includes('fixed left-1/2 -translate-x-1/2') &&
+      dashboardViewSource.includes('open-strategy-settings'),
+      'DashboardView must not duplicate top banners separately from PersistentAlertBanner and must listen for open-strategy-settings'
     );
 
     assert.ok(
@@ -425,11 +427,13 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
     const apiHealthSource = fs.readFileSync(path.join(__dirname, '../components/ApiHealthWidget.jsx'), 'utf-8');
     const systemMetricsSource = fs.readFileSync(path.join(__dirname, '../components/SystemMetrics.jsx'), 'utf-8');
 
-    // 1. Narrow top slide-down notification strips
+    // 1. Unified single narrow top slide-down notification strip
     assert.ok(
       alertBannerSource.includes('data-banner-style="top-slide-strip"') &&
-      dashboardViewSource.includes('data-banner-style="top-slide-strip"'),
-      'Connection, ban, and gate banners must use narrow top-slide-strip layout'
+      alertBannerSource.includes('data-banner-unified="single-strip"') &&
+      alertBannerSource.includes('handleCycleNotice') &&
+      !dashboardViewSource.includes('DashboardTopBannerDock'),
+      'All connection, ban, agreement, and gate banners must live inside one unified top-slide-strip'
     );
 
     // 2. Global Metrics Expand shows full unwrapped content without truncation
@@ -459,8 +463,8 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       apiHealthSource.includes('min-w-[11ch]') &&
       apiHealthSource.includes("String(secs).padStart(2, '0')") &&
       systemMetricsSource.includes("String(secs).padStart(2, '0')") &&
-      dashboardViewSource.includes('min-w-[16ch]') &&
-      dashboardViewSource.includes('min-w-[4.5ch]'),
+      alertBannerSource.includes('min-w-[16ch]') &&
+      alertBannerSource.includes('min-w-[4.5ch]'),
       'Trade duration, exit delay, ban cooldown, and gate countdowns must zero-pad and reserve fixed widths to prevent CLS'
     );
   });

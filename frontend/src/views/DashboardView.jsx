@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, lazy, Suspense, useRef } from 'rea
 import { resolveStrategyConfig } from '../utils/strategyConfig.js'
 import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
-import { formatDuration, calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
+import { calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
 import { calculatePerformanceMetrics } from '../lib/analytics'
 import { resolveAdaptivePeriodicLimit, isClosedValidTrade, computePeriodicBuckets, computePeriodBadges } from '../utils/periodicPerformance'
 
@@ -584,99 +584,6 @@ const ModalLoadingFallback = () => (
   </div>
 )
 
-const BanBanner = ({ apiStatus }) => {
-  const [timeLeft, setTimeLeft] = useState(0);
-
-  useEffect(() => {
-    if (!apiStatus?.banUntil) return;
-
-    const update = () => {
-      const until = new Date(apiStatus.banUntil).getTime();
-      const remaining = until - Date.now();
-      setTimeLeft(Math.max(0, remaining));
-    };
-
-    update();
-    const timer = setInterval(update, 1000);
-    return () => clearInterval(timer);
-  }, [apiStatus?.banUntil]);
-
-  if (!apiStatus?.isBanned && !apiStatus?.isRateLimited && !apiStatus?.isGeoBlocked) return null;
-
-  const isGeo = !!apiStatus.isGeoBlocked;
-  const isBan = !!apiStatus.isBanned && !isGeo;
-  const hasBanCountdown = !!apiStatus?.banUntil && timeLeft > 0;
-  const cooldownEnd = apiStatus.banUntil ? new Date(apiStatus.banUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'shortly';
-  const detailText = isGeo
-    ? 'Live orders are unavailable from this server region. Switch to Paper/Testnet or set a proxy in Settings.'
-    : isBan
-      ? `Binance paused requests to keep your account safe. Normal updates resume around ${cooldownEnd}.`
-      : 'Approaching Binance request limits — pacing requests automatically to protect your account.';
-
-  return (
-    <motion.div
-      key="ban-strip"
-      initial={{ opacity: 0, height: 0, y: -10 }}
-      animate={{ opacity: 1, height: 'auto', y: 0 }}
-      exit={{ opacity: 0, height: 0, y: -10 }}
-      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-      role="alert"
-      aria-live="polite"
-      className="overflow-hidden"
-    >
-      <div
-        className={cn(
-          "px-3 py-1.5 rounded-lg flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-1 text-[11px] border border-l-2 shadow-xs",
-          (isBan || isGeo)
-            ? "border-red/35 border-l-red bg-red/[0.08] text-red"
-            : "border-amber/35 border-l-amber bg-amber/[0.08] text-amber"
-        )}
-      >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <AlertCircle size={13} className="shrink-0" aria-hidden="true" />
-          <span className="font-semibold shrink-0">
-            {isGeo ? 'Region restricted by Binance' : (isBan ? 'Temporary exchange cooldown' : 'Pacing exchange requests')}
-          </span>
-          <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
-          <span className="text-text/85 leading-snug" title={apiStatus.lastErrorMessage || detailText}>
-            {detailText}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="font-mono tabular-nums whitespace-nowrap text-[10px] font-semibold min-w-[16ch] text-right">
-            {isGeo ? 'Action needed' : (hasBanCountdown ? `Resumes in ${formatDuration(timeLeft)}` : (isBan ? 'Paused' : 'Active'))}
-          </span>
-          {(isBan || isGeo) && (
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  await sessionAPI.clearBan();
-                  useTradingStore.setState(st => ({
-                    apiStatus: {
-                      ...st.apiStatus,
-                      isBanned: false,
-                      isRateLimited: false,
-                      isGeoBlocked: false,
-                      banUntil: null,
-                      lastErrorMessage: null
-                    }
-                  }));
-                } catch (e) {
-                  console.error('Failed to clear ban:', e);
-                }
-              }}
-              className="px-2 py-0.5 rounded-md bg-red/15 hover:bg-red/25 border border-red/35 text-[10px] font-semibold text-red transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red/40"
-            >
-              Clear Notice
-            </button>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
 // --- Strategy Card ---
 export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, hideEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratMetrics = null, viewMode = 'detailed' }) => {
   const analytics = useTradingStore(state => state.analytics);
@@ -1086,319 +993,6 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
   );
 })
 
-const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount = 0, showResumingFeedback, onManage }) => {
-  // SRE/React: Hooks MUST be invoked unconditionally and in the same order on
-  // every render. An early `return null` previously sat ABOVE these hooks, which
-  // violates the Rules of Hooks and corrupts React's internal fiber (manifests as
-  // the cryptic "Expected static flag was missing" crash on GateBanner mount).
-  // The visibility guard is moved below the hooks.
-  const config = useTradingStore(state => state.config);
-  const now = useNow();
-
-  // Do NOT mount a flow-shifting banner solely for transient background resume (ViewHeader/StatCard/StrategyCard already indicate syncing in-place with 0 CLS)
-  if (!gateState && !scannerPaused) return null;
-
-  const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
-
-  const waitTimeStr = nextSlotSec !== null
-    ? (nextSlotSec > 60 ? `${Math.ceil(nextSlotSec / 60)}m` : `${nextSlotSec}s`)
-    : '';
-
-  const headlines = {
-    max_trades: {
-      title: 'All trade slots are in use',
-      detail: 'New entries will open automatically once an active position closes.',
-    },
-    max_trades_period: {
-      title: 'Trade pace limit reached',
-      detail: nextSlotSec !== null
-        ? 'Waiting for the next trade slot to open.'
-        : 'Waiting for the next trading window before opening new trades.',
-    },
-    sl_guard: {
-      title: 'Loss protection triggered',
-      detail: 'New entries are paused to protect your remaining capital.',
-    },
-    risk_pct: {
-      title: 'Risk budget is full',
-      detail: 'New entries will resume once active risk drops below your cap.',
-    },
-    tod_risk: {
-      title: 'Quiet-hour guard active',
-      detail: 'New entries are paused during this lower-performing hour.',
-    },
-    sleeping: {
-      title: 'Outside your trading hours',
-      detail: 'Monitoring is idling until your next scheduled window.',
-    },
-    risk: {
-      title: 'Safety guard active',
-      detail: 'Monitoring open positions — new entries are temporarily paused.',
-    },
-  };
-
-  const isGatedIdle = (gateState === 'sleeping' || gateState === 'max_trades_period' || gateState === 'sl_guard') && activeTradesCount === 0;
-  const activeCopy = hibernating
-    ? {
-        title: hibernationMode === 'light' ? 'Light power-saving mode' : 'Deep power-saving mode',
-        detail: 'Pausing extra scans while idle — open positions stay monitored.',
-      }
-    : (headlines[gateState] || (scannerPaused
-        ? { title: 'Scanner paused', detail: 'New entries are on hold until you resume.' }
-        : headlines.risk));
-
-  const friendlyReason = reason && reason !== 'OK' && !/^(max_trades|sl_guard|risk_pct|tod_risk|sleeping|paused)$/i.test(String(reason).trim())
-    ? String(reason)
-    : '';
-
-  // Narrow slide-down notification strip styling (never overlaps ViewHeader or connectivity banner)
-  const bannerStyle = cn(
-    "px-3 py-1.5 rounded-lg text-[11px] border border-l-2 shadow-xs flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-1 transition-colors duration-200",
-    (scannerPaused || gateState === 'sl_guard')
-      ? "border-red/35 border-l-red bg-red/[0.08] text-red"
-      : (hibernating || isGatedIdle)
-        ? "border-border/60 border-l-accent bg-surface/90 text-text/85"
-        : "border-amber/35 border-l-amber bg-amber/[0.08] text-amber"
-  );
-
-  const totalPeriodSec = Math.max(1, (config?.trades_period_min || 60) * 60);
-  const progressPct = nextSlotSec !== null ? Math.min(100, Math.max(0, (nextSlotSec / totalPeriodSec) * 100)) : 0;
-
-  return (
-    <motion.div
-      key={`gate-${gateState || 'paused'}`}
-      initial={{ opacity: 0, height: 0, y: -10 }}
-      animate={{ opacity: 1, height: 'auto', y: 0 }}
-      exit={{ opacity: 0, height: 0, y: -10 }}
-      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-      className="overflow-hidden"
-    >
-      <div className={bannerStyle}>
-        <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap sm:flex-nowrap">
-          {hibernating ? (
-            <Zap size={13} className={cn("shrink-0", hibernationMode === 'light' ? "text-accent" : "text-amber")} />
-          ) : gateState === 'sleeping' ? (
-            <Pause size={13} className="text-dim shrink-0" />
-          ) : scannerPaused ? (
-            <XCircle size={13} className="text-red shrink-0" />
-          ) : (
-            <PulseDot color={gateState === 'sl_guard' ? "bg-red" : "bg-amber"} />
-          )}
-          <span className="font-semibold shrink-0">
-            {activeCopy.title}
-          </span>
-          <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
-          <span
-            className="text-text/80 leading-snug min-w-0"
-            title={friendlyReason || activeCopy.detail}
-          >
-            {activeCopy.detail}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {nextSlotSec !== null && nextSlotSec > 0 && (
-            <div className="flex items-center gap-1.5">
-              <div className="w-16 sm:w-24 bg-border/30 h-1 rounded-full overflow-hidden">
-                <div
-                  className="h-full w-full origin-left bg-amber transition-transform duration-1000 ease-linear"
-                  style={{ transform: `scaleX(${Math.max(0, Math.min(1, progressPct / 100))})` }}
-                />
-              </div>
-              <span className="font-mono text-[10px] font-semibold text-amber tabular-nums whitespace-nowrap min-w-[4.5ch] text-right">
-                {waitTimeStr}
-              </span>
-            </div>
-          )}
-          {showResumingFeedback && (
-            <span className="text-[10px] font-mono text-accent flex items-center gap-1">
-              <RefreshCw size={10} className="animate-spin" /> Updating
-            </span>
-          )}
-          {hibernating ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onManage) onManage();
-              }}
-              className={cn(
-                "px-2 py-0.5 rounded-md text-[10px] font-semibold border flex items-center gap-1 cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                hibernationMode === 'light' ? "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20" : "bg-amber/15 border-amber/30 text-amber hover:bg-amber/25"
-              )}
-              title="Adjust power-saving sleep settings"
-            >
-              <SettingsIcon size={10} /> Settings
-            </button>
-          ) : isGatedIdle && (
-            <Tooltip content="Scanning is slowed down while no new entries are allowed to save power and bandwidth.">
-              <span className="text-[10px] font-medium text-accent flex items-center gap-1">
-                <Leaf size={10} /> Power Saver
-              </span>
-            </Tooltip>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  )
-})
-GateBanner.displayName = 'GateBanner'
-
-const DashboardTopBannerDock = React.memo(({ apiStatus, agreementRequired, tradfiAgreementRequired, gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, showResumingFeedback, onManage, onResetAgreement, onCheckTradfiAgreement, onSignTradfiAgreement }) => {
-  const [tradfiBusy, setTradfiBusy] = useState(null);
-  const [tradfiFeedback, setTradfiFeedback] = useState(null);
-
-  const hasBanNotice = Boolean(apiStatus?.isBanned || apiStatus?.isRateLimited || apiStatus?.isGeoBlocked);
-  const hasAgreementNotice = Boolean(agreementRequired);
-  const hasTradfiNotice = !agreementRequired && Boolean(tradfiAgreementRequired);
-  const hasGateNotice = Boolean(gateState || scannerPaused);
-
-  const runTradfiAction = async (kind, fn) => {
-    if (!fn || tradfiBusy) return;
-    setTradfiBusy(kind);
-    setTradfiFeedback(null);
-    try {
-      const res = await fn();
-      if (res?.signed === false) {
-        setTradfiFeedback('Still waiting for your signature on Binance.');
-      } else if (res?.status === 'error') {
-        setTradfiFeedback(res.message || 'Could not verify status — please try again.');
-      }
-    } catch (e) {
-      setTradfiFeedback(e?.response?.data?.message || e?.message || 'Could not complete that request.');
-    } finally {
-      setTradfiBusy(null);
-    }
-  };
-
-  if (!hasBanNotice && !hasAgreementNotice && !hasTradfiNotice && !hasGateNotice) {
-    return null;
-  }
-
-  return (
-    <aside
-      aria-label="Account and Trading Status Notifications"
-      aria-live="polite"
-      data-banner-layout="inline"
-      data-banner-style="top-slide-strip"
-      className="w-full flex flex-col gap-1.5 mb-2.5 sm:mb-3"
-    >
-      <AnimatePresence initial={false}>
-        {hasBanNotice && <BanBanner key="ban-banner" apiStatus={apiStatus} />}
-
-        {hasAgreementNotice && (
-          <motion.div
-            key="futures-agreement"
-            initial={{ opacity: 0, height: 0, y: -10 }}
-            animate={{ opacity: 1, height: 'auto', y: 0 }}
-            exit={{ opacity: 0, height: 0, y: -10 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            role="alert"
-            className="overflow-hidden"
-          >
-            <div className="px-3 py-1.5 rounded-lg bg-red/[0.08] border border-red/35 border-l-2 border-l-red text-[11px] shadow-xs flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-1">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <AlertCircle size={13} className="text-red shrink-0" aria-hidden="true" />
-                <span className="font-semibold text-red shrink-0">Action needed: Futures terms</span>
-                <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
-                <span className="text-text/85 leading-snug">Accept Binance Futures terms on Binance to start placing live orders.</span>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {onResetAgreement && (
-                  <button
-                    type="button"
-                    onClick={onResetAgreement}
-                    className="px-2 py-0.5 rounded-md bg-surface hover:bg-white/10 border border-border text-[10.5px] font-semibold text-text transition-colors cursor-pointer"
-                  >
-                    Check Again
-                  </button>
-                )}
-                <a
-                  href="https://www.binance.com/en/futures/BTCUSDT"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2 py-0.5 rounded-md bg-red/15 hover:bg-red/25 border border-red/35 text-[10.5px] font-semibold text-red transition-colors"
-                >
-                  Open Binance
-                </a>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {hasTradfiNotice && (
-          <motion.div
-            key="tradfi-agreement"
-            initial={{ opacity: 0, height: 0, y: -10 }}
-            animate={{ opacity: 1, height: 'auto', y: 0 }}
-            exit={{ opacity: 0, height: 0, y: -10 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            role="status"
-            className="overflow-hidden"
-          >
-            <div className="px-3 py-1.5 rounded-lg bg-amber/[0.08] border border-amber/35 border-l-2 border-l-amber text-[11px] shadow-xs flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-1">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <AlertCircle size={13} className="text-amber shrink-0" aria-hidden="true" />
-                <span className="font-semibold text-amber shrink-0">Stock &amp; ETF futures paused</span>
-                <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
-                <span className="text-text/85 leading-snug">
-                  {tradfiFeedback || 'Accept Binance TradFi terms to enable stock/ETF pairs (crypto pairs keep trading).'}
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {onCheckTradfiAgreement && (
-                  <button
-                    type="button"
-                    disabled={Boolean(tradfiBusy)}
-                    onClick={() => runTradfiAction('check', onCheckTradfiAgreement)}
-                    className="px-2 py-0.5 rounded-md bg-surface hover:bg-white/10 border border-border text-[10.5px] font-semibold text-text transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {tradfiBusy === 'check' ? 'Checking…' : 'Check Status'}
-                  </button>
-                )}
-                {onSignTradfiAgreement && (
-                  <button
-                    type="button"
-                    disabled={Boolean(tradfiBusy)}
-                    onClick={() => runTradfiAction('sign', onSignTradfiAgreement)}
-                    className="px-2 py-0.5 rounded-md bg-amber/15 hover:bg-amber/25 border border-amber/35 text-[10.5px] font-semibold text-amber transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {tradfiBusy === 'sign' ? 'Signing…' : 'Sign Now'}
-                  </button>
-                )}
-                <a
-                  href="https://www.binance.com/en/futures/BTCUSDT"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2 py-0.5 rounded-md bg-surface hover:bg-white/10 border border-border text-[10.5px] font-semibold text-dim hover:text-text transition-colors hidden sm:inline-flex"
-                >
-                  Open Binance
-                </a>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {hasGateNotice && (
-          <GateBanner
-            key="gate-banner"
-            gateState={gateState}
-            scannerPaused={scannerPaused}
-            reason={reason}
-            nextSlotTs={nextSlotTs}
-            hibernating={hibernating}
-            hibernationMode={hibernationMode}
-            activeTradesCount={activeTradesCount}
-            showResumingFeedback={showResumingFeedback}
-            onManage={onManage}
-          />
-        )}
-      </AnimatePresence>
-    </aside>
-  );
-});
-DashboardTopBannerDock.displayName = 'DashboardTopBannerDock'
-
 // ScannerPreview renders 🔥 Fast Market Expansion banner when market activity is high (extracted to standalone component)
 export { ScannerPreview } from '../components/ScannerPreview'
 
@@ -1772,12 +1366,12 @@ export function DashboardView({ initialStrategy }) {
   const {
     sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, activePnl: storeActivePnl, realizedPnl: storeRealizedPnl, lastKnownPnl, totalRiskPct,
     totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
-    updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired, tradfiAgreementRequired,
-    scannerPaused, scannerResults, sessionList, fetchSessions, wsStatus,
+    updateConfig, patchConfig,
+    scannerResults, sessionList, fetchSessions, wsStatus,
     updateStats, analytics, stats, lastUdsBalanceReason, lastUdsBalanceTs,
     variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
-    nextSlotTs, fetchTradeHistory, fetchAnalytics, tradeHistory, sessionTradeHistory, sessionTradeHistoryId, tradeHistoryCounts, sessionTradeHistoryCounts,
+    fetchTradeHistory, fetchAnalytics, tradeHistory, sessionTradeHistory, sessionTradeHistoryId, tradeHistoryCounts, sessionTradeHistoryCounts,
     initialStatusLoaded
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
@@ -1798,13 +1392,6 @@ export function DashboardView({ initialStrategy }) {
     setSessionActive: state.setSessionActive,
     updateConfig: state.updateConfig,
     patchConfig: state.patchConfig,
-    gateState: state.gateState,
-    gateReason: state.gateReason,
-    hibernating: state.hibernating,
-    hibernationMode: state.hibernationMode,
-    agreementRequired: state.agreementRequired,
-    tradfiAgreementRequired: state.tradfiAgreementRequired,
-    scannerPaused: state.scannerPaused,
     scannerResults: state.scannerResults || [],
     alerts: state.alerts,
     updateStats: state.updateStats,
@@ -1830,7 +1417,6 @@ export function DashboardView({ initialStrategy }) {
     lastUdsBalanceTs: state.lastUdsBalanceTs,
     effectivePeriodMs: state.effectivePeriodMs,
     isSyncingOnResume: state.isSyncingOnResume,
-    nextSlotTs: state.nextSlotTs,
     fetchTradeHistory: state.fetchTradeHistory,
     fetchAnalytics: state.fetchAnalytics,
     tradeHistory: state.tradeHistory,
@@ -2414,6 +2000,12 @@ export function DashboardView({ initialStrategy }) {
     setEditingVariantIndex(null);
     setShowConfig(true);
   }, [config]);
+
+  useEffect(() => {
+    const onOpenSettings = () => handleEditPrimary();
+    window.addEventListener('open-strategy-settings', onOpenSettings);
+    return () => window.removeEventListener('open-strategy-settings', onOpenSettings);
+  }, [handleEditPrimary]);
   const handleSelectPrimary = React.useCallback(() => {
     window.location.hash = `#/strategy/${encodeURIComponent(currentStrategy.strategy_label)}`;
   }, [currentStrategy.strategy_label]);
@@ -2578,43 +2170,6 @@ export function DashboardView({ initialStrategy }) {
                 )}
               </div>
             </ViewHeader>
-
-        <DashboardTopBannerDock
-          apiStatus={apiStatus}
-          agreementRequired={agreementRequired}
-          tradfiAgreementRequired={tradfiAgreementRequired}
-          gateState={gateState}
-          scannerPaused={scannerPaused}
-          reason={gateReason}
-          nextSlotTs={nextSlotTs}
-          hibernating={hibernating}
-          hibernationMode={hibernationMode}
-          activeTradesCount={activeTrades.length}
-          showResumingFeedback={showResumingFeedback}
-          onManage={handleEditPrimary}
-          onResetAgreement={async () => {
-            try {
-              await sessionAPI.resetAgreementRequirement();
-              useTradingStore.setState({ agreementRequired: false, tradfiAgreementRequired: false });
-            } catch (e) {
-              console.error('Failed to reset agreement requirement', e);
-            }
-          }}
-          onCheckTradfiAgreement={async () => {
-            const res = await sessionAPI.checkAgreementStatus();
-            if (res.data?.signed === true) {
-              useTradingStore.setState({ tradfiAgreementRequired: false });
-            }
-            return res.data;
-          }}
-          onSignTradfiAgreement={async () => {
-            const res = await sessionAPI.signTradFiAgreement();
-            if (res.data?.signed === true) {
-              useTradingStore.setState({ tradfiAgreementRequired: false });
-            }
-            return res.data;
-          }}
-        />
 
         {/* Unified Portfolio & Risk Limits Strip */}
         <div className="flex flex-col gap-2.5 mb-3">

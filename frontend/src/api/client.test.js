@@ -303,7 +303,17 @@ describe('sanitizeSessionConfig', () => {
       release_risk_est_pnl_mode: 'rr',
       release_risk_est_pnl_min_usdt: -2.5,
       release_risk_est_pnl_min_rr: 0.5,
-      macd_impulse_max_entry_candle: 1
+      macd_impulse_max_entry_candle: 1,
+      signal_params: {
+        macd_impulse_max_entry_candle: 1,
+      },
+      strategy_variants: [{
+        strategy_label: 'MACD Variant',
+        macd_impulse_max_entry_candle: 2,
+        signal_params: {
+          macd_impulse_max_entry_candle: 2,
+        },
+      }],
     }
     const sanitized = sanitizeSessionConfig(config)
     assert.strictEqual(sanitized.reject_entry_if_sl_exceeds_max, true)
@@ -319,7 +329,10 @@ describe('sanitizeSessionConfig', () => {
     assert.strictEqual(sanitized.release_risk_est_pnl_mode, 'rr')
     assert.strictEqual(sanitized.release_risk_est_pnl_min_usdt, -2.5)
     assert.strictEqual(sanitized.release_risk_est_pnl_min_rr, 0.5)
-    assert.strictEqual(sanitized.macd_impulse_max_entry_candle, 1)
+    assert.strictEqual(sanitized.macd_impulse_max_entry_candle, undefined)
+    assert.strictEqual(sanitized.signal_params.macd_impulse_max_entry_candle, 1)
+    assert.strictEqual(sanitized.strategy_variants[0].macd_impulse_max_entry_candle, undefined)
+    assert.strictEqual(sanitized.strategy_variants[0].signal_params.macd_impulse_max_entry_candle, 2)
   })
 })
 

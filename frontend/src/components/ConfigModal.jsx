@@ -2726,7 +2726,6 @@ const flattenConfig = (config) => {
       macd_pbc_trend_ema: config.macd_pbc_trend_ema || 50,
       macd_pbc_lookback: config.macd_pbc_lookback || 10,
       macd_pbc_max_continuation: config.macd_pbc_max_continuation || 2,
-      macd_impulse_max_entry_candle: config.macd_impulse_max_entry_candle || 2,
       required_signals: Array.isArray(config.required_signals) ? config.required_signals : [],
       required_exit_signals: Array.isArray(config.required_exit_signals) ? config.required_exit_signals : [],
       exit_signals: Array.isArray(config.exit_signals) ? config.exit_signals : [],
@@ -2825,7 +2824,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       'htf_breakout_reference_level', 'htf_breakout_lookback', 'htf_breakout_buffer_pct', 'htf_breakout_max_expansion_pct',
       'engulfing_mode', 'engulfing_timing', 'engulfing_volume_confirm', 'engulfing_lookback',
       'engulfing_streak', 'engulfing_sequential', 'engulfing_max_expansion_pct',
-      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation', 'macd_impulse_max_entry_candle',
+      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
     ];
     syncTopLevelKeys.forEach(k => {
       if (sp[k] !== undefined && sp[k] !== null && sp[k] !== '') {
@@ -2851,7 +2850,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       'scanner_signal_depth',
       'engulfing_lookback', 'engulfing_streak', 'engulfing_max_expansion_pct',
       'htf_breakout_lookback', 'htf_breakout_buffer_pct', 'htf_breakout_max_expansion_pct',
-      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation', 'macd_impulse_max_entry_candle',
+      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
@@ -4171,7 +4170,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'scanner_signal_depth',
       'engulfing_lookback', 'engulfing_streak', 'engulfing_max_expansion_pct',
       'htf_breakout_lookback', 'htf_breakout_buffer_pct', 'htf_breakout_max_expansion_pct',
-      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation', 'macd_impulse_max_entry_candle',
+      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',

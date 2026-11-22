@@ -258,7 +258,6 @@ const sessionConfigAllowedKeys = [
   'macd_pbc_trend_ema',
   'macd_pbc_lookback',
   'macd_pbc_max_continuation',
-  'macd_impulse_max_entry_candle',
   'risk_hardening_enabled',
   'max_single_trade_risk_pct',
   'smart_watchlist_enabled',

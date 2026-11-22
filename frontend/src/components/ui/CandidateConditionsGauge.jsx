@@ -3,6 +3,7 @@ import { cn } from './primitives';
 import { SmoothHeightContainer } from './SmoothMotion';
 import { ConditionCardsSkeleton } from './Skeletons';
 import { price as fmtPrice } from '../../lib/formatters';
+import { useNow } from '../../hooks/useNow';
 import {
   buildCandidateConditionsModel,
   computeConditionValueDelta,
@@ -61,41 +62,23 @@ function formatFreshness(ts, nowMs) {
 }
 
 /**
- * Isolated leaf freshness label with adaptive 5s/15s timer so parent
- * SVG dials & model useMemo never recompute just for relative age ticks.
- * Color-codes freshness by recency and active value change.
+ * Isolated leaf freshness label backed by the shared useNow() clock so parent
+ * SVG dials & model useMemo never recompute and timers never reset/flicker across WS updates.
  */
 const ConditionFreshness = React.memo(function ConditionFreshness({ evaluatedAtMs, changeInfo = null }) {
-  const [now, setNow] = useState(() => Date.now());
+  const now = useNow();
   const evaluated = Number(evaluatedAtMs);
   const valid = Number.isFinite(evaluated) && evaluated > 0;
+  const effectiveNow = valid ? Math.max(now, evaluated) : now;
 
-  useEffect(() => {
-    if (!valid) return undefined;
-    let timerId = null;
-    const scheduleNext = () => {
-      const currNow = Date.now();
-      setNow(currNow);
-      const ageSec = Math.max(0, (currNow - evaluated) / 1000);
-      const nextDelay = ageSec < 60 ? 5000 : ageSec < 3600 ? 15000 : 60000;
-      timerId = setTimeout(scheduleNext, nextDelay);
-    };
-    const initAgeSec = Math.max(0, (Date.now() - evaluated) / 1000);
-    const initDelay = initAgeSec < 60 ? 5000 : initAgeSec < 3600 ? 15000 : 60000;
-    timerId = setTimeout(scheduleNext, initDelay);
-    return () => {
-      if (timerId) clearTimeout(timerId);
-    };
-  }, [valid, evaluated]);
-
-  const ageSec = valid ? Math.max(0, Math.floor((now - evaluated) / 1000)) : Infinity;
+  const ageSec = valid ? Math.max(0, Math.floor((effectiveNow - evaluated) / 1000)) : Infinity;
   const isFreshTick = Boolean(changeInfo?.changed) || ageSec <= 5;
   const isRecent = ageSec <= 20;
 
   return (
     <span
       className={cn(
-        'transition-colors duration-300',
+        'tabular-nums whitespace-nowrap shrink-0 inline-block min-w-[14ch] transition-colors duration-300',
         isFreshTick
           ? (changeInfo?.toneClass || 'text-green')
           : isRecent
@@ -103,9 +86,52 @@ const ConditionFreshness = React.memo(function ConditionFreshness({ evaluatedAtM
             : 'text-dim/75'
       )}
     >
-      {formatFreshness(evaluatedAtMs, now)}
+      {formatFreshness(evaluatedAtMs, effectiveNow)}
     </span>
   );
+});
+
+/**
+ * Isolated smooth UTC-anchored candle close countdown for HTF Breakout ladders.
+ * Uses the unified useNow() clock with tabular-nums so WS ticks never cause
+ * minute/second jumps or width jitter.
+ */
+const CandleCloseCountdown = React.memo(function CandleCloseCountdown({ closeTs = 0, tfMs = 0, fallbackText = '' }) {
+  const now = useNow();
+  const targetTs = Number(closeTs);
+  const periodMs = Number(tfMs);
+
+  let remainingMs = null;
+  if (Number.isFinite(targetTs) && targetTs > 0) {
+    let diff = targetTs - now;
+    if (diff <= 0 && Number.isFinite(periodMs) && periodMs > 0) {
+      diff = periodMs - (now % periodMs);
+    }
+    remainingMs = Math.max(0, diff);
+  } else if (Number.isFinite(periodMs) && periodMs > 0) {
+    remainingMs = Math.max(0, periodMs - (now % periodMs));
+  }
+
+  if (remainingMs === null) {
+    const cleaned = fallbackText ? fallbackText.replace(/.*close in /, '') : '';
+    return cleaned ? <span className="tabular-nums whitespace-nowrap shrink-0 inline-block min-w-[7ch]">{cleaned}</span> : null;
+  }
+
+  const totalSec = Math.max(0, Math.ceil(remainingMs / 1000));
+  let formatted;
+  if (totalSec >= 3600) {
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    formatted = `${h}h ${String(m).padStart(2, '0')}m`;
+  } else if (totalSec >= 60) {
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    formatted = `${m}m ${String(s).padStart(2, '0')}s`;
+  } else {
+    formatted = `${String(totalSec).padStart(2, '0')}s`;
+  }
+
+  return <span className="tabular-nums whitespace-nowrap shrink-0 inline-block min-w-[7ch]">{formatted}</span>;
 });
 
 /**
@@ -1107,26 +1133,68 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
         </svg>
       </div>
 
-      {/* Responsive Ultra-Compact Footer: Candle State · True-Proportion SL/Entry/Target Ratio Bar · Cap Used */}
-      <div className="flex items-center justify-between flex-wrap gap-x-2 gap-y-1 rounded-lg bg-surface/45 border border-border/35 px-2 py-1 font-mono text-[9px] tabular-nums shrink-0">
-        <span className={cn('font-semibold truncate min-w-0', confirmToneClass)}>
-          {confirmLabel}
-          {countdownText && !isOverCap ? ` · ${countdownText.replace(/.*close in /, '')}` : ''}
-        </span>
+      {/* Deterministic 2-Row Compact Footer: eliminates flex-wrap CLS when countdown digits or cap percentages change */}
+      <div className="flex flex-col gap-1 rounded-lg bg-surface/45 border border-border/35 px-2 py-1.5 font-mono text-[9px] tabular-nums shrink-0">
+        <div className="flex items-center justify-between gap-2 min-w-0 flex-nowrap">
+          <span className={cn('font-semibold min-w-0 inline-flex items-center gap-1 whitespace-nowrap overflow-hidden', confirmToneClass)}>
+            <span className="truncate">{confirmLabel}</span>
+            {(ladder.candleCloseTs > 0 || countdownText) && !isOverCap && (
+              <>
+                <span className="shrink-0" aria-hidden="true">·</span>
+                <CandleCloseCountdown
+                  closeTs={ladder.candleCloseTs}
+                  tfMs={ladder.trigTfMs}
+                  fallbackText={countdownText}
+                />
+              </>
+            )}
+          </span>
+
+          {hasHardCap ? (
+            <span
+              className="text-dim shrink-0 whitespace-nowrap"
+              title={`Breakout Cap: ${fmtExpPct}% (${maxExpansionPct}% of ${refRangePct.toFixed(2)}% ${refTf} candle range) · Used: ${capUsedRound}% | SL: ${slDistPct.toFixed(2)}%`}
+            >
+              Cap{' '}
+              <strong className={cn(zTone.textClass)}>
+                {distFromLevelPct < 0 ? '0%' : `${capUsedRound}%`}
+              </strong>
+              <span className="text-dim/75"> ({capRoomFormatted} left)</span>
+              {slExceedsMax && (
+                <span className={cn('ml-1 font-semibold', slRejected ? 'text-purple-400' : 'text-amber')}>
+                  · SL {slUsedRound}%
+                </span>
+              )}
+            </span>
+          ) : (
+            <span
+              className="text-dim shrink-0 whitespace-nowrap"
+              title={`Breakout Max Cap: Disabled (0%) · ${refTf} Ref Candle Range: ${refRangePct.toFixed(2)}% (${fmtPrice(refLow)}–${fmtPrice(refHigh)})`}
+            >
+              Cap <strong className="text-dim">Off</strong>
+              <span className="text-dim/75"> ({refTf} {refRangePct.toFixed(1)}%)</span>
+              {slExceedsMax && (
+                <span className={cn('ml-1 font-semibold', slRejected ? 'text-purple-400' : 'text-amber')}>
+                  · SL {slUsedRound}%
+                </span>
+              )}
+            </span>
+          )}
+        </div>
 
         {/* Inline True-Proportion Two-Wing SL <-> Entry <-> Target Ratio Bar */}
         <div
-          className="flex-1 min-w-[100px] max-w-[205px] flex items-center gap-1.5"
+          className="w-full flex items-center gap-1.5 min-w-0"
           title={
             slType === 'pct'
               ? `SL: -${slDistPct.toFixed(2)}% (Fixed) | Target +${Math.abs(pnlOrRewardPct).toFixed(2)}% (${rrRatio.toFixed(1)}R)`
               : `SL Check: -${slDistPct.toFixed(2)}% / ${slMaxPct.toFixed(2)}% max (${slUsedRound}% of max SL) | Target +${Math.abs(pnlOrRewardPct).toFixed(2)}% (${rrRatio.toFixed(1)}R)`
           }
         >
-          <span className="text-[8px] font-bold text-red shrink-0">
+          <span className="text-[8px] font-bold text-red shrink-0 whitespace-nowrap min-w-[4.5ch]">
             -{slDistPct.toFixed(1)}%
           </span>
-          <div className="flex-1 h-2.5 rounded bg-bg/85 border border-border/45 overflow-hidden flex items-center min-w-[32px]">
+          <div className="flex-1 h-2.5 rounded bg-bg/85 border border-border/45 overflow-hidden flex items-center min-w-[40px]">
             <div
               className="h-full bg-red/40 border-r border-text/85 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
               style={{ width: `${riskWingWidthPct.toFixed(2)}%` }}
@@ -1136,41 +1204,10 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
               style={{ width: `${rewardWingWidthPct.toFixed(2)}%` }}
             />
           </div>
-          <span className="text-[8px] font-bold text-green shrink-0">
+          <span className="text-[8px] font-bold text-green shrink-0 whitespace-nowrap text-right min-w-[10ch]">
             +{Math.abs(pnlOrRewardPct).toFixed(1)}% ({rrRatio.toFixed(1)}R)
           </span>
         </div>
-
-        {hasHardCap ? (
-          <span
-            className="text-dim shrink-0"
-            title={`Breakout Cap: ${fmtExpPct}% (${maxExpansionPct}% of ${refRangePct.toFixed(2)}% ${refTf} candle range) · Used: ${capUsedRound}% | SL: ${slDistPct.toFixed(2)}%`}
-          >
-            Cap{' '}
-            <strong className={cn(zTone.textClass)}>
-              {distFromLevelPct < 0 ? '0%' : `${capUsedRound}%`}
-            </strong>
-            <span className="text-dim/75"> ({capRoomFormatted} left)</span>
-            {slExceedsMax && (
-              <span className={cn('ml-1 font-semibold', slRejected ? 'text-purple-400' : 'text-amber')}>
-                · SL {slUsedRound}%
-              </span>
-            )}
-          </span>
-        ) : (
-          <span
-            className="text-dim shrink-0"
-            title={`Breakout Max Cap: Disabled (0%) · ${refTf} Ref Candle Range: ${refRangePct.toFixed(2)}% (${fmtPrice(refLow)}–${fmtPrice(refHigh)})`}
-          >
-            Cap <strong className="text-dim">Off</strong>
-            <span className="text-dim/75"> ({refTf} {refRangePct.toFixed(1)}%)</span>
-            {slExceedsMax && (
-              <span className={cn('ml-1 font-semibold', slRejected ? 'text-purple-400' : 'text-amber')}>
-                · SL {slUsedRound}%
-              </span>
-            )}
-          </span>
-        )}
       </div>
     </div>
   );
@@ -1300,6 +1337,8 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
   linkedTrade = null,
   configuredExitRules = [],
   isSyncing = false,
+  stickyHeader = false,
+  rotationControl = null,
 }) {
   const mountTsRef = useRef(Date.now());
   const modelNowMs = nowMs ?? (Number(lastScanTs) > 0 ? Number(lastScanTs) : mountTsRef.current);
@@ -1431,99 +1470,120 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
   return (
     <div
       className={cn(
-        'rounded-xl border border-border/60 bg-surface/40 backdrop-blur-sm overflow-hidden flex flex-col transition-colors duration-300 [contain:layout_style]',
+        'rounded-xl border border-border/60 bg-surface/40 backdrop-blur-sm overflow-x-clip flex flex-col transition-colors duration-300 [contain:layout_style]',
         isInPos && 'border-green/35',
         isOpenTradeSnapshot && !isInPos && 'border-accent/40',
         compact ? 'p-2.5 gap-2' : 'p-3.5 gap-3',
         className
       )}
     >
-      {/* Top Header Strip (reserved min-height & kept mounted across Entry <-> Exit / Snapshot transitions for zero CLS) */}
-      <div className="flex items-center justify-between gap-2 flex-wrap border-b border-border/40 pb-2 min-h-[30px]">
-        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <span
-            className={cn(
-              'text-[10px] font-black uppercase tracking-wider transition-colors duration-200',
-              isInPos ? 'text-green' : (effectiveOpp?.isEntrySnapshot || isClosedExitSnapshotView) ? 'text-accent' : 'text-dim'
-            )}
-          >
-            {showingExitView ? 'Exit Conditions' : 'Entry Conditions'}
-          </span>
-          {hasCandidate && (
-            <span className="text-xs font-black font-mono text-text">
-              {model.symbol}
-            </span>
-          )}
-          {model.dir !== '---' && (
+      {/* Top Header Strip — sticks cleanly inside its container when stickyHeader=true so Symbol, Direction, Status & Rotation stay visible while scrolling */}
+      <div
+        data-sticky-condition-header={stickyHeader ? 'true' : undefined}
+        className={cn(
+          'flex flex-col gap-1.5 border-b border-border/40 min-h-[30px]',
+          stickyHeader
+            ? cn(
+                'sticky top-0 z-30 bg-surface/95 backdrop-blur-md shadow-[0_6px_16px_-12px_rgba(0,0,0,0.65)] rounded-t-xl',
+                compact ? '-mx-2.5 -mt-2.5 px-2.5 pt-2.5 pb-2' : '-mx-3.5 -mt-3.5 px-3.5 pt-3 pb-2.5'
+              )
+            : 'pb-2'
+        )}
+      >
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <span
               className={cn(
-                'text-[10px] font-black font-mono uppercase transition-colors duration-200',
-                model.dir === 'LONG' ? 'text-green' : 'text-red'
+                'text-[10px] font-black uppercase tracking-wider transition-colors duration-200',
+                isInPos ? 'text-green' : (effectiveOpp?.isEntrySnapshot || isClosedExitSnapshotView) ? 'text-accent' : 'text-dim'
               )}
             >
-              {model.dir}
+              {showingExitView ? 'Exit Conditions' : 'Entry Conditions'}
             </span>
-          )}
-          <span className="text-[10px] font-mono text-dim">
-            · {showingExitView ? 'Exit Gate' : 'Signal Gate'}: <strong className="text-text">{isExitPreviewMode ? 'ARMED' : isClosedExitSnapshotView ? 'CLOSED' : model.logicLabel}</strong>
-          </span>
-          {handoffCue && (
-            <span className="text-[10px] font-mono font-bold text-green animate-handoff-slide">
-              · {handoffCue}
+            {hasCandidate && (
+              <span className="text-xs font-black font-mono text-text tracking-tight">
+                {model.symbol}
+              </span>
+            )}
+            {model.dir !== '---' && (
+              <span
+                className={cn(
+                  'text-[10px] font-black font-mono uppercase px-1.5 py-0.5 rounded border leading-none transition-colors duration-200',
+                  model.dir === 'LONG'
+                    ? 'text-green bg-green/10 border-green/30'
+                    : 'text-red bg-red/10 border-red/30'
+                )}
+              >
+                {model.dir}
+              </span>
+            )}
+            {hasCandidate && Number(model.markPrice) > 0 && (
+              <span className="text-[10.5px] font-mono font-semibold text-text/85 tabular-nums">
+                {fmtPrice(model.markPrice)}
+              </span>
+            )}
+            <span className="text-[10px] font-mono text-dim">
+              · {showingExitView ? 'Exit Gate' : 'Signal Gate'}: <strong className="text-text">{isExitPreviewMode ? 'ARMED' : isClosedExitSnapshotView ? 'CLOSED' : model.logicLabel}</strong>
             </span>
-          )}
-          {effectiveOpp?.isEntrySnapshot && !isInPos && (
-            <span className="text-[10px] font-mono text-accent">
-              · {isClosedExitSnapshotView
-                ? `Closed exit snapshot (${effectiveOpp.snapshotTradeStatus})`
-                : isOpenTradeSnapshot
-                  ? 'In-Pos entry snapshot'
-                  : (effectiveOpp.snapshotTradeStatus && effectiveOpp.snapshotTradeStatus !== 'OPEN'
-                      ? `History snapshot (${effectiveOpp.snapshotTradeStatus})`
-                      : 'Entry snapshot')}
-              {typeof effectiveOpp.capRespected === 'boolean' && !isClosedExitSnapshotView && (
-                <strong className={effectiveOpp.capRespected ? 'text-green' : 'text-red'}>
-                  {' '}· Cap {effectiveOpp.capRespected ? 'respected' : 'exceeded'}
-                </strong>
-              )}
-            </span>
-          )}
-        </div>
+            {handoffCue && (
+              <span className="text-[10px] font-mono font-bold text-green animate-handoff-slide">
+                · {handoffCue}
+              </span>
+            )}
+            {effectiveOpp?.isEntrySnapshot && !isInPos && (
+              <span className="text-[10px] font-mono text-accent">
+                · {isClosedExitSnapshotView
+                  ? `Closed exit snapshot (${effectiveOpp.snapshotTradeStatus})`
+                  : isOpenTradeSnapshot
+                    ? 'In-Pos entry snapshot'
+                    : (effectiveOpp.snapshotTradeStatus && effectiveOpp.snapshotTradeStatus !== 'OPEN'
+                        ? `History snapshot (${effectiveOpp.snapshotTradeStatus})`
+                        : 'Entry snapshot')}
+                {typeof effectiveOpp.capRespected === 'boolean' && !isClosedExitSnapshotView && (
+                  <strong className={effectiveOpp.capRespected ? 'text-green' : 'text-red'}>
+                    {' '}· Cap {effectiveOpp.capRespected ? 'respected' : 'exceeded'}
+                  </strong>
+                )}
+              </span>
+            )}
+          </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {headerAction}
-          {/* Overall Status Indicator */}
-          {isClosedExitSnapshotView ? (
-            <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums">
-              <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', Number(effectiveOpp.exitSnapshot?.pnlPct || 0) >= 0 ? 'bg-green' : 'bg-red')} />
-              <span className={Number(effectiveOpp.exitSnapshot?.pnlPct || 0) >= 0 ? 'text-green' : 'text-red'}>
-                {String(effectiveOpp.exitSnapshot?.exitSignalType || effectiveOpp.exitSnapshot?.exitReason || 'CLOSED').replace(/_/g, ' ')}
-              </span>
-            </div>
-          ) : isExitPreviewMode ? (
-            <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums">
-              <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-accent" />
-              <span className="text-dim">
-                {configuredExitRules.length} {configuredExitRules.length === 1 ? 'rule' : 'rules'} armed
-              </span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums">
-              <span className={cn('w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-200', ZONE_DOT_CLASS[compositeDial.dialZone] || 'bg-dim')} />
-              <span className={cn('transition-colors duration-200', ZONE_TEXT_CLASS[compositeDial.dialZone] || 'text-dim')}>
-                {model.overallStatus}
-              </span>
-              {!isInPos && model.overallStatus === 'ENTRY READY' && (
-                <span className="text-green/90 font-semibold animate-handoff-slide">→ Risk</span>
-              )}
-              {hasCandidate && model.totalConditionsCount > 0 && (
-                <span className="text-dim font-normal">
-                  · {model.firedConditionsCount}/{model.totalConditionsCount} signals
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {headerAction}
+            {/* Overall Status Indicator */}
+            {isClosedExitSnapshotView ? (
+              <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums">
+                <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', Number(effectiveOpp.exitSnapshot?.pnlPct || 0) >= 0 ? 'bg-green' : 'bg-red')} />
+                <span className={Number(effectiveOpp.exitSnapshot?.pnlPct || 0) >= 0 ? 'text-green' : 'text-red'}>
+                  {String(effectiveOpp.exitSnapshot?.exitSignalType || effectiveOpp.exitSnapshot?.exitReason || 'CLOSED').replace(/_/g, ' ')}
                 </span>
-              )}
-            </div>
-          )}
+              </div>
+            ) : isExitPreviewMode ? (
+              <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums">
+                <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-accent" />
+                <span className="text-dim">
+                  {configuredExitRules.length} {configuredExitRules.length === 1 ? 'rule' : 'rules'} armed
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold tabular-nums whitespace-nowrap shrink-0">
+                <span className={cn('w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-200', ZONE_DOT_CLASS[compositeDial.dialZone] || 'bg-dim')} />
+                <span className={cn('whitespace-nowrap transition-colors duration-200', ZONE_TEXT_CLASS[compositeDial.dialZone] || 'text-dim')}>
+                  {model.overallStatus}
+                </span>
+                {!isInPos && model.overallStatus === 'ENTRY READY' && (
+                  <span className="text-green/90 font-semibold animate-handoff-slide whitespace-nowrap">→ Risk</span>
+                )}
+                {hasCandidate && model.totalConditionsCount > 0 && (
+                  <span className="text-dim font-normal whitespace-nowrap">
+                    · {model.firedConditionsCount}/{model.totalConditionsCount} signals
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
+        {rotationControl}
       </div>
 
       {/* In-Place Height-Interpolated Body (zero unmount/blanking & reserved min-height prevents CLS across mode switches) */}
@@ -1972,9 +2032,9 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                             · <strong className="text-text/80">{c.timeframe}</strong>
                           </span>
                         </div>
-                        <div className="text-[9px] font-mono text-dim mt-0.5 leading-tight flex items-center gap-1.5 flex-wrap">
+                        <div className="text-[9px] font-mono text-dim mt-0.5 leading-tight flex items-center gap-1.5 min-w-0 flex-nowrap overflow-hidden">
                           {c.paramsText && c.paramsText !== 'Standard' && (
-                            <span className="truncate">{c.paramsText} ·</span>
+                            <span className="truncate min-w-0" title={c.paramsText}>{c.paramsText} ·</span>
                           )}
                           <ConditionFreshness evaluatedAtMs={c.evaluatedAtMs} changeInfo={changeInfo} />
                         </div>
@@ -1983,11 +2043,11 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                       {/* Pill Status Indicator */}
                       <span
                         className={cn(
-                          'inline-flex items-center gap-1 text-[9px] font-mono font-bold shrink-0 px-1.5 py-0.5 rounded-full bg-surface/70 border border-border/50 transition-colors duration-200',
+                          'inline-flex items-center gap-1 text-[9px] font-mono font-bold tabular-nums whitespace-nowrap shrink-0 px-1.5 py-0.5 rounded-full bg-surface/70 border border-border/50 transition-colors duration-200',
                           ZONE_TEXT_CLASS[cZone] || 'text-dim'
                         )}
                       >
-                        <span className={cn('w-1.5 h-1.5 rounded-full transition-colors duration-200', ZONE_DOT_CLASS[cZone] || 'bg-dim')} />
+                        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-200', ZONE_DOT_CLASS[cZone] || 'bg-dim')} />
                         {formatCleanCardStatus(cZone, c.stateLabel)}
                       </span>
                     </div>
@@ -2121,14 +2181,14 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                 <span className="text-dim font-bold uppercase">Anti-Whipsaw:</span>
                 <span
                   className={cn(
-                    'font-bold truncate transition-colors duration-200',
+                    'font-bold truncate whitespace-nowrap tabular-nums transition-colors duration-200',
                     model.antiWhipsaw.locked ? 'text-amber' : 'text-text/90'
                   )}
                 >
                   {model.antiWhipsaw.summary}
                 </span>
               </div>
-              <span className="text-dim tabular-nums">
+              <span className="text-dim tabular-nums whitespace-nowrap shrink-0">
                 {model.actionSummary}
               </span>
             </div>

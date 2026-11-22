@@ -10,6 +10,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -65,12 +66,17 @@ export class PresetsController {
       });
     }
 
+    const normalizedName = typeof presetDto.name === "string" ? presetDto.name.trim() : "";
+    if (!normalizedName) {
+      throw new BadRequestException("Preset name cannot be empty");
+    }
+
     const configInstance = plainToInstance(SessionConfig, presetDto.config || {});
     const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true });
     if (errors.length > 0) {
       const detailedErrors = formatValidationErrors(errors);
       this.logger.warn(
-        `Preset validation failed for "${presetDto.name}": ${JSON.stringify(detailedErrors)}`,
+        `Preset validation failed for "${normalizedName}": ${JSON.stringify(detailedErrors)}`,
       );
       throw new BadRequestException({
         message: "Invalid strategy configuration in preset",
@@ -79,21 +85,30 @@ export class PresetsController {
     }
 
     let preset = await this.presetRepository.findOne({
-      where: { name: presetDto.name },
+      where: { name: normalizedName },
     });
+
+    if (preset && presetDto.overwrite === false) {
+      this.logger.warn(
+        `Preset save blocked (overwrite=false): "${normalizedName}" already exists (requested by ${clientIp})`,
+      );
+      throw new ConflictException(
+        `A preset named "${normalizedName}" already exists. Choose a different name or confirm overwrite.`,
+      );
+    }
 
     const action = preset ? "UPDATE_PRESET" : "CREATE_PRESET";
     if (preset) {
       preset.config = presetDto.config;
       await this.presetRepository.save(preset);
-      this.logger.log(`Preset updated: ${presetDto.name} by ${clientIp}`);
+      this.logger.log(`Preset updated: ${normalizedName} by ${clientIp}`);
     } else {
       preset = this.presetRepository.create({
-        name: presetDto.name,
+        name: normalizedName,
         config: presetDto.config,
       });
       await this.presetRepository.save(preset);
-      this.logger.log(`New preset created: ${presetDto.name} by ${clientIp}`);
+      this.logger.log(`New preset created: ${normalizedName} by ${clientIp}`);
     }
 
     await this.auditLog.log({
@@ -101,7 +116,7 @@ export class PresetsController {
       actor: clientIp,
       ip: clientIp,
       userAgent: req.headers["user-agent"],
-      details: { name: presetDto.name },
+      details: { name: normalizedName },
     });
 
     return preset;

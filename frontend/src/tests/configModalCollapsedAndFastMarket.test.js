@@ -15,10 +15,11 @@ test('Config Modal Default Collapsed State & Fast Market Indications Verificatio
   const dashboardCode = fs.readFileSync(dashboardPath, 'utf8');
   const overlayCode = fs.readFileSync(scannerOverlayPath, 'utf8');
 
-  // Verify ConfigModal initializes openSectionId to null and recentExpanded to false
+  // Verify ConfigModal defaults openSectionId to null for fresh config creation and recentExpanded to false
   assert.ok(
-    configModalCode.includes("const [openSectionId, setOpenSectionId] = useState(null);"),
-    'ConfigModal must initialize openSectionId to null so all section panels are collapsed by default'
+    configModalCode.includes("const [openSectionId, setOpenSectionId] = useState(() => {") &&
+    configModalCode.includes("return null;"),
+    'ConfigModal must default openSectionId to null so fresh section panels are collapsed by default'
   );
   assert.ok(
     configModalCode.includes("const [recentExpanded, setRecentExpanded] = useState(false);"),

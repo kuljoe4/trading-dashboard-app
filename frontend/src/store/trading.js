@@ -613,24 +613,38 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
   };
 }
 
-const deepMerge = (target, source) => {
+const ATOMIC_CONFIG_MAP_KEYS = new Set([
+  'signal_params',
+  'exit_signal_delays',
+  'exit_signal_actions',
+  'signal_timeframes',
+  'scanner_weights',
+]);
+
+export const mergeConfigObjects = (target, source) => {
   if (!source || typeof source !== 'object' || Array.isArray(source)) return source;
   if (!target || typeof target !== 'object' || Array.isArray(target)) return source;
 
   const output = { ...target };
   Object.keys(source).forEach(key => {
-    if (source[key] instanceof Object && !Array.isArray(source[key])) {
-      if (key in target) {
-        output[key] = deepMerge(target[key], source[key]);
+    const srcVal = source[key];
+    if (srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal)) {
+      if (ATOMIC_CONFIG_MAP_KEYS.has(key)) {
+        // Atomic map replacement so deleted keys inside parameter/delay/timeframe maps never resurrect
+        output[key] = { ...srcVal };
+      } else if (key in target && target[key] && typeof target[key] === 'object' && !Array.isArray(target[key])) {
+        output[key] = mergeConfigObjects(target[key], srcVal);
       } else {
-        output[key] = deepMerge({}, source[key]);
+        output[key] = mergeConfigObjects({}, srcVal);
       }
     } else {
-      output[key] = source[key];
+      output[key] = srcVal;
     }
   });
   return output;
 };
+
+const deepMerge = mergeConfigObjects;
 
 export const resolveVariantConfig = (config, strategyLabel) => {
   if (!config) return {};
@@ -1429,16 +1443,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
       if (incomingIsDefaultFallback && currentHasCustomStrategies) {
         // Prevent uninitialized/restarted server default fallback from wiping out user's active strategies
-        merged.config = deepMerge(incomingCfg, {
+        merged.config = mergeConfigObjects(incomingCfg, {
           ...currentCfg,
           strategy_label: currentCfg.strategy_label,
           strategy_variants: currentCfg.strategy_variants,
         });
       } else if (!updates.running && !st.sessionActive && hasRecentLocalEdit) {
-        // Preserve recent local Settings/Scanner edits made while session is stopped
-        merged.config = deepMerge(incomingCfg, currentCfg);
+        // Preserve recent local Settings/Scanner/Variant edits made while session is stopped
+        merged.config = mergeConfigObjects(incomingCfg, currentCfg);
       } else {
-        merged.config = deepMerge(currentCfg, incomingCfg);
+        merged.config = mergeConfigObjects(currentCfg, incomingCfg);
         // Never allow a partial status update with empty strategy_variants to clobber existing variants unless explicitly intended
         if (
           incomingIsDefaultFallback &&
@@ -1516,6 +1530,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
   patchConfig: async (patch) => {
     const st = get();
+    const prevConfig = st.config;
+    const prevSessionList = st.sessionList;
     console.log('[Config Trace] patchConfig initiating:', patch);
     if (patch.trading_mode && typeof localStorage !== 'undefined') {
       localStorage.setItem('global_trading_mode', patch.trading_mode);
@@ -1523,16 +1539,19 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     if (patch.debug_mode !== undefined && typeof localStorage !== 'undefined') {
       localStorage.setItem('global_debug_mode', String(patch.debug_mode));
     }
-    const newConfig = deepMerge(st.config, patch);
+    const newConfig = mergeConfigObjects(st.config, patch);
 
-    try {
-      if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.setItem('config_draft', JSON.stringify(newConfig));
-      }
-    } catch (e) {}
+    // Only persist draft to sessionStorage when no live session is active so we don't clobber New Session drafts
+    if (!st.sessionActive) {
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem('config_draft', JSON.stringify(newConfig));
+        }
+      } catch (e) {}
+    }
 
     const nextSessionList = Array.isArray(st.sessionList) && st.sessionList.length > 0 && st.strategyId
-      ? st.sessionList.map((s) => s.id === st.strategyId ? { ...s, strategy_label: newConfig.strategy_label || s.strategy_label, config: deepMerge(s.config || {}, newConfig) } : s)
+      ? st.sessionList.map((s) => s.id === st.strategyId ? { ...s, strategy_label: newConfig.strategy_label || s.strategy_label, config: mergeConfigObjects(s.config || {}, newConfig) } : s)
       : st.sessionList;
 
     // Update local state immediately for instant feedback
@@ -1556,6 +1575,19 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         console.log('[Config Trace] Sync successful:', res?.data);
       } catch (e) {
         console.error("[Store] Failed to patch config on backend", e);
+        set({
+          config: prevConfig,
+          sessionList: prevSessionList,
+        });
+        if (!st.sessionActive) {
+          try {
+            if (typeof sessionStorage !== 'undefined' && prevConfig) {
+              sessionStorage.setItem('config_draft', JSON.stringify(prevConfig));
+            }
+          } catch (_) {}
+        }
+        const errMsg = e?.response?.data?.message || e?.message || 'Could not persist configuration change to backend.';
+        get().addAlert({ level: 'error', title: 'Update Failed', message: errMsg });
       } finally {
         set({ configSyncing: false, lastLocalConfigEditTs: Date.now() });
       }

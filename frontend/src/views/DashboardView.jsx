@@ -606,62 +606,72 @@ const BanBanner = ({ apiStatus }) => {
   const isGeo = !!apiStatus.isGeoBlocked;
   const isBan = !!apiStatus.isBanned && !isGeo;
   const hasBanCountdown = !!apiStatus?.banUntil && timeLeft > 0;
-  const cooldownEnd = apiStatus.banUntil ? new Date(apiStatus.banUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'unknown';
-  const detailText = apiStatus.lastErrorMessage || (isGeo
-    ? 'Host IP is restricted by Binance. Configure a Proxy URL in Settings or switch to Testnet/Paper mode.'
-    : 'Automatic requests paused to protect account standing.');
+  const cooldownEnd = apiStatus.banUntil ? new Date(apiStatus.banUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'shortly';
+  const detailText = isGeo
+    ? 'Live orders are unavailable from this server region. Switch to Paper/Testnet or set a proxy in Settings.'
+    : isBan
+      ? `Binance paused requests to keep your account safe. Normal updates resume around ${cooldownEnd}.`
+      : 'Approaching Binance request limits — pacing requests automatically to protect your account.';
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+      key="ban-strip"
+      initial={{ opacity: 0, height: 0, y: -10 }}
+      animate={{ opacity: 1, height: 'auto', y: 0 }}
+      exit={{ opacity: 0, height: 0, y: -10 }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
       role="alert"
       aria-live="polite"
-      className={cn(
-        "pointer-events-auto px-3 py-1.5 rounded-lg flex items-center justify-between gap-2.5 text-[11px] border bg-surface/95 backdrop-blur-md shadow-lg",
-        (isBan || isGeo) ? "border-red/40 text-red" : "border-amber/40 text-amber"
-      )}
+      className="overflow-hidden"
     >
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
-        <span className="font-semibold shrink-0">
-          {isGeo ? 'Geo-Restricted (451)' : (isBan ? 'Binance IP Ban' : 'Rate Limit Guard')}
-        </span>
-        <span className="opacity-35 shrink-0" aria-hidden="true">·</span>
-        <span className="text-text/80 truncate" title={detailText}>
-          {detailText}
-        </span>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="font-mono tabular-nums text-[10px] font-semibold">
-          {isGeo ? 'Geo-Blocked' : (hasBanCountdown ? `${formatDuration(timeLeft)} (until ${cooldownEnd})` : (isBan ? 'Restricted' : 'Active'))}
-        </span>
-        {(isBan || isGeo) && (
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                await sessionAPI.clearBan();
-                useTradingStore.setState(st => ({
-                  apiStatus: {
-                    ...st.apiStatus,
-                    isBanned: false,
-                    isRateLimited: false,
-                    isGeoBlocked: false,
-                    banUntil: null,
-                    lastErrorMessage: null
-                  }
-                }));
-              } catch (e) {
-                console.error('Failed to clear ban:', e);
-              }
-            }}
-            className="px-2 py-0.5 rounded bg-red/15 hover:bg-red/25 border border-red/30 text-[10px] font-semibold text-red transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red/40"
-          >
-            Unlock
-          </button>
+      <div
+        className={cn(
+          "px-3 py-1.5 rounded-lg flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-1 text-[11px] border border-l-2 shadow-xs",
+          (isBan || isGeo)
+            ? "border-red/35 border-l-red bg-red/[0.08] text-red"
+            : "border-amber/35 border-l-amber bg-amber/[0.08] text-amber"
         )}
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <AlertCircle size={13} className="shrink-0" aria-hidden="true" />
+          <span className="font-semibold shrink-0">
+            {isGeo ? 'Region restricted by Binance' : (isBan ? 'Temporary exchange cooldown' : 'Pacing exchange requests')}
+          </span>
+          <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
+          <span className="text-text/85 leading-snug" title={apiStatus.lastErrorMessage || detailText}>
+            {detailText}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="font-mono tabular-nums whitespace-nowrap text-[10px] font-semibold min-w-[16ch] text-right">
+            {isGeo ? 'Action needed' : (hasBanCountdown ? `Resumes in ${formatDuration(timeLeft)}` : (isBan ? 'Paused' : 'Active'))}
+          </span>
+          {(isBan || isGeo) && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await sessionAPI.clearBan();
+                  useTradingStore.setState(st => ({
+                    apiStatus: {
+                      ...st.apiStatus,
+                      isBanned: false,
+                      isRateLimited: false,
+                      isGeoBlocked: false,
+                      banUntil: null,
+                      lastErrorMessage: null
+                    }
+                  }));
+                } catch (e) {
+                  console.error('Failed to clear ban:', e);
+                }
+              }}
+              className="px-2 py-0.5 rounded-md bg-red/15 hover:bg-red/25 border border-red/35 text-[10px] font-semibold text-red transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red/40"
+            >
+              Clear Notice
+            </button>
+          )}
+        </div>
       </div>
     </motion.div>
   );
@@ -1094,25 +1104,61 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
     ? (nextSlotSec > 60 ? `${Math.ceil(nextSlotSec / 60)}m` : `${nextSlotSec}s`)
     : '';
 
-  const messages = {
-    max_trades: 'Maximum open trades reached. Entry gated.',
-    max_trades_period: nextSlotSec !== null ? `Maximum trades for the current period reached. Next slot in ~${Math.max(1, Math.ceil(nextSlotSec / 60))}m.` : 'Maximum trades for the current period reached. Scanner paused.',
-    sl_guard: 'Session Stop-Loss Guard reached. All entries blocked.',
-    risk_pct: 'Total risk limit reached. Entries restricted.',
-    tod_risk: 'Historical performance risk for this hour. Entries blocked.',
-    sleeping: 'Engine idling outside trading windows.',
-    risk: 'Risk gate active. Monitoring only.',
-  }
+  const headlines = {
+    max_trades: {
+      title: 'All trade slots are in use',
+      detail: 'New entries will open automatically once an active position closes.',
+    },
+    max_trades_period: {
+      title: 'Trade pace limit reached',
+      detail: nextSlotSec !== null
+        ? 'Waiting for the next trade slot to open.'
+        : 'Waiting for the next trading window before opening new trades.',
+    },
+    sl_guard: {
+      title: 'Loss protection triggered',
+      detail: 'New entries are paused to protect your remaining capital.',
+    },
+    risk_pct: {
+      title: 'Risk budget is full',
+      detail: 'New entries will resume once active risk drops below your cap.',
+    },
+    tod_risk: {
+      title: 'Quiet-hour guard active',
+      detail: 'New entries are paused during this lower-performing hour.',
+    },
+    sleeping: {
+      title: 'Outside your trading hours',
+      detail: 'Monitoring is idling until your next scheduled window.',
+    },
+    risk: {
+      title: 'Safety guard active',
+      detail: 'Monitoring open positions — new entries are temporarily paused.',
+    },
+  };
 
   const isGatedIdle = (gateState === 'sleeping' || gateState === 'max_trades_period' || gateState === 'sl_guard') && activeTradesCount === 0;
+  const activeCopy = hibernating
+    ? {
+        title: hibernationMode === 'light' ? 'Light power-saving mode' : 'Deep power-saving mode',
+        detail: 'Pausing extra scans while idle — open positions stay monitored.',
+      }
+    : (headlines[gateState] || (scannerPaused
+        ? { title: 'Scanner paused', detail: 'New entries are on hold until you resume.' }
+        : headlines.risk));
 
-  // Slim out-of-flow inline visual cue styling (0 CLS)
+  const friendlyReason = reason && reason !== 'OK' && !/^(max_trades|sl_guard|risk_pct|tod_risk|sleeping|paused)$/i.test(String(reason).trim())
+    ? String(reason)
+    : '';
+
+  // Narrow slide-down notification strip styling (never overlaps ViewHeader or connectivity banner)
   const bannerStyle = cn(
-    "pointer-events-auto px-3 py-1.5 rounded-lg text-[11px] border bg-surface/95 backdrop-blur-md shadow-lg flex items-center justify-between gap-2.5 transition-colors duration-200",
-    scannerPaused ? "border-red/35 text-red" :
-    (gateState === 'sl_guard') ? "border-red/35 text-red" :
-    "border-amber/35 text-amber",
-    (hibernating || isGatedIdle) && "border-border/60 text-muted"
+    "px-3 py-1.5 rounded-lg text-[11px] border border-l-2 shadow-xs flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-1 transition-colors duration-200",
+    (scannerPaused || gateState === 'sl_guard')
+      ? "border-red/35 border-l-red bg-red/[0.08] text-red"
+      : (hibernating || isGatedIdle)
+        ? "border-border/60 border-l-accent bg-surface/90 text-text/85"
+        : "border-amber/35 border-l-amber bg-amber/[0.08] text-amber"
   );
 
   const totalPeriodSec = Math.max(1, (config?.trades_period_min || 60) * 60);
@@ -1120,75 +1166,78 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-      className={bannerStyle}
+      key={`gate-${gateState || 'paused'}`}
+      initial={{ opacity: 0, height: 0, y: -10 }}
+      animate={{ opacity: 1, height: 'auto', y: 0 }}
+      exit={{ opacity: 0, height: 0, y: -10 }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+      className="overflow-hidden"
     >
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        {hibernating ? (
-          <Zap size={13} className={cn("shrink-0", hibernationMode === 'light' ? "text-accent" : "text-amber")} />
-        ) : gateState === 'sleeping' ? (
-          <Pause size={13} className="text-muted shrink-0" />
-        ) : scannerPaused ? (
-          <XCircle size={13} className="text-red shrink-0" />
-        ) : (
-          <PulseDot color="bg-amber" />
-        )}
-        <span className="font-semibold shrink-0">
-          {hibernating ? (hibernationMode === 'light' ? 'Light Sleep' : 'Deep Sleep') : (messages[gateState] || 'Risk gate active')}
-        </span>
-        {reason && reason !== 'OK' && (
-          <>
-            <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
-            <span className="font-mono text-[10px] opacity-75 truncate hidden sm:inline" title={reason}>
-              {reason}
-            </span>
-          </>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 shrink-0">
-        {nextSlotSec !== null && nextSlotSec > 0 && (
-          <div className="flex items-center gap-1.5">
-            <div className="w-16 sm:w-24 bg-border/30 h-1 rounded-full overflow-hidden">
-              <div
-                className="h-full w-full origin-left bg-amber transition-transform duration-1000 ease-linear"
-                style={{ transform: `scaleX(${Math.max(0, Math.min(1, progressPct / 100))})` }}
-              />
-            </div>
-            <span className="font-mono text-[10px] font-semibold text-amber tabular-nums">
-              {waitTimeStr}
-            </span>
-          </div>
-        )}
-        {showResumingFeedback && (
-          <span className="text-[10px] font-mono text-accent flex items-center gap-1">
-            <RefreshCw size={10} className="animate-spin" /> Syncing
+      <div className={bannerStyle}>
+        <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap sm:flex-nowrap">
+          {hibernating ? (
+            <Zap size={13} className={cn("shrink-0", hibernationMode === 'light' ? "text-accent" : "text-amber")} />
+          ) : gateState === 'sleeping' ? (
+            <Pause size={13} className="text-dim shrink-0" />
+          ) : scannerPaused ? (
+            <XCircle size={13} className="text-red shrink-0" />
+          ) : (
+            <PulseDot color={gateState === 'sl_guard' ? "bg-red" : "bg-amber"} />
+          )}
+          <span className="font-semibold shrink-0">
+            {activeCopy.title}
           </span>
-        )}
-        {hibernating ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onManage) onManage();
-            }}
-            className={cn(
-              "px-2 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-              hibernationMode === 'light' ? "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20" : "bg-amber/15 border-amber/30 text-amber hover:bg-amber/25"
-            )}
-            title="Configure Hibernation & Sleep parameters in Settings"
+          <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
+          <span
+            className="text-text/80 leading-snug min-w-0"
+            title={friendlyReason || activeCopy.detail}
           >
-            <SettingsIcon size={10} /> Manage
-          </button>
-        ) : isGatedIdle && (
-          <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
-            <span className="text-[10px] font-medium text-accent flex items-center gap-1">
-              <Leaf size={10} /> Resource Saver
+            {activeCopy.detail}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {nextSlotSec !== null && nextSlotSec > 0 && (
+            <div className="flex items-center gap-1.5">
+              <div className="w-16 sm:w-24 bg-border/30 h-1 rounded-full overflow-hidden">
+                <div
+                  className="h-full w-full origin-left bg-amber transition-transform duration-1000 ease-linear"
+                  style={{ transform: `scaleX(${Math.max(0, Math.min(1, progressPct / 100))})` }}
+                />
+              </div>
+              <span className="font-mono text-[10px] font-semibold text-amber tabular-nums whitespace-nowrap min-w-[4.5ch] text-right">
+                {waitTimeStr}
+              </span>
+            </div>
+          )}
+          {showResumingFeedback && (
+            <span className="text-[10px] font-mono text-accent flex items-center gap-1">
+              <RefreshCw size={10} className="animate-spin" /> Updating
             </span>
-          </Tooltip>
-        )}
+          )}
+          {hibernating ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onManage) onManage();
+              }}
+              className={cn(
+                "px-2 py-0.5 rounded-md text-[10px] font-semibold border flex items-center gap-1 cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                hibernationMode === 'light' ? "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20" : "bg-amber/15 border-amber/30 text-amber hover:bg-amber/25"
+              )}
+              title="Adjust power-saving sleep settings"
+            >
+              <SettingsIcon size={10} /> Settings
+            </button>
+          ) : isGatedIdle && (
+            <Tooltip content="Scanning is slowed down while no new entries are allowed to save power and bandwidth.">
+              <span className="text-[10px] font-medium text-accent flex items-center gap-1">
+                <Leaf size={10} /> Power Saver
+              </span>
+            </Tooltip>
+          )}
+        </div>
       </div>
     </motion.div>
   )
@@ -1196,9 +1245,13 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 GateBanner.displayName = 'GateBanner'
 
 const DashboardTopBannerDock = React.memo(({ apiStatus, agreementRequired, tradfiAgreementRequired, gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, showResumingFeedback, onManage, onResetAgreement, onCheckTradfiAgreement, onSignTradfiAgreement }) => {
-  const hasTopConnectivityAlert = useTradingStore(state => Boolean((state.wsStatus === 'error' && state.wsError) || state.apiError || state.wsStatus === 'reconnecting'));
   const [tradfiBusy, setTradfiBusy] = useState(null);
   const [tradfiFeedback, setTradfiFeedback] = useState(null);
+
+  const hasBanNotice = Boolean(apiStatus?.isBanned || apiStatus?.isRateLimited || apiStatus?.isGeoBlocked);
+  const hasAgreementNotice = Boolean(agreementRequired);
+  const hasTradfiNotice = !agreementRequired && Boolean(tradfiAgreementRequired);
+  const hasGateNotice = Boolean(gateState || scannerPaused);
 
   const runTradfiAction = async (kind, fn) => {
     if (!fn || tradfiBusy) return;
@@ -1207,124 +1260,140 @@ const DashboardTopBannerDock = React.memo(({ apiStatus, agreementRequired, tradf
     try {
       const res = await fn();
       if (res?.signed === false) {
-        setTradfiFeedback('Still unsigned on Binance (-4411)');
+        setTradfiFeedback('Still waiting for your signature on Binance.');
       } else if (res?.status === 'error') {
-        setTradfiFeedback(res.message || 'Check failed');
+        setTradfiFeedback(res.message || 'Could not verify status — please try again.');
       }
     } catch (e) {
-      setTradfiFeedback(e?.response?.data?.message || e?.message || 'Action failed');
+      setTradfiFeedback(e?.response?.data?.message || e?.message || 'Could not complete that request.');
     } finally {
       setTradfiBusy(null);
     }
   };
 
+  if (!hasBanNotice && !hasAgreementNotice && !hasTradfiNotice && !hasGateNotice) {
+    return null;
+  }
+
   return (
     <aside
-      aria-label="Trading Engine Status and Risk Gate Notices"
+      aria-label="Account and Trading Status Notifications"
       aria-live="polite"
-      className={cn(
-        "fixed left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] max-w-[920px] z-[115] pointer-events-none flex flex-col gap-1.5 transition-[top] duration-200",
-        hasTopConnectivityAlert ? "top-12" : "top-2"
-      )}
+      data-banner-layout="inline"
+      data-banner-style="top-slide-strip"
+      className="w-full flex flex-col gap-1.5 mb-2.5 sm:mb-3"
     >
-      <BanBanner apiStatus={apiStatus} />
+      <AnimatePresence initial={false}>
+        {hasBanNotice && <BanBanner key="ban-banner" apiStatus={apiStatus} />}
 
-      {Boolean(agreementRequired) && (
-        <motion.div
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          role="alert"
-          className="pointer-events-auto px-3 py-1.5 rounded-lg bg-surface/95 backdrop-blur-md border border-red/45 text-[11px] shadow-lg flex items-center justify-between gap-2.5"
-        >
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <AlertCircle size={13} className="text-red shrink-0" aria-hidden="true" />
-            <span className="font-semibold text-red shrink-0">Agreement Required</span>
-            <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
-            <span className="text-muted truncate">Sign Binance Futures agreement to unlock live trading.</span>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {onResetAgreement && (
-              <button
-                type="button"
-                onClick={onResetAgreement}
-                className="px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 border border-border text-[10.5px] font-semibold text-fg transition-colors cursor-pointer"
-              >
-                Retry
-              </button>
-            )}
-            <a
-              href="https://www.binance.com/en/futures/BTCUSDT"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-2 py-0.5 rounded bg-red/15 hover:bg-red/25 border border-red/30 text-[10.5px] font-semibold text-red transition-colors"
-            >
-              Open Binance
-            </a>
-          </div>
-        </motion.div>
-      )}
+        {hasAgreementNotice && (
+          <motion.div
+            key="futures-agreement"
+            initial={{ opacity: 0, height: 0, y: -10 }}
+            animate={{ opacity: 1, height: 'auto', y: 0 }}
+            exit={{ opacity: 0, height: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            role="alert"
+            className="overflow-hidden"
+          >
+            <div className="px-3 py-1.5 rounded-lg bg-red/[0.08] border border-red/35 border-l-2 border-l-red text-[11px] shadow-xs flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-1">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <AlertCircle size={13} className="text-red shrink-0" aria-hidden="true" />
+                <span className="font-semibold text-red shrink-0">Action needed: Futures terms</span>
+                <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
+                <span className="text-text/85 leading-snug">Accept Binance Futures terms on Binance to start placing live orders.</span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {onResetAgreement && (
+                  <button
+                    type="button"
+                    onClick={onResetAgreement}
+                    className="px-2 py-0.5 rounded-md bg-surface hover:bg-white/10 border border-border text-[10.5px] font-semibold text-text transition-colors cursor-pointer"
+                  >
+                    Check Again
+                  </button>
+                )}
+                <a
+                  href="https://www.binance.com/en/futures/BTCUSDT"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2 py-0.5 rounded-md bg-red/15 hover:bg-red/25 border border-red/35 text-[10.5px] font-semibold text-red transition-colors"
+                >
+                  Open Binance
+                </a>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
-      {!agreementRequired && Boolean(tradfiAgreementRequired) && (
-        <motion.div
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          role="status"
-          className="pointer-events-auto px-3 py-1.5 rounded-lg bg-surface/95 backdrop-blur-md border border-amber/40 text-[11px] shadow-lg flex items-center justify-between gap-2.5"
-        >
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <AlertCircle size={13} className="text-amber shrink-0" aria-hidden="true" />
-            <span className="font-semibold text-amber shrink-0">TradFi-Perps Agreement</span>
-            <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
-            <span className="text-muted truncate">
-              {tradfiFeedback || 'Stock/ETF futures paused until signed on Binance (crypto pairs unaffected).'}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {onCheckTradfiAgreement && (
-              <button
-                type="button"
-                disabled={Boolean(tradfiBusy)}
-                onClick={() => runTradfiAction('check', onCheckTradfiAgreement)}
-                className="px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 border border-border text-[10.5px] font-semibold text-fg transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {tradfiBusy === 'check' ? 'Checking…' : 'Check Status'}
-              </button>
-            )}
-            {onSignTradfiAgreement && (
-              <button
-                type="button"
-                disabled={Boolean(tradfiBusy)}
-                onClick={() => runTradfiAction('sign', onSignTradfiAgreement)}
-                className="px-2 py-0.5 rounded bg-amber/15 hover:bg-amber/25 border border-amber/35 text-[10.5px] font-semibold text-amber transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {tradfiBusy === 'sign' ? 'Signing…' : 'Sign via API'}
-              </button>
-            )}
-            <a
-              href="https://www.binance.com/en/futures/BTCUSDT"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 border border-border text-[10.5px] font-semibold text-muted hover:text-fg transition-colors hidden sm:inline-flex"
-            >
-              Open Binance
-            </a>
-          </div>
-        </motion.div>
-      )}
+        {hasTradfiNotice && (
+          <motion.div
+            key="tradfi-agreement"
+            initial={{ opacity: 0, height: 0, y: -10 }}
+            animate={{ opacity: 1, height: 'auto', y: 0 }}
+            exit={{ opacity: 0, height: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            role="status"
+            className="overflow-hidden"
+          >
+            <div className="px-3 py-1.5 rounded-lg bg-amber/[0.08] border border-amber/35 border-l-2 border-l-amber text-[11px] shadow-xs flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-1">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <AlertCircle size={13} className="text-amber shrink-0" aria-hidden="true" />
+                <span className="font-semibold text-amber shrink-0">Stock &amp; ETF futures paused</span>
+                <span className="opacity-35 shrink-0 hidden sm:inline" aria-hidden="true">·</span>
+                <span className="text-text/85 leading-snug">
+                  {tradfiFeedback || 'Accept Binance TradFi terms to enable stock/ETF pairs (crypto pairs keep trading).'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {onCheckTradfiAgreement && (
+                  <button
+                    type="button"
+                    disabled={Boolean(tradfiBusy)}
+                    onClick={() => runTradfiAction('check', onCheckTradfiAgreement)}
+                    className="px-2 py-0.5 rounded-md bg-surface hover:bg-white/10 border border-border text-[10.5px] font-semibold text-text transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {tradfiBusy === 'check' ? 'Checking…' : 'Check Status'}
+                  </button>
+                )}
+                {onSignTradfiAgreement && (
+                  <button
+                    type="button"
+                    disabled={Boolean(tradfiBusy)}
+                    onClick={() => runTradfiAction('sign', onSignTradfiAgreement)}
+                    className="px-2 py-0.5 rounded-md bg-amber/15 hover:bg-amber/25 border border-amber/35 text-[10.5px] font-semibold text-amber transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {tradfiBusy === 'sign' ? 'Signing…' : 'Sign Now'}
+                  </button>
+                )}
+                <a
+                  href="https://www.binance.com/en/futures/BTCUSDT"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2 py-0.5 rounded-md bg-surface hover:bg-white/10 border border-border text-[10.5px] font-semibold text-dim hover:text-text transition-colors hidden sm:inline-flex"
+                >
+                  Open Binance
+                </a>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
-      <GateBanner
-        gateState={gateState}
-        scannerPaused={scannerPaused}
-        reason={reason}
-        nextSlotTs={nextSlotTs}
-        hibernating={hibernating}
-        hibernationMode={hibernationMode}
-        activeTradesCount={activeTradesCount}
-        showResumingFeedback={showResumingFeedback}
-        onManage={onManage}
-      />
+        {hasGateNotice && (
+          <GateBanner
+            key="gate-banner"
+            gateState={gateState}
+            scannerPaused={scannerPaused}
+            reason={reason}
+            nextSlotTs={nextSlotTs}
+            hibernating={hibernating}
+            hibernationMode={hibernationMode}
+            activeTradesCount={activeTradesCount}
+            showResumingFeedback={showResumingFeedback}
+            onManage={onManage}
+          />
+        )}
+      </AnimatePresence>
     </aside>
   );
 });
@@ -2601,9 +2670,16 @@ export function DashboardView({ initialStrategy }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-2.5">
+          <div
+            data-global-metrics-expanded={globalMetricsExpanded ? 'true' : 'false'}
+            className={cn(
+              "grid auto-rows-fr items-stretch gap-2.5",
+              globalMetricsExpanded ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4" : "grid-cols-2 md:grid-cols-4"
+            )}
+          >
             <StatCard
               compact={!globalMetricsExpanded}
+              wrapSubValue={globalMetricsExpanded}
               label="Account Balance"
               value={`$${balance.toLocaleString()}`}
               tooltipText={(() => {
@@ -2617,9 +2693,9 @@ export function DashboardView({ initialStrategy }) {
                 const commPct = balance > 0 ? (Math.abs(netComm) / balance) * 100 : 0;
                 const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0);
                 const tradeTimeStr = tradeTs ? `Last Trade: ${formatTimeAgo(tradeTs)}` : 'No closed trades';
-                const syncTimeStr = lastUdsBalanceTs ? `UDS Sync: ${formatTimeAgo(lastUdsBalanceTs)}` : 'Sync: Active';
-                const reasonText = lastUdsBalanceReason ? `UDS Reason: ${lastUdsBalanceReason}` : 'Real-time Stream';
-                return `Available Funds: $${balance.toLocaleString()} | Starting: $${startBal.toLocaleString()} | Net Funding: ${fmtUSD(-netFunding)} (${fundPct.toFixed(2)}%) | Commission: ${fmtUSD(-netComm)} (${commPct.toFixed(2)}%) | ${tradeTimeStr} | ${syncTimeStr} (${reasonText})`;
+                const syncTimeStr = lastUdsBalanceTs ? `Balance Sync: ${formatTimeAgo(lastUdsBalanceTs)}` : 'Sync: Live';
+                const reasonText = lastUdsBalanceReason ? `Source: ${lastUdsBalanceReason}` : 'Real-time Stream';
+                return `Available Funds: $${balance.toLocaleString()} | Starting: $${startBal.toLocaleString()} | Net Funding: ${fmtUSD(-netFunding)} (${fundPct.toFixed(2)}%) | Fees: ${fmtUSD(-netComm)} (${commPct.toFixed(2)}%) | ${tradeTimeStr} | ${syncTimeStr} (${reasonText})`;
               })()}
               ariaLabel={(() => {
                 if (!lastTrade) return `Account Balance: $${balance.toLocaleString()}`;
@@ -2630,6 +2706,12 @@ export function DashboardView({ initialStrategy }) {
                 return `Account Balance: $${balance.toLocaleString()}. Last trade closed ${tradeTimeAgo} with PnL ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)} (${Math.abs(balPctChange || 0).toFixed(2)}%).`;
               })()}
               subValue={globalMetricsExpanded ? (() => {
+                const tradingMode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
+                const startBal = tradingMode === 'paper'
+                  ? (config?.paper_starting_balance || 10000)
+                  : (tradingMode === 'testnet'
+                      ? (config?.testnet_starting_balance && config.testnet_starting_balance !== 10000 ? config.testnet_starting_balance : Math.max(1, balance - totalPnl))
+                      : (config?.live_starting_balance && config.live_starting_balance !== 10000 ? config.live_starting_balance : Math.max(1, balance - totalPnl)));
                 const prevBalance = lastTrade ? balance - (lastTrade.pnl || 0) : balance;
                 const balPctChange = prevBalance > 0 && lastTrade ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
                 const fundPct = balance > 0 ? (Math.abs(netFunding) / balance) * 100 : 0;
@@ -2639,33 +2721,50 @@ export function DashboardView({ initialStrategy }) {
                 const udsTimeAgo = lastUdsBalanceTs ? formatTimeAgo(lastUdsBalanceTs) : null;
 
                 return (
-                  <div className="flex flex-col gap-0.5 text-[9px] min-w-0">
+                  <div className="flex flex-col gap-1 pt-1.5 mt-1 border-t border-border/35 text-[10px] font-mono">
                     {lastTrade && (
-                      <div className="flex items-center gap-1 flex-nowrap overflow-hidden whitespace-nowrap">
-                        {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={9} className="text-green shrink-0" /> : <TrendingDown size={9} className="text-red shrink-0" />}
-                        <span className={cn("truncate", pnlClass(lastTrade.pnl))}>
-                          {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%)
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                        <span className="text-dim">Last Trade</span>
+                        <span className="inline-flex items-center gap-1 flex-wrap justify-end">
+                          {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green shrink-0" /> : <TrendingDown size={10} className="text-red shrink-0" />}
+                          <span className={cn("font-semibold", pnlClass(lastTrade.pnl))}>
+                            {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%)
+                          </span>
+                          {tradeTimeAgo && <span className="text-dim text-[9px]">· {tradeTimeAgo}</span>}
                         </span>
-                        {tradeTimeAgo && <span className="text-dim text-[8.5px] shrink-0">· {tradeTimeAgo}</span>}
                       </div>
                     )}
-                    <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden whitespace-nowrap text-[8.5px] font-mono text-dim/70">
-                      <span className="shrink-0">Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)} ({fundPct.toFixed(2)}%)</span></span>
-                      <span className="shrink-0">•</span>
-                      <span className="truncate">Fee: <span className="text-red/80">{fmtUSD(-netComm)} ({commPct.toFixed(2)}%)</span></span>
-                      {lastUdsBalanceReason && (
-                        <>
-                          <span className="shrink-0">•</span>
-                          <span className="text-accent font-bold truncate">{lastUdsBalanceReason} {udsTimeAgo && `(${udsTimeAgo})`}</span>
-                        </>
-                      )}
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                      <span className="text-dim">Starting</span>
+                      <span className="text-text/90 font-semibold">${startBal.toLocaleString()}</span>
                     </div>
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                      <span className="text-dim">Funding</span>
+                      <span className={netFunding > 0 ? "text-red/90 font-semibold" : "text-green/90 font-semibold"}>
+                        {fmtUSD(-netFunding)} ({fundPct.toFixed(2)}%)
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                      <span className="text-dim">Fees</span>
+                      <span className="text-red/90 font-semibold">
+                        {fmtUSD(-netComm)} ({commPct.toFixed(2)}%)
+                      </span>
+                    </div>
+                    {lastUdsBalanceReason && (
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                        <span className="text-dim">Sync</span>
+                        <span className="text-accent font-semibold">
+                          {lastUdsBalanceReason}{udsTimeAgo ? ` (${udsTimeAgo})` : ''}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })() : null}
             />
             <StatCard
               compact={!globalMetricsExpanded}
+              wrapSubValue={globalMetricsExpanded}
               label="Active P&L"
               value={`${fmtUSD(totalActivePnl)} (${(() => {
                 const activePct = balance > 0 ? (totalActivePnl / balance) * 100 : 0;
@@ -2674,38 +2773,59 @@ export function DashboardView({ initialStrategy }) {
               color={pnlClass(totalActivePnl)}
               subValue={globalMetricsExpanded ? (() => {
                 const modeLabel = config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live');
-                if (!activeTrades || activeTrades.length === 0) {
-                  return `Session (${modeLabel}): ${fmtUSD(effectiveTotalPnl)}`;
-                }
                 const peakPct = balance > 0 ? (peakActivePnl / balance) * 100 : 0;
                 const minPct = balance > 0 ? (minActivePnl / balance) * 100 : 0;
                 return (
-                  <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden whitespace-nowrap text-[8.5px] font-mono">
-                    <span className="shrink-0">Peak: <span className="text-green font-bold">{fmtUSD(peakActivePnl)} ({peakPct >= 0 ? '+' : ''}{peakPct.toFixed(1)}%)</span></span>
-                    <span className="shrink-0">•</span>
-                    <span className="shrink-0">Min: <span className={cn(minActivePnl < 0 ? "text-red font-bold" : "text-dim")}>{fmtUSD(minActivePnl)} ({minPct >= 0 ? '+' : ''}{minPct.toFixed(1)}%)</span></span>
-                    <span className="shrink-0">•</span>
-                    <span className="text-dim truncate">Session ({modeLabel}): {fmtUSD(effectiveTotalPnl)}</span>
+                  <div className="flex flex-col gap-1 pt-1.5 mt-1 border-t border-border/35 text-[10px] font-mono">
+                    {activeTrades && activeTrades.length > 0 ? (
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                          <span className="text-dim">Peak Unrealized</span>
+                          <span className="text-green font-semibold">
+                            {fmtUSD(peakActivePnl)} ({peakPct >= 0 ? '+' : ''}{peakPct.toFixed(1)}%)
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                          <span className="text-dim">Lowest Drawdown</span>
+                          <span className={cn("font-semibold", minActivePnl < 0 ? "text-red" : "text-dim")}>
+                            {fmtUSD(minActivePnl)} ({minPct >= 0 ? '+' : ''}{minPct.toFixed(1)}%)
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                        <span className="text-dim">Open Positions</span>
+                        <span className="text-text/80">None active</span>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                      <span className="text-dim">Session ({modeLabel})</span>
+                      <span className={cn("font-semibold", pnlClass(effectiveTotalPnl))}>
+                        {fmtUSD(effectiveTotalPnl)}
+                      </span>
+                    </div>
                   </div>
                 );
               })() : null}
               syncing={isResuming}
-              tooltipText="Current unrealized P&L, Peak P&L, Min P&L (MAE), and open trade durations across all active trades."
+              tooltipText="Current unrealized P&L, Peak P&L, Min P&L (MAE), and session P&L across all active trades."
             />
             <StatCard
               compact={!globalMetricsExpanded}
+              wrapSubValue={globalMetricsExpanded}
               label="Live Risk"
               value={`${Number(totalRiskPct || 0).toFixed(1)}%`}
               color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
-              subValue={globalMetricsExpanded ? `Cap: ${Number(config.max_total_risk_pct || 5).toFixed(1)}% · ${(activeTrades || []).length}/${config.max_open_trades || 3} Slots` : null}
+              subValue={globalMetricsExpanded ? `Cap: ${Number(config.max_total_risk_pct || 5).toFixed(1)}% · ${(activeTrades || []).length}/${config.max_open_trades || 3} Slots · ${fmtUSD((balance * Number(totalRiskPct || 0)) / 100)} at risk` : null}
               tooltipText="Combined risk percentage across all open positions relative to account equity."
             />
             <StatCard
               compact={!globalMetricsExpanded}
+              wrapSubValue={globalMetricsExpanded}
               label="Peak RR"
               value={`+${Number(maxRR || 0).toFixed(2)}`}
               color="text-accent"
-              subValue={globalMetricsExpanded ? `${hitCount || 0}/${entryCount || 0} Hits · TP ${fmtUSD(totalEstPnlToRealize || 0)}` : null}
+              subValue={globalMetricsExpanded ? `${hitCount || 0}/${entryCount || 0} Hits${entryCount > 0 ? ` (${Math.round(((hitCount || 0) / entryCount) * 100)}%)` : ''} · TP ${fmtUSD(totalEstPnlToRealize || 0)}` : null}
               tooltipText="Maximum Reward-to-Risk ratio achieved during this trading session."
             />
           </div>

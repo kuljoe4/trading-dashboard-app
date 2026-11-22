@@ -112,9 +112,9 @@ function formatBanCountdown(ms) {
   const secs = totalSecs % 60;
   const parts = [];
   if (days > 0) parts.push(`${days}d`);
-  if (hours > 0 || days > 0) parts.push(`${hours}h`);
-  parts.push(`${mins}m`);
-  parts.push(`${secs}s`);
+  if (hours > 0 || days > 0) parts.push(`${String(hours).padStart(days > 0 ? 2 : 1, '0')}h`);
+  parts.push(`${String(mins).padStart(hours > 0 || days > 0 ? 2 : 1, '0')}m`);
+  parts.push(`${String(secs).padStart(2, '0')}s`);
   return { text: parts.join(' '), expired: false };
 }
 
@@ -437,7 +437,7 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, apiSta
 
              {(isBanned || isGeoBlocked || banUntilMs) && (
                <div className="flex items-center justify-between gap-1.5 px-2 py-1 rounded-lg bg-red/15 border border-red/30 text-red text-[8.5px]">
-                 <span className="flex items-center gap-1 font-bold truncate">
+                 <span className="flex items-center gap-1 font-bold truncate tabular-nums whitespace-nowrap">
                    <ShieldX size={10} className="shrink-0" />
                    {isGeoBlocked ? 'Geo-Blocked' : !banCountdown.expired ? `Ban: ${banCountdown.text}` : 'Ban Lifted'}
                  </span>
@@ -680,7 +680,7 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, apiSta
                 <div className="p-3 bg-red/15 border border-red/40 rounded-xl flex items-center justify-between gap-2 font-mono text-red">
                   <div className="flex items-center gap-2 min-w-0">
                     <Clock size={14} className="shrink-0" />
-                    <span className="font-bold text-[10.5px] uppercase truncate">
+                    <span className="font-bold text-[10.5px] uppercase truncate tabular-nums whitespace-nowrap">
                       {isGeoBlocked ? 'Geo-Blocked (451)' : !banCountdown.expired ? `IP Ban Cooldown: ${banCountdown.text}` : 'IP Cooldown Completed'}
                     </span>
                   </div>

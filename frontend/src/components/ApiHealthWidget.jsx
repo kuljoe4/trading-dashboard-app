@@ -95,9 +95,9 @@ export const ApiHealthWidget = ({ className, compact = false, defaultExpanded = 
 
     let parts = [];
     if (days > 0) parts.push(`${days}d`);
-    if (hours > 0 || days > 0) parts.push(`${hours}h`);
-    parts.push(`${mins}m`);
-    parts.push(`${secs}s`);
+    if (hours > 0 || days > 0) parts.push(`${String(hours).padStart(days > 0 ? 2 : 1, '0')}h`);
+    parts.push(`${String(mins).padStart(hours > 0 || days > 0 ? 2 : 1, '0')}m`);
+    parts.push(`${String(secs).padStart(2, '0')}s`);
 
     return {
       text: parts.join(' '),
@@ -256,14 +256,14 @@ export const ApiHealthWidget = ({ className, compact = false, defaultExpanded = 
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-black/40 border border-white/10 font-bold tabular-nums text-xs">
+                  <div className="flex items-center justify-center gap-1 px-2 py-0.5 rounded-lg bg-black/40 border border-white/10 font-bold tabular-nums text-xs whitespace-nowrap min-w-[11ch]">
                     {!timeObj.expired ? (
                       <>
-                        <span className="text-red font-black tracking-widest">{timeObj.text}</span>
-                        <span className="text-[8px] text-dim/80 font-sans uppercase">Left</span>
+                        <span className="text-red font-black tracking-widest tabular-nums whitespace-nowrap">{timeObj.text}</span>
+                        <span className="text-[8px] text-dim/80 font-sans uppercase shrink-0">Left</span>
                       </>
                     ) : (
-                      <span className="text-green font-bold text-xs uppercase">0d 0h 0m 0s (Lifted)</span>
+                      <span className="text-green font-bold text-xs uppercase whitespace-nowrap">0d 0h 0m 00s (Lifted)</span>
                     )}
                   </div>
 

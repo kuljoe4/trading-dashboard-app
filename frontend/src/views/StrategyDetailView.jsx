@@ -26,9 +26,11 @@ import { ScannerPreview } from '../components/ScannerPreview'
 import {
   Activity, BarChart3, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon,
   ChevronDown, Turtle, Flame, RefreshCw, Clock, Radio, Search,
-  Copy, Check, FileText, X, ShieldCheck, AlertTriangle, CheckCircle2, Ban
+  Copy, Check, FileText, X, ShieldCheck, AlertTriangle, CheckCircle2, Ban,
+  Pin, RotateCw, SkipForward
 } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
+import { useNow } from '../hooks/useNow'
 import { sessionAPI } from '../api/client'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { lazyWithRetry } from '../lib/lazy'
@@ -65,28 +67,174 @@ const VerdictTag = React.memo(({ status, customLabel }) => {
 });
 VerdictTag.displayName = 'VerdictTag';
 
+const ROTATION_INTERVAL_SEC = 15;
+
 const LiveStreamAge = React.memo(({ lastUpdateTs, compact = false }) => {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  const ageSec = Math.max(0, ((now - (lastUpdateTs || now)) / 1000)).toFixed(1);
-  const fresh = Number(ageSec) < 5.0;
+  const now = useNow();
+  const ts = Number(lastUpdateTs) || 0;
+  const effectiveNow = ts > 0 ? Math.max(now, ts) : now;
+  const ageSec = ts > 0 ? Math.max(0, Math.floor((effectiveNow - ts) / 1000)) : 0;
+  const fresh = ageSec < 10;
+  const label = ageSec < 2
+    ? (compact ? 'Live' : 'Live')
+    : ageSec < 60
+      ? (compact ? `${ageSec}s` : (fresh ? `Live ${ageSec}s` : `Sync ${ageSec}s`))
+      : `${Math.floor(ageSec / 60)}m`;
   return (
-    <span className="inline-flex items-center gap-1 text-text/80 shrink-0">
-      <Radio size={11} className={fresh ? "text-green animate-pulse" : "text-amber"} />
-      <span className="tabular-nums">{compact ? `${ageSec}s` : (fresh ? `Live ${ageSec}s` : `Sync ${ageSec}s`)}</span>
+    <span className="inline-flex items-center gap-1 text-text/80 shrink-0 whitespace-nowrap">
+      <Radio size={11} className={cn('shrink-0 transition-colors duration-300', fresh ? 'text-green' : 'text-amber')} />
+      <span className={cn('tabular-nums inline-block whitespace-nowrap text-left', compact ? 'min-w-[3.5ch]' : 'min-w-[8.5ch]')}>
+        {label}
+      </span>
     </span>
   );
 });
 LiveStreamAge.displayName = 'LiveStreamAge';
 
+/**
+ * Isolated rotation countdown & switch-reason bar rendered inside the sticky
+ * Condition Widget header. Uses useNow() so ticking every second never triggers
+ * parent StrategyDetailView or SVG gauge re-renders.
+ */
+const RotationStatusControl = React.memo(({
+  mode = 'auto',
+  nextSwitchAt = 0,
+  currentReason = '',
+  pendingNext = null,
+  poolSize = 0,
+  currentIndex = 0,
+  isSnapshot = false,
+  onSetMode,
+  onCycleNext,
+}) => {
+  const now = useNow();
+  const remSec = nextSwitchAt > 0
+    ? Math.max(0, Math.ceil((nextSwitchAt - now) / 1000))
+    : ROTATION_INTERVAL_SEC;
+
+  if (isSnapshot) {
+    return (
+      <div
+        data-testid="rotation-status-bar"
+        className="flex items-center justify-between gap-2 flex-wrap pt-1 border-t border-border/25 text-[10px] font-mono text-dim"
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Pin size={10} className="text-accent shrink-0" />
+          <span className="text-accent font-semibold">Snapshot Locked</span>
+          <span className="truncate text-dim">· Frozen entry/exit state (auto-rotation paused)</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => onSetMode?.('auto')}
+          className="px-1.5 py-0.5 rounded border border-border/50 bg-background/50 hover:border-accent/50 hover:text-accent text-[9.5px] font-semibold transition-colors cursor-pointer shrink-0"
+        >
+          Back to Live Auto
+        </button>
+      </div>
+    );
+  }
+
+  const countdownLabel = `${String(remSec).padStart(2, '0')}s`;
+  let explanation = currentReason || 'Watching top proximity';
+  if (mode === 'pinned') {
+    explanation = currentReason || 'Pinned manually · Auto-rotation paused';
+  } else if (mode === 'cycle') {
+    if (poolSize > 1 && pendingNext?.symbol) {
+      explanation = `Queue ${currentIndex + 1}/${poolSize} · Next → ${pendingNext.symbol.replace('USDT', '')} (${pendingNext.reason})`;
+    } else {
+      explanation = 'Only 1 live candidate · Holding';
+    }
+  } else if (pendingNext?.willSwitch && pendingNext?.symbol) {
+    explanation = `Next → ${pendingNext.symbol.replace('USDT', '')} (${pendingNext.reason})`;
+  } else if (poolSize > 1) {
+    explanation = `${currentReason || 'Top proximity #1'} · Next rank check`;
+  } else {
+    explanation = currentReason || 'Single active candidate · Holding';
+  }
+
+  return (
+    <div
+      data-testid="rotation-status-bar"
+      className="flex items-center justify-between gap-2 flex-nowrap pt-1 border-t border-border/25 text-[10px] font-mono min-w-0"
+    >
+      <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider shrink-0 whitespace-nowrap',
+            mode === 'pinned'
+              ? 'bg-amber/10 border-amber/35 text-amber'
+              : mode === 'cycle'
+                ? 'bg-accent/10 border-accent/35 text-accent'
+                : 'bg-green/10 border-green/30 text-green'
+          )}
+        >
+          {mode === 'pinned' ? <Pin size={9} /> : <RotateCw size={9} />}
+          <span>{mode === 'pinned' ? 'Pinned' : mode === 'cycle' ? `Cycle ${Math.min(currentIndex + 1, Math.max(1, poolSize))}/${Math.max(1, poolSize)}` : 'Auto #1'}</span>
+        </span>
+        {mode !== 'pinned' && poolSize > 0 && (
+          <span
+            className="px-1.5 py-0.5 rounded bg-background/60 border border-border/40 text-text font-bold tabular-nums whitespace-nowrap min-w-[3.5ch] text-center shrink-0"
+            title={`Evaluates rotation every ${ROTATION_INTERVAL_SEC}s so inspected gauges never jump mid-read`}
+          >
+            {countdownLabel}
+          </span>
+        )}
+        <span className="text-dim truncate min-w-0" title={explanation}>
+          {explanation}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-1 shrink-0">
+        <div
+          role="group"
+          aria-label="Candidate rotation mode"
+          className="inline-flex items-center p-0.5 rounded-md bg-background/60 border border-border/40"
+        >
+          {[
+            { id: 'auto', label: 'Auto', title: `Auto-follow top #1 proximity (re-checks every ${ROTATION_INTERVAL_SEC}s)` },
+            { id: 'cycle', label: 'Cycle', title: `Rotate through all live candidates every ${ROTATION_INTERVAL_SEC}s` },
+            { id: 'pinned', label: 'Pin', title: 'Lock current symbol and pause automatic rotation' },
+          ].map(opt => (
+            <button
+              key={opt.id}
+              type="button"
+              aria-pressed={mode === opt.id}
+              title={opt.title}
+              onClick={() => onSetMode?.(opt.id)}
+              className={cn(
+                'px-1.5 py-0.5 rounded text-[9.5px] font-semibold transition-colors cursor-pointer',
+                mode === opt.id
+                  ? 'bg-surface text-text border border-border/60 shadow-xs'
+                  : 'text-dim hover:text-text border border-transparent'
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {poolSize > 1 && (
+          <button
+            type="button"
+            onClick={() => onCycleNext?.()}
+            title="Inspect next live candidate now"
+            aria-label="Inspect next live candidate"
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md border border-border/50 bg-background/50 hover:border-accent/50 hover:text-accent text-dim text-[9.5px] font-semibold transition-colors cursor-pointer"
+          >
+            <SkipForward size={10} />
+            <span className="hidden sm:inline">Next</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+RotationStatusControl.displayName = 'RotationStatusControl';
+
 const formatRelativeAge = (ts, refNow) => {
   if (!ts) return 'just now';
   const ms = typeof ts === 'number' ? ts : new Date(ts).getTime();
   if (isNaN(ms) || ms <= 0) return 'just now';
-  const diffSec = Math.max(0, Math.floor((refNow - ms) / 1000));
+  const diffSec = Math.max(0, Math.floor((Math.max(refNow, ms) - ms) / 1000));
   if (diffSec < 60) return `${diffSec}s ago`;
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `${diffMin}m ago`;
@@ -96,7 +244,8 @@ const formatRelativeAge = (ts, refNow) => {
 };
 
 const LiveRelativeTime = React.memo(({ ts, nowMs }) => {
-  return <>{formatRelativeAge(ts, nowMs || Date.now())}</>;
+  const now = useNow();
+  return <span className="tabular-nums whitespace-nowrap inline-block min-w-[7ch] text-right">{formatRelativeAge(ts, nowMs || now)}</span>;
 });
 LiveRelativeTime.displayName = 'LiveRelativeTime';
 
@@ -199,6 +348,10 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
   }), shallow)
   const [selectedTradeId, setSelectedTradeId] = useState(null)
   const [selectedFocusSymbol, setSelectedFocusSymbol] = useState(null)
+  const [rotationMode, setRotationMode] = useState('auto') // 'auto' | 'cycle' | 'pinned'
+  const [autoHeldSymbol, setAutoHeldSymbol] = useState(null)
+  const [rotationNextSwitchAt, setRotationNextSwitchAt] = useState(() => Date.now() + ROTATION_INTERVAL_SEC * 1000)
+  const [lastRotationReason, setLastRotationReason] = useState('Top proximity #1')
   const [inspectScope, setInspectScope] = useState('live') // 'live' | 'snapshots'
   const [snapshotStatusFilter, setSnapshotStatusFilter] = useState('all') // 'all' | 'open' | 'closed'
   const [showPnl, setShowPnl] = useState(true)
@@ -385,6 +538,107 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
     .sort((a, b) => b.proximity - a.proximity);
   }, [strategyScannerResults, strategyConfig]);
 
+  // Deterministic ordered pool of live candidates for transparent rotation
+  const rotatableLivePool = useMemo(() => {
+    const seen = new Set();
+    const pool = [];
+    for (const opp of proximityLeaderboard) {
+      if (opp?.symbol && !seen.has(opp.symbol)) {
+        seen.add(opp.symbol);
+        pool.push({
+          symbol: opp.symbol,
+          proximity: opp.proximity ?? 0,
+          fired: Boolean(opp.signalResult?.allFired),
+          inPos: strategyActiveTrades.some(t => t.symbol === opp.symbol),
+        });
+      }
+    }
+    for (const t of strategyActiveTrades) {
+      if (t?.symbol && !seen.has(t.symbol)) {
+        seen.add(t.symbol);
+        pool.push({
+          symbol: t.symbol,
+          proximity: 100,
+          fired: true,
+          inPos: true,
+        });
+      }
+    }
+    return pool;
+  }, [proximityLeaderboard, strategyActiveTrades]);
+
+  const rotatableLivePoolRef = useRef(rotatableLivePool);
+  rotatableLivePoolRef.current = rotatableLivePool;
+  const autoHeldSymbolRef = useRef(autoHeldSymbol);
+  autoHeldSymbolRef.current = autoHeldSymbol;
+
+  // Initialize or repair held symbol immediately if none is selected or current left the pool
+  useEffect(() => {
+    if (inspectScope !== 'live' || rotationMode === 'pinned') return;
+    if (rotatableLivePool.length === 0) return;
+    const exists = autoHeldSymbol && rotatableLivePool.some(item => item.symbol === autoHeldSymbol);
+    if (!exists) {
+      const first = rotatableLivePool[0];
+      setAutoHeldSymbol(first.symbol);
+      setLastRotationReason(
+        first.inPos
+          ? 'Active open position'
+          : first.fired
+            ? 'Signal fired (#1)'
+            : `Top proximity #1 (${first.proximity}%)`
+      );
+      setRotationNextSwitchAt(Date.now() + ROTATION_INTERVAL_SEC * 1000);
+    }
+  }, [inspectScope, rotationMode, rotatableLivePool, autoHeldSymbol]);
+
+  // Scheduled 15s rotation / rank-check timer so inspected gauges never jump wildly on WS noise
+  useEffect(() => {
+    if (inspectScope !== 'live' || rotationMode === 'pinned') return undefined;
+    if (rotatableLivePool.length === 0) return undefined;
+
+    const now = Date.now();
+    const delayMs = Math.max(500, rotationNextSwitchAt - now);
+    const timer = setTimeout(() => {
+      const pool = rotatableLivePoolRef.current;
+      if (!pool || pool.length === 0) return;
+      const currentSym = autoHeldSymbolRef.current;
+
+      if (rotationMode === 'cycle') {
+        const idx = pool.findIndex(item => item.symbol === currentSym);
+        const nextIdx = idx >= 0 ? (idx + 1) % pool.length : 0;
+        const nextItem = pool[nextIdx];
+        setAutoHeldSymbol(nextItem.symbol);
+        setLastRotationReason(`Auto-cycled (${nextIdx + 1}/${pool.length} · ${nextItem.inPos ? 'In Pos' : `${nextItem.proximity}%`})`);
+      } else {
+        // Auto mode: promote #1 proximity leader on each scheduled window
+        const top = pool[0];
+        const currEntry = pool.find(item => item.symbol === currentSym);
+        if (top.symbol !== currentSym) {
+          setAutoHeldSymbol(top.symbol);
+          const prevLabel = currEntry ? ` > ${currEntry.proximity}%` : '';
+          setLastRotationReason(
+            top.inPos
+              ? 'Promoted: active position'
+              : top.fired
+                ? 'Promoted: signal fired'
+                : `Promoted #1 (${top.proximity}%${prevLabel})`
+          );
+        } else {
+          setLastRotationReason(
+            top.inPos
+              ? 'Holding active position'
+              : top.fired
+                ? 'Holding #1 · signal fired'
+                : `Holding #1 (${top.proximity}% proximity)`
+          );
+        }
+      }
+      setRotationNextSwitchAt(Date.now() + ROTATION_INTERVAL_SEC * 1000);
+    }, delayMs);
+
+    return () => clearTimeout(timer);
+  }, [inspectScope, rotationMode, rotationNextSwitchAt, rotatableLivePool.length]);
+
   const focusedOpp = useMemo(() => {
     if (selectedFocusSymbol) {
       if (selectedFocusSymbol.startsWith('snapshot:') || selectedFocusSymbol.startsWith('trade:')) {
@@ -415,6 +669,16 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
         return { symbol: selectedFocusSymbol, pct: 0, dir: '---', signalResult: { allFired: false, firedSignals: [] } };
       }
     }
+    if (autoHeldSymbol) {
+      const held = proximityLeaderboard.find(r => r.symbol === autoHeldSymbol)
+        || strategyScannerResults.find(r => r.symbol === autoHeldSymbol);
+      if (held) return held;
+      const heldTrade = strategyActiveTrades.find(t => t.symbol === autoHeldSymbol);
+      if (heldTrade) {
+        const snapshotOpp = entrySnapshotOpportunity(heldTrade);
+        if (snapshotOpp) return snapshotOpp;
+      }
+    }
     if (proximityLeaderboard[0]) return proximityLeaderboard[0];
     if (strategyScannerResults[0]) return strategyScannerResults[0];
     if (strategyActiveTrades[0]) {
@@ -428,7 +692,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
       };
     }
     return { symbol: '---', pct: 0, dir: '---' };
-  }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard, strategyActiveTrades, strategyTrades]);
+  }, [selectedFocusSymbol, autoHeldSymbol, strategyScannerResults, proximityLeaderboard, strategyActiveTrades, strategyTrades]);
 
   const bestOpp = focusedOpp;
   const diagnosticStrategyConfig = useMemo(() => (
@@ -1658,13 +1922,91 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
         if (matchingActive) {
           const liveChip = liveCandidateChips.find(c => c.symbol === matchingActive.symbol);
           setSelectedFocusSymbol(liveChip ? liveChip.focusKey : matchingActive.symbol);
+          setRotationMode('pinned');
+          setLastRotationReason(`Pinned on ${matchingActive.symbol}`);
         } else {
           setSelectedFocusSymbol(null);
+          setRotationMode('auto');
+          setRotationNextSwitchAt(Date.now() + ROTATION_INTERVAL_SEC * 1000);
         }
       }
     }
     scrollToInspectLive();
   }, [snapshotStatusFilter, openSnapshotChips, closedSnapshotChips, allSnapshotChips, selectedFocusSymbol, strategyActiveTrades, liveCandidateChips, scrollToInspectLive]);
+
+  const handleSetRotationMode = useCallback((nextMode) => {
+    if (inspectScope === 'snapshots' && nextMode !== 'pinned') {
+      setInspectScope('live');
+    }
+    if (nextMode === 'pinned') {
+      const sym = bestOpp?.symbol && bestOpp.symbol !== '---' ? bestOpp.symbol : null;
+      if (sym) {
+        setSelectedFocusSymbol(prev => prev || sym);
+        setLastRotationReason(`Pinned on ${sym.replace('USDT', '')} · Auto-rotation paused`);
+      }
+      setRotationMode('pinned');
+      return;
+    }
+    setSelectedFocusSymbol(null);
+    setRotationMode(nextMode);
+    if (nextMode === 'auto' && rotatableLivePool[0]) {
+      setAutoHeldSymbol(rotatableLivePool[0].symbol);
+      setLastRotationReason(
+        rotatableLivePool[0].inPos
+          ? 'Active open position'
+          : `Top proximity #1 (${rotatableLivePool[0].proximity}%)`
+      );
+    } else if (nextMode === 'cycle' && rotatableLivePool.length > 0) {
+      const curIdx = rotatableLivePool.findIndex(item => item.symbol === bestOpp?.symbol);
+      const startIdx = curIdx >= 0 ? curIdx : 0;
+      setAutoHeldSymbol(rotatableLivePool[startIdx].symbol);
+      setLastRotationReason(`Auto-cycling (${startIdx + 1}/${rotatableLivePool.length})`);
+    }
+    setRotationNextSwitchAt(Date.now() + ROTATION_INTERVAL_SEC * 1000);
+  }, [inspectScope, bestOpp?.symbol, rotatableLivePool]);
+
+  const handleCycleNextCandidate = useCallback(() => {
+    const pool = rotatableLivePoolRef.current;
+    if (!pool || pool.length === 0) return;
+    const currSym = bestOpp?.symbol;
+    const idx = pool.findIndex(item => item.symbol === currSym);
+    const nextIdx = idx >= 0 ? (idx + 1) % pool.length : 0;
+    const nextItem = pool[nextIdx];
+    if (rotationMode === 'pinned') {
+      setSelectedFocusSymbol(nextItem.symbol);
+      setLastRotationReason(`Manually stepped (${nextIdx + 1}/${pool.length})`);
+    } else {
+      setSelectedFocusSymbol(null);
+      setAutoHeldSymbol(nextItem.symbol);
+      setLastRotationReason(`Stepped to ${nextItem.symbol.replace('USDT', '')} (${nextIdx + 1}/${pool.length})`);
+      setRotationNextSwitchAt(Date.now() + ROTATION_INTERVAL_SEC * 1000);
+    }
+  }, [bestOpp?.symbol, rotationMode]);
+
+  const rotationMeta = useMemo(() => {
+    const pool = rotatableLivePool;
+    const currSym = bestOpp?.symbol;
+    const currIdx = Math.max(0, pool.findIndex(item => item.symbol === currSym));
+    let pendingNext = null;
+    if (rotationMode === 'cycle' && pool.length > 1) {
+      const nextItem = pool[(currIdx + 1) % pool.length];
+      pendingNext = {
+        symbol: nextItem.symbol,
+        willSwitch: nextItem.symbol !== currSym,
+        reason: nextItem.inPos ? 'In Pos' : `${nextItem.proximity}% proximity`,
+      };
+    } else if (rotationMode === 'auto' && pool.length > 0) {
+      const top = pool[0];
+      if (top.symbol !== currSym) {
+        pendingNext = {
+          symbol: top.symbol,
+          willSwitch: true,
+          reason: top.inPos ? 'active position' : top.fired ? 'signal fired' : `higher proximity ${top.proximity}%`,
+        };
+      }
+    }
+    return { poolSize: pool.length, currentIndex: currIdx, pendingNext };
+  }, [rotatableLivePool, bestOpp?.symbol, rotationMode]);
 
   const handleSelectSnapshotStatusFilter = useCallback((nextStatus) => {
     setSnapshotStatusFilter(nextStatus);
@@ -2067,8 +2409,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
       {/* TAB 1: Rules & Diagnostics */}
       {activeTab === 'pipeline' && (
         <div className="space-y-3 sm:space-y-4 text-left">
-          {/* Single-elevation Diagnostic Surface (scroll target for smooth candidate/stage transitions) */}
-          <div ref={inspectLiveRef} className="border border-border/50 bg-surface/30 rounded-2xl overflow-hidden scroll-mt-16">
+          {/* Single-elevation Diagnostic Surface (overflow-x-clip preserves sticky condition widget header while clipping horizontal bleed) */}
+          <div ref={inspectLiveRef} className="border border-border/50 bg-surface/30 rounded-2xl overflow-x-clip scroll-mt-16">
 
             {/* Row 1: Separated Live / Snapshots Scope Filter + Buffer Warmup Status */}
             <div className="px-3 py-2.5 sm:px-3.5 bg-surface/50 border-b border-border/30 flex flex-col gap-2">
@@ -2235,6 +2577,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                               title={c.title}
                               onClick={() => {
                                 setSelectedFocusSymbol(c.focusKey || c.symbol);
+                                setRotationMode('pinned');
+                                setLastRotationReason(`Pinned on ${c.symbol.replace('USDT', '')} · Auto-rotation paused`);
                                 scrollToInspectLive();
                               }}
                               className={cn(
@@ -2549,9 +2893,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
               )}
             </div>
 
-            {/* Live Capitalize.ai Entry/Exit & Anti-Whipsaw Target Meters (with clean cubic-bezier attention sweep) */}
+            {/* Live Capitalize.ai Entry/Exit & Anti-Whipsaw Target Meters (overflow-x-clip allows sticky Condition Widget header) */}
             <div className={cn(
-              "relative overflow-hidden px-3 py-2.5 sm:px-3.5 border-b border-border/30 bg-background/15",
+              "relative overflow-x-clip px-3 py-2.5 sm:px-3.5 border-b border-border/30 bg-background/15",
               rulesMobileSection === 'risk' && "hidden"
             )}>
               <FocusCueBar
@@ -2573,6 +2917,20 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                 linkedTrade={matchingOpenTradeForSymbol}
                 configuredExitRules={rulesDiagnostics.exitRules}
                 isSyncing={isBatchSyncing}
+                stickyHeader={true}
+                rotationControl={
+                  <RotationStatusControl
+                    mode={rotationMode}
+                    nextSwitchAt={rotationNextSwitchAt}
+                    currentReason={lastRotationReason}
+                    pendingNext={rotationMeta.pendingNext}
+                    poolSize={rotationMeta.poolSize}
+                    currentIndex={rotationMeta.currentIndex}
+                    isSnapshot={isInspectingSnapshot}
+                    onSetMode={handleSetRotationMode}
+                    onCycleNext={handleCycleNextCandidate}
+                  />
+                }
               />
             </div>
 

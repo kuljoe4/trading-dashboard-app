@@ -110,10 +110,11 @@ describe('Smooth Transitions, Separated Snapshots, Rule Filters, Catalog & Slim 
 
   test('Slim top inline banners, Edit modal full-width fallback, and static watchlist symbol catalog', () => {
     assert.ok(
-      alertBannerSource.includes('fixed top-2 left-1/2 -translate-x-1/2') &&
+      alertBannerSource.includes('data-banner-layout="inline"') &&
+      !alertBannerSource.includes('fixed top-2 left-1/2 -translate-x-1/2') &&
       alertBannerSource.includes('py-1.5') &&
       alertBannerSource.includes('text-[11px]'),
-      'PersistentAlertBanner must render slim modern inline top bars'
+      'PersistentAlertBanner must render slim modern inline top bars without fixed overlay overlap'
     );
     assert.ok(
       dashboardSource.includes('ModalLoadingFallback') &&

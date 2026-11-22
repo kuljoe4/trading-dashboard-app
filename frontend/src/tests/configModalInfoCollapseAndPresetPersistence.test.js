@@ -243,16 +243,16 @@ test('ConfigModal per-tab CollapsibleSection bubbling prioritizes errored, activ
   assert.match(configModalSource, /useEffect\(\(\) => \{\s*if \(blockingErrorSignature\) \{\s*refreshSectionOrders\(recentSectionIdsRef\.current, errors, openSectionId\);/);
 });
 
-test('Uniform compact text-xs input typography across modals/views and all edit actions route to Active (summary) tab', () => {
+test('Uniform compact text-xs input typography across modals/views and edit actions navigate to last edited location (fallback Active)', () => {
   const activeSummarySource = fs.readFileSync(path.resolve(__dirname, '../components/config/ActiveSummaryPanel.jsx'), 'utf8');
   const settingsViewSource = fs.readFileSync(path.resolve(__dirname, '../views/SettingsView.jsx'), 'utf8');
   const authOverlaySource = fs.readFileSync(path.resolve(__dirname, '../components/AuthOverlay.jsx'), 'utf8');
 
-  // 1. Editing strategy / preset / variant initializes or transitions to the Active ('summary') tab
-  assert.match(configModalSource, /const \[section, setSection\] = useState\('summary'\);?/);
-  assert.match(configModalSource, /if \(isEdit \|\| initialEditingVariantIndex !== null\) \{\s*setSection\('summary'\);\s*\}/);
-  assert.match(configModalSource, /if \(editingVariantIdx !== null && editingVariantIdx === vIndex\) \{\s*handleSectionChange\('summary'\);/);
-  assert.match(configModalSource, /setIsDirty\(false\);\s*handleSectionChange\('summary'\);/);
+  // 1. Editing strategy / preset / variant restores lastEditedLocation (falling back to Active 'summary')
+  assert.match(configModalSource, /const readStoredLastEditedLocation = \(\) =>/);
+  assert.match(configModalSource, /if \(isEdit \|\| initialEditingVariantIndex !== null\) \{\s*return readStoredLastEditedLocation\(\)\.tab;/);
+  assert.match(configModalSource, /if \(editingVariantIdx !== null && editingVariantIdx === vIndex\) \{\s*navigateToLastEdited\('summary'\);/);
+  assert.match(configModalSource, /setIsDirty\(false\);\s*navigateToLastEdited\('summary'\);/);
 
   // 2. Inputs/selects/textareas avoid oversized text-base / text-sm classes
   assert.equal(configModalSource.includes('text-base sm:text-xs'), false, 'ConfigModal must not contain oversized text-base input classes');
@@ -268,6 +268,42 @@ test('Uniform compact text-xs input typography across modals/views and all edit 
     assert.match(activeSummarySource, new RegExp(`isOpen=\\{openSectionId === '${sid}'\\}`));
   }
 });
+
+test('Preset & variant saving protects against accidental overwrites, variant leaks, duplicate labels, and map-key resurrection', async () => {
+  const tradingStoreSource = fs.readFileSync(path.resolve(__dirname, '../store/trading.js'), 'utf8');
+
+  // 1. SavePresetModal collision warning, Make Unique button, and explicit overwrite checkbox
+  assert.match(configModalSource, /const buildUniquePresetName = \(/);
+  assert.match(configModalSource, /const collidingPresetName = useMemo\(/);
+  assert.match(configModalSource, /Make Unique/);
+  assert.match(configModalSource, /Overwrite existing preset/);
+  assert.match(configModalSource, /collidingPresetName && allowOverwrite \? 'Overwrite Preset' : 'Save Preset'/);
+
+  // 2. Client API supports optional overwrite boolean
+  assert.match(clientSource, /if \(typeof options\?\.overwrite === 'boolean'\)/);
+  assert.match(clientSource, /body\.overwrite = options\.overwrite;/);
+
+  // 3. Preset clone preserves only its own variants (does not leak unrelated activeVariants)
+  assert.match(configModalSource, /Preserve only the cloned preset's own variants; never leak unrelated active editor variants/);
+
+  // 4. Bulk file import preserves strategy_variants (isNestedVariant = false) and deduplicates names with overwrite: false
+  assert.match(configModalSource, /buildUniquePresetName\(rawName, reservedNames, 100, 'imported'\)/);
+  assert.match(configModalSource, /coerceAndSanitizeConfig\(\{ \.\.\.item\.config, strategy_label: safeName \}, false\)/);
+  assert.match(configModalSource, /presetsAPI\.save\(item\.name, item\.config, \{ overwrite: false \}\)/);
+
+  // 5. Duplicate strategy_label guard in saveVariantChanges and savePreset
+  assert.match(configModalSource, /title: 'Duplicate Strategy Label'/);
+
+  // 6. Top-bar Update button routes renamed strategies to SavePresetModal instead of silently overwriting old preset
+  assert.match(configModalSource, /const hasRenamedAwayFromLoaded = Boolean\(/);
+
+  // 7. Store mergeConfigObjects replaces map keys atomically and patchConfig guards draft + rolls back on failure
+  assert.match(tradingStoreSource, /const ATOMIC_CONFIG_MAP_KEYS = new Set\(/);
+  assert.match(tradingStoreSource, /export const mergeConfigObjects = \(target, source\) =>/);
+  assert.match(tradingStoreSource, /if \(!st\.sessionActive\) \{\s*try \{\s*if \(typeof sessionStorage !== 'undefined'\) \{\s*sessionStorage\.setItem\('config_draft'/);
+  assert.match(tradingStoreSource, /title: 'Update Failed'/);
+});
+
 
 
 

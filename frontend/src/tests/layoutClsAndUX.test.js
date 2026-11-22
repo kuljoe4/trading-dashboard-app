@@ -214,14 +214,16 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
     );
   });
 
-  test('PersistentAlertBanner, GateBanner, ViewHeader, and LoadingView enforce zero-CLS overlays and stable geometry', () => {
+  test('PersistentAlertBanner, GateBanner, ViewHeader, and LoadingView enforce inline non-overlapping banners and stable geometry', () => {
     const alertBannerSource = fs.readFileSync(path.join(__dirname, '../components/PersistentAlertBanner.jsx'), 'utf-8');
     const mainSource = fs.readFileSync(path.join(__dirname, '../main.jsx'), 'utf-8');
+    const strategyDetailSource = fs.readFileSync(path.join(__dirname, '../views/StrategyDetailView.jsx'), 'utf-8');
+    const configModalSource = fs.readFileSync(path.join(__dirname, '../components/ConfigModal.jsx'), 'utf-8');
 
     assert.ok(
-      alertBannerSource.includes('fixed top-2 left-1/2 -translate-x-1/2') &&
-      alertBannerSource.includes('pointer-events-none'),
-      'PersistentAlertBanner must render in a fixed out-of-flow overlay so reconnect notices never push document layout'
+      alertBannerSource.includes('data-banner-layout="inline"') &&
+      !alertBannerSource.includes('fixed top-2 left-1/2 -translate-x-1/2'),
+      'PersistentAlertBanner must render inline in normal flow so connection banners never overlap headers or cards'
     );
 
     assert.ok(
@@ -252,9 +254,9 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
 
     assert.ok(
       dashboardViewSource.includes('const DashboardTopBannerDock = React.memo(') &&
-      dashboardViewSource.includes('fixed left-1/2 -translate-x-1/2') &&
-      dashboardViewSource.includes('pointer-events-none flex flex-col gap-1.5'),
-      'DashboardView BanBanner, Agreement banner, and GateBanner must render in a fixed out-of-flow top overlay dock for 0 CLS'
+      dashboardViewSource.includes('data-banner-layout="inline"') &&
+      !dashboardViewSource.includes('fixed left-1/2 -translate-x-1/2'),
+      'DashboardView BanBanner, Agreement banner, and GateBanner must render inline in normal flow without overlapping headers or connection alerts'
     );
 
     assert.ok(
@@ -265,8 +267,28 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
 
     assert.ok(
       gaugeSource.includes('[contain:layout_style]') &&
-      gaugeSource.includes("compact ? 'gap-2 min-h-[120px]' : 'gap-3 min-h-[168px]'"),
-      'CandidateConditionsGauge must enforce layout containment and reserved min-height to eliminate CLS across mode/filter transitions'
+      gaugeSource.includes("compact ? 'gap-2 min-h-[120px]' : 'gap-3 min-h-[168px]'") &&
+      gaugeSource.includes('data-sticky-condition-header') &&
+      gaugeSource.includes('sticky top-0 z-30') &&
+      gaugeSource.includes('overflow-x-clip') &&
+      gaugeSource.includes('CandleCloseCountdown'),
+      'CandidateConditionsGauge must enforce layout containment, sticky condition header with overflow-x-clip, and stable CandleCloseCountdown'
+    );
+
+    assert.ok(
+      strategyDetailSource.includes('const RotationStatusControl = React.memo(') &&
+      strategyDetailSource.includes('ROTATION_INTERVAL_SEC') &&
+      strategyDetailSource.includes('stickyHeader={true}') &&
+      strategyDetailSource.includes('useNow()') &&
+      !strategyDetailSource.includes('((now - (lastUpdateTs || now)) / 1000)).toFixed(1)'),
+      'StrategyDetailView must render RotationStatusControl with countdown/reason, sticky condition header, and flicker-free useNow LiveStreamAge'
+    );
+
+    assert.ok(
+      configModalSource.includes('config_last_edited_location') &&
+      configModalSource.includes('const navigateToLastEdited = React.useCallback(') &&
+      configModalSource.includes('data-testid="presets-last-edited-nav"'),
+      'ConfigModal must persist lastEditedLocation and navigate there when editing presets/variants instead of forcing Active tab'
     );
   });
 
@@ -393,7 +415,57 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       'Views must wire HistoryView/BacktestPanel/SettingsView/drawer skeletons and index.html cold-boot shell without full-page fallback={null}'
     );
   });
+
+  test('Top slide-down notification strips, unwrapped Global Metrics expand, and countdown CLS guards', () => {
+    const alertBannerSource = fs.readFileSync(path.join(__dirname, '../components/PersistentAlertBanner.jsx'), 'utf-8');
+    const gaugeSource = fs.readFileSync(path.join(__dirname, '../components/ui/CandidateConditionsGauge.jsx'), 'utf-8');
+    const strategyDetailSource = fs.readFileSync(path.join(__dirname, '../views/StrategyDetailView.jsx'), 'utf-8');
+    const activeTradeCardSource = fs.readFileSync(path.join(__dirname, '../components/ActiveTradeCard.jsx'), 'utf-8');
+    const tradeDetailSource = fs.readFileSync(path.join(__dirname, '../components/trade/TradeDetailContent.jsx'), 'utf-8');
+    const apiHealthSource = fs.readFileSync(path.join(__dirname, '../components/ApiHealthWidget.jsx'), 'utf-8');
+    const systemMetricsSource = fs.readFileSync(path.join(__dirname, '../components/SystemMetrics.jsx'), 'utf-8');
+
+    // 1. Narrow top slide-down notification strips
+    assert.ok(
+      alertBannerSource.includes('data-banner-style="top-slide-strip"') &&
+      dashboardViewSource.includes('data-banner-style="top-slide-strip"'),
+      'Connection, ban, and gate banners must use narrow top-slide-strip layout'
+    );
+
+    // 2. Global Metrics Expand shows full unwrapped content without truncation
+    assert.ok(
+      primitivesSource.includes('wrapSubValue = false') &&
+      dashboardViewSource.includes('wrapSubValue={globalMetricsExpanded}') &&
+      dashboardViewSource.includes('grid-cols-1 sm:grid-cols-2 xl:grid-cols-4'),
+      'Expanded Global Metrics must switch to full-width grid and pass wrapSubValue so sub-metrics are never cut off'
+    );
+
+    // 3. Countdown & live-timer CLS prevention (fixed ch widths, zero-padding, nowrap)
+    assert.ok(
+      gaugeSource.includes('min-w-[14ch]') &&
+      gaugeSource.includes('min-w-[7ch]') &&
+      gaugeSource.includes('whitespace-nowrap shrink-0 inline-block'),
+      'CandidateConditionsGauge freshness & candle countdown must reserve stable ch widths and avoid wrapping'
+    );
+    assert.ok(
+      strategyDetailSource.includes("compact ? 'min-w-[3.5ch]' : 'min-w-[8.5ch]'") &&
+      strategyDetailSource.includes('min-w-[3.5ch]') &&
+      strategyDetailSource.includes('min-w-[7ch]'),
+      'StrategyDetailView live stream age, rotation countdown, and relative time must reserve stable ch widths'
+    );
+    assert.ok(
+      activeTradeCardSource.includes('min-w-[6.5ch]') &&
+      tradeDetailSource.includes('min-w-[7ch]') &&
+      apiHealthSource.includes('min-w-[11ch]') &&
+      apiHealthSource.includes("String(secs).padStart(2, '0')") &&
+      systemMetricsSource.includes("String(secs).padStart(2, '0')") &&
+      dashboardViewSource.includes('min-w-[16ch]') &&
+      dashboardViewSource.includes('min-w-[4.5ch]'),
+      'Trade duration, exit delay, ban cooldown, and gate countdowns must zero-pad and reserve fixed widths to prevent CLS'
+    );
+  });
 });
+
 
 
 

@@ -786,11 +786,22 @@ export function buildHtfLadderModel({
     }
   }
 
-  // Trigger candle close countdown
+  // Trigger candle close countdown — anchor to a deterministic UTC boundary so the UI
+  // counts down smoothly without jumping minute/second values across WS ticks.
   const tfMs = timeframeToMs(trigTf);
+  const utcCloseTs = tfMs > 0 ? Math.floor(nowMs / tfMs) * tfMs + tfMs : 0;
+  let candleCloseTs = utcCloseTs;
+  if (Number.isFinite(Number(signalDetail.trig_close_time)) && Number(signalDetail.trig_close_time) > 0) {
+    candleCloseTs = Number(signalDetail.trig_close_time);
+  } else if (signalDetail.trig_close_countdown_ms !== undefined && Number.isFinite(Number(signalDetail.trig_close_countdown_ms))) {
+    const serverCloseTs = nowMs + Math.max(0, Number(signalDetail.trig_close_countdown_ms));
+    candleCloseTs = utcCloseTs > 0 && Math.abs(serverCloseTs - utcCloseTs) <= 10_000
+      ? utcCloseTs
+      : Math.round(serverCloseTs / 1000) * 1000;
+  }
   const countdownMs = signalDetail.trig_close_countdown_ms !== undefined
-    ? Number(signalDetail.trig_close_countdown_ms)
-    : (tfMs > 0 ? Math.max(0, tfMs - (nowMs % tfMs)) : 0);
+    ? Math.max(0, Number(signalDetail.trig_close_countdown_ms))
+    : (candleCloseTs > 0 ? Math.max(0, candleCloseTs - nowMs) : 0);
   const countdownMin = Math.max(1, Math.ceil(countdownMs / 60000));
   const countdownText = countdownMs >= 3600000
     ? `${trigTf} close in ${Math.floor(countdownMs / 3600000)}h ${Math.ceil((countdownMs % 3600000) / 60000)}m`
@@ -908,6 +919,8 @@ export function buildHtfLadderModel({
     candleConfirmState,
     countdownMs,
     countdownText,
+    candleCloseTs,
+    trigTfMs: tfMs,
     zone,
     zoneLabel,
     isOverCap,

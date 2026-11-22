@@ -1,7 +1,7 @@
 import './mock-env.js';
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { useTradingStore } from './trading.js';
+import { useTradingStore, mergeConfigObjects } from './trading.js';
 
 test('Zustand store local storage persistence partialize whitelist validation', async (t) => {
   await t.test('partialize excludes heavy static API response fields', () => {
@@ -64,4 +64,29 @@ test('Zustand store local storage persistence partialize whitelist validation', 
     assert.strictEqual(partialized.lifetimeAnalytics, undefined, 'lifetimeAnalytics must be excluded from partialize to avoid local storage bloat');
     assert.strictEqual(partialized.analytics, undefined, 'analytics must be excluded from partialize to avoid local storage bloat');
   });
+
+  await t.test('mergeConfigObjects replaces signal/delay/timeframe maps atomically without resurrecting removed keys', () => {
+    const prev = {
+      strategy_label: 'Base',
+      signal_params: { rsi_period: 14, macd_fast: 12 },
+      exit_signal_delays: { ema_cross: 60, rsi_exit: 30 },
+      signal_timeframes: { rsi: '5m', macd: '15m' },
+      nested_meta: { keepMe: true, updateMe: 1 },
+    };
+    const next = {
+      signal_params: { rsi_period: 21 },
+      exit_signal_delays: {},
+      signal_timeframes: { rsi: '15m' },
+      nested_meta: { updateMe: 2 },
+    };
+
+    const merged = mergeConfigObjects(prev, next);
+    assert.deepStrictEqual(merged.signal_params, { rsi_period: 21 });
+    assert.strictEqual('macd_fast' in merged.signal_params, false);
+    assert.deepStrictEqual(merged.exit_signal_delays, {});
+    assert.deepStrictEqual(merged.signal_timeframes, { rsi: '15m' });
+    assert.strictEqual('macd' in merged.signal_timeframes, false);
+    assert.deepStrictEqual(merged.nested_meta, { keepMe: true, updateMe: 2 });
+  });
 });
+

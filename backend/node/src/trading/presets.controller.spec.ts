@@ -4,7 +4,7 @@ import { ConfigService } from "@nestjs/config";
 import { PresetsController } from "./presets.controller";
 import { StrategyPreset } from "../models/entities/StrategyPreset.entity";
 import { AuditLogService } from "./audit-log.service";
-import { NotFoundException, BadRequestException } from "@nestjs/common";
+import { NotFoundException, BadRequestException, ConflictException } from "@nestjs/common";
 import { SessionConfig } from "../models/SessionConfig";
 
 describe("PresetsController", () => {
@@ -93,6 +93,42 @@ describe("PresetsController", () => {
       const dto = { name: "invalid", config: { scan_pct_threshold: -10 } }; // Violated Min(0)
       repo.findOne.mockResolvedValue(null);
 
+      const req = { ip: "127.0.0.1", headers: {} } as any;
+      await expect(controller.savePreset(dto as any, req)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it("should throw ConflictException when overwrite is false and preset already exists", async () => {
+      const dto = { name: "existing-preset", config: new SessionConfig(), overwrite: false };
+      const existing = { name: "existing-preset", config: {} };
+      repo.findOne.mockResolvedValue(existing);
+      repo.save.mockClear();
+
+      const req = { ip: "127.0.0.1", headers: {} } as any;
+      await expect(controller.savePreset(dto as any, req)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it("should trim whitespace from preset name before lookup and save", async () => {
+      const dto = { name: "  Trimmed Preset  ", config: new SessionConfig(), overwrite: false };
+      repo.findOne.mockResolvedValue(null);
+      repo.create.mockImplementation((arg: any) => arg);
+
+      const req = { ip: "127.0.0.1", headers: {} } as any;
+      await controller.savePreset(dto as any, req);
+
+      expect(repo.findOne).toHaveBeenCalledWith({ where: { name: "Trimmed Preset" } });
+      expect(repo.create).toHaveBeenCalledWith({
+        name: "Trimmed Preset",
+        config: dto.config,
+      });
+    });
+
+    it("should reject whitespace-only preset names", async () => {
+      const dto = { name: "   ", config: new SessionConfig() };
       const req = { ip: "127.0.0.1", headers: {} } as any;
       await expect(controller.savePreset(dto as any, req)).rejects.toThrow(
         BadRequestException,

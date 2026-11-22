@@ -89,9 +89,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const roomToTpR = tp > 0 ? Math.max(0, isLong ? (tp - mark) / riskUnit : (mark - tp) / riskUnit) : null
   const roomToTpUsdt = tp > 0 ? Math.max(0, Math.abs(tp - mark) * Number(trade.qty || 0)) : null
 
-  // Trade Phase Resolution - Strict evaluation requiring active SL >= entry for breakeven or explicit engine release
+  // Trade Phase Resolution - Respect engine risk_usdt / Est. P&L Risk Release lock when active
   const isSlAtBreakeven = sl > 0 && (isLong ? sl >= entry - 1e-6 : sl <= entry + 1e-6)
-  const isRiskReleased = isSlAtBreakeven || (trade.risk_usdt === 0 && Number(trade.initial_risk_usdt) > 0)
+  const isEstPnlLocked = trade.risk_lock_reason === 'EST_PNL_BELOW_THRESHOLD' || (Boolean(config?.release_risk_on_est_pnl_be) && Number(trade.risk_usdt) > 0)
+  const isRiskReleased = !isEstPnlLocked && (isSlAtBreakeven || (trade.risk_usdt === 0 && Number(trade.initial_risk_usdt) > 0))
   let tradePhase = 'INITIAL RISK'
   if (isRetracing) {
     tradePhase = 'RETRACING'
@@ -510,16 +511,16 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 text-[8px] text-dim font-mono font-medium leading-none pt-1">
-            <span className="flex items-center gap-0.5">
+          <div className="flex items-center gap-1.5 text-[8px] text-dim font-mono font-medium tabular-nums leading-none pt-1 min-w-0 flex-nowrap overflow-hidden">
+            <span className="inline-flex items-center gap-0.5 whitespace-nowrap shrink-0 min-w-[6.5ch]">
               <Clock size={8} className="text-dim/70 shrink-0" /> {duration}
             </span>
-            <span className="text-dim/40">·</span>
-            <span>Entry {fmtUSD(entry)}</span>
+            <span className="text-dim/40 shrink-0">·</span>
+            <span className="truncate min-w-0">Entry {fmtUSD(entry)}</span>
             {netFee !== 0 && (
               <>
-                <span className="text-dim/40">·</span>
-                <span className={netFee > 0 ? "text-red/70" : "text-green/70"}>Fee {fmtUSD(-netFee)}</span>
+                <span className="text-dim/40 shrink-0">·</span>
+                <span className={cn("whitespace-nowrap shrink-0", netFee > 0 ? "text-red/70" : "text-green/70")}>Fee {fmtUSD(-netFee)}</span>
               </>
             )}
           </div>

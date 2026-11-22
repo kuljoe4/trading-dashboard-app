@@ -38,11 +38,11 @@ test('Presets & Variant UX Verification', async (t) => {
     // Assert SavePresetModal component exists
     assert.match(configModalContent, /const SavePresetModal = \({/, 'SavePresetModal component must be defined');
 
-    // Assert SavePresetModal is rendered with handlers
-    assert.match(configModalContent, /<SavePresetModal[\s\S]*?isOpen={saveModalState\.isOpen}/, 'SavePresetModal must be rendered');
+    // Assert SavePresetModal is rendered with handlers & existingPresets collision detection
+    assert.match(configModalContent, /<SavePresetModal[\s\S]*?isOpen={saveModalState\.isOpen}[\s\S]*?existingPresets={presets}/, 'SavePresetModal must be rendered with existingPresets');
 
-    // Assert handleConfirmSaveAsNew calls presetsAPI.save
-    assert.match(configModalContent, /presetsAPI\.save\(newName, payload\)/, 'handleConfirmSaveAsNew must call presetsAPI.save');
+    // Assert handleConfirmSaveAsNew calls presetsAPI.save with explicit overwrite guard
+    assert.match(configModalContent, /presetsAPI\.save\(newName, payload, \{ overwrite \}\)/, 'handleConfirmSaveAsNew must call presetsAPI.save with overwrite option');
   });
 
   await t.test('3. Variant presets are color-coded with violet palette and badge', () => {

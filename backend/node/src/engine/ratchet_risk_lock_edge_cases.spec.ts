@@ -278,6 +278,52 @@ describe('Ratchet Catch-up & Risk Lock Release Edge Cases', () => {
       expect(trade.risk_usdt).toBe(20);
     });
 
+    it('should NOT allow exp_rr_seq guard ladder breakeven ratchet to bypass a stricter Est. P&L Risk Release threshold (R:R or USDT)', async () => {
+      const trade: Partial<Trade> = {
+        id: 't-ladder-respect',
+        symbol: 'SOLUSDT',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        qty: 2,
+        initial_risk_usdt: 20,
+        risk_usdt: 20,
+        status: 'OPEN',
+        max_rr_achieved: 1.0,
+        rr_sequence_index: -1,
+        live_rr_sequence: [1.0, 2.0],
+        exit_rr_sequence: [0.0, 0.5], // Milestone 0 ratchets SL to 0R breakeven (~100.1)
+      };
+
+      mockOrderManager.updateStopLoss.mockResolvedValueOnce({ success: true, price: 100.1 });
+      tracker.addTrade(trade as Trade);
+
+      const rrConfig: Partial<SessionConfig> = {
+        tp_mode: 'exp_rr_seq',
+        live_rr_sequence: [1.0, 2.0],
+        exit_rr_sequence: [0.0, 0.5],
+        trailing_guard_buffer_pct: 0.1,
+        release_risk_on_est_pnl_be: true,
+        release_risk_est_pnl_mode: 'rr',
+        release_risk_est_pnl_min_rr: 0.5, // Requires +0.5R (+10 USDT), NOT 0R breakeven
+      };
+
+      // Guard ladder ratchets SL to 100.1 (~+0.01R), which is below +0.5R threshold
+      await tracker.checkRrSequenceAdjustments('SOLUSDT', 110, rrConfig as SessionConfig);
+      expect(trade.current_sl).toBe(100.1);
+      expect(trade.risk_usdt).toBe(20); // Must stay locked at initial risk!
+      expect(trade.risk_lock_reason).toBe('EST_PNL_BELOW_THRESHOLD');
+
+      // Once guard ladder reaches milestone 1 (exit 0.5R -> SL 105.1, estPnl = +10.2 = 0.51R >= 0.5R), risk releases!
+      trade.max_rr_achieved = 2.0;
+      mockOrderManager.updateStopLoss.mockResolvedValueOnce({ success: true, price: 105.1 });
+      await tracker.checkRrSequenceAdjustments('SOLUSDT', 120, rrConfig as SessionConfig);
+      expect(trade.current_sl).toBe(105.1);
+      expect(trade.risk_usdt).toBe(0);
+      expect(trade.risk_lock_reason).toBe('EST_PNL_RR_THRESHOLD');
+    });
+
     it('should release risk lock when rr_sequence_index >= 0 even if exchange rounding placed current_sl 1 tick below entry', () => {
       const trade: Partial<Trade> = {
         symbol: 'ADAUSDT',

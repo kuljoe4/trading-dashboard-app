@@ -409,7 +409,13 @@ export const settingsAPI = {
 
 export const presetsAPI = {
   list: () => api.get('/presets'),
-  save: (name, config) => api.post('/presets', { name, config: sanitizeSessionConfig(config) }),
+  save: (name, config, options = {}) => {
+    const body = { name, config: sanitizeSessionConfig(config) };
+    if (typeof options?.overwrite === 'boolean') {
+      body.overwrite = options.overwrite;
+    }
+    return api.post('/presets', body);
+  },
   delete: (name) => api.delete(`/presets/${encodeURIComponent(name)}`),
 }
 

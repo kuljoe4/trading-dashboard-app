@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsObject, MaxLength, ValidateNested, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, IsObject, MaxLength, ValidateNested, Matches, IsOptional, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SessionConfig } from '../../models/SessionConfig';
 
@@ -15,6 +15,10 @@ export class CreateStrategyPresetDto {
   @ValidateNested()
   @Type(() => SessionConfig)
   config: SessionConfig;
+
+  @IsOptional()
+  @IsBoolean()
+  overwrite?: boolean;
 }
 
 export class UpdateStrategyPresetDto {

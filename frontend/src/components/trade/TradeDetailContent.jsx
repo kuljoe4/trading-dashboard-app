@@ -842,7 +842,10 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
                       </div>
                     ) : (
                       <span
-                        className={cn(interactiveEnabled ? "cursor-pointer hover:underline" : "cursor-not-allowed")}
+                        className={cn(
+                          "tabular-nums whitespace-nowrap inline-block min-w-[7ch] text-right",
+                          interactiveEnabled ? "cursor-pointer hover:underline" : "cursor-not-allowed"
+                        )}
                         onClick={() => {
                           if (!interactiveEnabled) return;
                           setEditingDelay(key);

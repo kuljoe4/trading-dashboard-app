@@ -223,7 +223,8 @@ const TradesView = () => {
             const sl = Number(t.sl_price || 0);
             const isLong = (t.direction || 'LONG').toUpperCase() === 'LONG';
             const isSlAtBreakeven = sl > 0 && (isLong ? sl >= entry - 1e-6 : sl <= entry + 1e-6);
-            const isRiskReleased = isSlAtBreakeven || (t.risk_usdt === 0 && Number(t.initial_risk_usdt) > 0);
+            const isEstPnlLocked = t.risk_lock_reason === 'EST_PNL_BELOW_THRESHOLD' || (Number(t.risk_usdt) > 0 && Boolean(t.strategy_config?.release_risk_on_est_pnl_be));
+            const isRiskReleased = !isEstPnlLocked && (isSlAtBreakeven || (t.risk_usdt === 0 && Number(t.initial_risk_usdt) > 0));
             if (riskFilter === 'PROTECTED' && !isRiskReleased) return false;
             if (riskFilter === 'ACTIVE' && isRiskReleased) return false;
           }

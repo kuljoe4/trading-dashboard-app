@@ -12,6 +12,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SESSION_STATE_FILE = path.join(__dirname, '.session-state.json');
 
+const ATOMIC_CONFIG_MAP_KEYS = new Set([
+  'signal_params',
+  'exit_signal_delays',
+  'exit_signal_actions',
+  'signal_timeframes',
+  'scanner_weights',
+]);
+
 function deepMergeConfig(target: any, source: any): any {
   if (!source || typeof source !== 'object' || Array.isArray(source)) return source;
   if (!target || typeof target !== 'object' || Array.isArray(target)) return source;
@@ -20,7 +28,11 @@ function deepMergeConfig(target: any, source: any): any {
     const val = source[key];
     if (val === undefined) continue;
     if (val && typeof val === 'object' && !Array.isArray(val)) {
-      output[key] = deepMergeConfig(target[key] || {}, val);
+      if (ATOMIC_CONFIG_MAP_KEYS.has(key)) {
+        output[key] = { ...val };
+      } else {
+        output[key] = deepMergeConfig(target[key] || {}, val);
+      }
     } else {
       output[key] = val;
     }
@@ -273,7 +285,9 @@ const state = {
     trailing_stop_distance_pct: 1.0,
     trailing_stop_rr: 1.0,
     release_risk_on_est_pnl_be: false,
+    release_risk_est_pnl_mode: 'usdt',
     release_risk_est_pnl_min_usdt: 0,
+    release_risk_est_pnl_min_rr: 0,
     scanner_weights: {
       momentum: 0.5,
       volatility: 0.3,
@@ -1172,24 +1186,43 @@ setInterval(() => {
         trade.est_pnl_to_realize = parseFloat(maxEstPnl.toFixed(2));
       }
 
+      const estPnlReleaseEnabled = Boolean(tCfg.release_risk_on_est_pnl_be);
+      const releaseMode = tCfg.release_risk_est_pnl_mode === 'rr' ? 'rr' : 'usdt';
       const rawMinEst = tCfg.release_risk_est_pnl_min_usdt;
-      const minEstThreshold = (rawMinEst !== undefined && rawMinEst !== null && rawMinEst !== '' && Number.isFinite(Number(rawMinEst)))
+      const minEstThresholdUsdt = (rawMinEst !== undefined && rawMinEst !== null && rawMinEst !== '' && Number.isFinite(Number(rawMinEst)))
         ? Number(rawMinEst)
         : 0;
+      const rawMinEstRr = tCfg.release_risk_est_pnl_min_rr;
+      const minEstThresholdRr = (rawMinEstRr !== undefined && rawMinEstRr !== null && rawMinEstRr !== '' && Number.isFinite(Number(rawMinEstRr)))
+        ? Number(rawMinEstRr)
+        : 0;
+      const initialRiskUsdt = Number(trade.initial_risk_usdt) > 0
+        ? Number(trade.initial_risk_usdt)
+        : Math.abs(trade.entry_price - (initSl || trade.entry_price)) * trade.quantity;
+      const estPnlRr = maxEstPnl !== undefined && initialRiskUsdt > 0
+        ? (maxEstPnl / initialRiskUsdt)
+        : undefined;
       const slAtBe = slPriceForEst > 0 && (isLong ? slPriceForEst >= trade.entry_price * 0.9999 : slPriceForEst <= trade.entry_price * 1.0001);
-      const estPnlReleased = Boolean(tCfg.release_risk_on_est_pnl_be) && maxEstPnl !== undefined && maxEstPnl >= minEstThreshold;
+      const releaseThresholdReached = releaseMode === 'rr'
+        ? (estPnlRr !== undefined && estPnlRr >= minEstThresholdRr)
+        : (maxEstPnl !== undefined && maxEstPnl >= minEstThresholdUsdt);
+      const estPnlReleased = estPnlReleaseEnabled && releaseThresholdReached;
       const forceReleased = tCfg.force_risk_release === true;
-      const tradeRiskUsdt = (slAtBe || estPnlReleased || forceReleased)
+      const isRiskReleased = forceReleased || (estPnlReleaseEnabled ? estPnlReleased : slAtBe);
+      const tradeRiskUsdt = isRiskReleased
         ? 0
-        : (Math.abs(trade.entry_price - (slPriceForEst || trade.entry_price)) * trade.quantity);
+        : (slAtBe
+            ? initialRiskUsdt
+            : (Math.abs(trade.entry_price - (slPriceForEst || trade.entry_price)) * trade.quantity));
       trade.risk_usdt = parseFloat(tradeRiskUsdt.toFixed(4));
+      const configuredThreshold = releaseMode === 'rr' ? minEstThresholdRr : minEstThresholdUsdt;
       trade.risk_lock_reason = forceReleased
         ? 'FORCED_RISK_RELEASE'
-        : estPnlReleased
-          ? (minEstThreshold === 0 ? 'EST_PNL_BREAKEVEN' : 'EST_PNL_THRESHOLD')
-          : slAtBe
-            ? 'SL_AT_BREAKEVEN'
-            : 'SL_BELOW_ENTRY';
+        : estPnlReleaseEnabled
+          ? (estPnlReleased
+              ? (configuredThreshold === 0 ? 'EST_PNL_BREAKEVEN' : (releaseMode === 'rr' ? 'EST_PNL_RR_THRESHOLD' : 'EST_PNL_THRESHOLD'))
+              : (slAtBe ? 'EST_PNL_BELOW_THRESHOLD' : 'SL_BELOW_ENTRY'))
+          : (slAtBe ? 'SL_AT_BREAKEVEN' : 'SL_BELOW_ENTRY');
 
       slUsed += tradeRiskUsdt;
 
@@ -2004,7 +2037,7 @@ function loadSessionStateFromDisk() {
         state.config = deepMergeConfig(state.config, saved.config);
         if (state.config.strategy_label) state.strategyLabel = state.config.strategy_label;
       }
-      if (Array.isArray(saved.presets) && saved.presets.length > 0) {
+      if (Array.isArray(saved.presets)) {
         state.presets = saved.presets;
       }
     }
@@ -2588,22 +2621,37 @@ app.get('/presets', (req, res) => {
 });
 
 app.post('/presets', (req, res) => {
-  const { name, config } = req.body || {};
-  if (!name) return res.status(400).json({ error: 'Preset name required' });
-  const existingIdx = state.presets.findIndex(p => p.name === name);
-  const newPreset = { id: `preset-${Date.now()}`, name, config };
+  const { name, config, overwrite } = req.body || {};
+  const normalizedName = typeof name === 'string' ? name.trim() : '';
+  if (!normalizedName) return res.status(400).json({ message: 'Preset name required', error: 'Preset name required' });
+  if (normalizedName.length > 100) return res.status(400).json({ message: 'Preset name cannot exceed 100 characters' });
+
+  const existingIdx = state.presets.findIndex(
+    p => p?.name && p.name.trim().toLowerCase() === normalizedName.toLowerCase()
+  );
+  if (existingIdx >= 0 && overwrite === false) {
+    return res.status(409).json({
+      message: `A preset named "${state.presets[existingIdx].name}" already exists. Choose a different name or confirm overwrite.`,
+      error: 'Conflict',
+    });
+  }
+
+  const existingId = existingIdx >= 0 ? state.presets[existingIdx].id : `preset-${Date.now()}`;
+  const newPreset = { id: existingId, name: normalizedName, config };
   if (existingIdx >= 0) {
     state.presets[existingIdx] = newPreset;
   } else {
     state.presets.push(newPreset);
   }
-  addLog(`Saved strategy preset "${name}"`);
+  saveSessionStateToDisk();
+  addLog(`Saved strategy preset "${normalizedName}"`);
   res.json({ success: true, preset: newPreset });
 });
 
 app.delete('/presets/:name', (req, res) => {
-  const name = decodeURIComponent(req.params.name);
-  state.presets = state.presets.filter(p => p.name !== name);
+  const name = decodeURIComponent(req.params.name).trim();
+  state.presets = state.presets.filter(p => p?.name !== name);
+  saveSessionStateToDisk();
   addLog(`Deleted strategy preset "${name}"`);
   res.json({ success: true });
 });

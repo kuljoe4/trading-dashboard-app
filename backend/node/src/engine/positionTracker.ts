@@ -1136,15 +1136,19 @@ export class PositionTrackerService {
     // to handle exchange-side rounding/flooring that might place SL 1 tick below entry.
     const tolerance = Math.max(0.00000001, Number(trade.entry_price) * 0.0001);
 
+    const activeConfig = config || trade.strategy_config;
+    const estPnlReleaseEnabled = Boolean(activeConfig?.release_risk_on_est_pnl_be);
+
     // SRE: Evaluate whether current_sl is at or better than breakeven
-    let isBreakevenOrBetter: boolean = false;
+    let isSlAtBreakeven: boolean = false;
+    let isSlRemovedInProfit: boolean = false;
     let lockReason = 'ACTIVE_RISK_LOCKED';
 
     if (Number(trade.current_sl) && Number(trade.current_sl) > 0) {
-      isBreakevenOrBetter = trade.direction === 'LONG'
+      isSlAtBreakeven = trade.direction === 'LONG'
         ? Number(trade.current_sl) >= Number(trade.entry_price) - tolerance
         : Number(trade.current_sl) <= Number(trade.entry_price) + tolerance;
-      if (isBreakevenOrBetter) {
+      if (isSlAtBreakeven) {
         lockReason = 'SL_AT_BREAKEVEN';
       } else {
         lockReason = 'SL_BELOW_ENTRY';
@@ -1152,7 +1156,7 @@ export class PositionTrackerService {
     } else if (Number(trade.current_sl) === 0 && Number(trade.initial_sl) > 0) {
       // If current_sl was set to 0, risk is only released if SL was adjusted in profit / milestone reached
       if ((trade.rr_sequence_index ?? -1) >= 0 || (trade.sl_adjustments?.length ?? 0) > 0) {
-        isBreakevenOrBetter = true;
+        isSlRemovedInProfit = true;
         lockReason = 'SL_REMOVED_IN_PROFIT';
       }
     }
@@ -1167,7 +1171,6 @@ export class PositionTrackerService {
     }
 
     // Dynamic Estimated Floor Exit PnL Re-evaluation strictly from Ratchet SL and Exit Signal targets
-    const activeConfig = config || trade.strategy_config;
     let estPnl: number | undefined = undefined;
 
     if (Number(trade.entry_price) && trade.qty) {
@@ -1239,12 +1242,23 @@ export class PositionTrackerService {
       ? estPnlRr !== undefined && estPnlRr >= estPnlThresholdRr
       : estPnl !== undefined && estPnl >= estPnlThresholdUsdt;
 
-    if (activeConfig?.release_risk_on_est_pnl_be && releaseThresholdReached) {
-      isBreakevenOrBetter = true;
-      const configuredThreshold = releaseMode === 'rr' ? estPnlThresholdRr : estPnlThresholdUsdt;
-      lockReason = configuredThreshold === 0
-        ? 'EST_PNL_BREAKEVEN'
-        : (releaseMode === 'rr' ? 'EST_PNL_RR_THRESHOLD' : 'EST_PNL_THRESHOLD');
+    // When Est. P&L Risk Release is enabled, it acts as the authoritative release gate
+    // so guard ladder SL ratchets (e.g. 0R BE or +0.2R) do not silently release risk below
+    // the user's configured USDT or R:R floor.
+    let isRiskReleased: boolean = false;
+    if (estPnlReleaseEnabled) {
+      if (releaseThresholdReached) {
+        isRiskReleased = true;
+        const configuredThreshold = releaseMode === 'rr' ? estPnlThresholdRr : estPnlThresholdUsdt;
+        lockReason = configuredThreshold === 0
+          ? 'EST_PNL_BREAKEVEN'
+          : (releaseMode === 'rr' ? 'EST_PNL_RR_THRESHOLD' : 'EST_PNL_THRESHOLD');
+      } else if (isSlAtBreakeven || isSlRemovedInProfit) {
+        isRiskReleased = false;
+        lockReason = 'EST_PNL_BELOW_THRESHOLD';
+      }
+    } else {
+      isRiskReleased = isSlAtBreakeven || isSlRemovedInProfit;
     }
 
     const isForcedRelease: boolean = trade.strategy_config?.force_risk_release === true || config?.force_risk_release === true;
@@ -1252,8 +1266,13 @@ export class PositionTrackerService {
       lockReason = 'FORCED_RISK_RELEASE';
     }
 
-    if (isBreakevenOrBetter || isForcedRelease) {
+    if (isRiskReleased || isForcedRelease) {
       trade.risk_usdt = 0;
+      trade.risk_lock_reason = lockReason;
+    } else if (isSlAtBreakeven || isSlRemovedInProfit) {
+      // SL was ratcheted to breakeven or into profit by the guard ladder, but Est. P&L Risk Release
+      // threshold has not been met yet: keep initial risk locked rather than computing 0 from |entry - SL|.
+      trade.risk_usdt = roundEight(initialRiskUsdt > 0 ? initialRiskUsdt : prevRisk);
       trade.risk_lock_reason = lockReason;
     } else {
       const slDistance = Math.abs(Number(trade.entry_price) - (Number(trade.current_sl) || Number(trade.initial_sl) || Number(trade.entry_price)));

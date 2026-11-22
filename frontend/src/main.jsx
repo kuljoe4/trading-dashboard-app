@@ -378,13 +378,13 @@ const App = () => {
         {tradingMode === 'paper' && (
           <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
         )}
-        <PersistentAlertBanner />
         <Sidebar selected={selectedStrategy} activeRoute={view} />
         <div
           className={`min-h-screen transition-[padding] duration-300 ${
             sidebarCollapsed ? 'lg:pl-[80px]' : 'lg:pl-[260px]'
-          }`}
+          } ${tradingMode === 'paper' ? 'pt-1' : ''}`}
         >
+          <PersistentAlertBanner />
           <Suspense fallback={<LoadingView view={view} />}>
             <SmoothSwap contentKey={routeGroupKey} duration={0.14} yOffset={3}>
               {renderView()}

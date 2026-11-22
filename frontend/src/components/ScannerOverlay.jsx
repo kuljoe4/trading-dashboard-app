@@ -557,16 +557,14 @@ const ScanStatus = React.memo(() => {
   }), shallow);
 
   const now = useNow();
-  const lastUpdateRef = useRef(lastScanTs);
-  const isUpdating = lastScanTs !== lastUpdateRef.current;
-  if (isUpdating) lastUpdateRef.current = lastScanTs;
+  const effectiveNow = lastScanTs > 0 ? Math.max(now, lastScanTs) : now;
+  const scanAge = lastScanTs > 0 ? Math.max(0, effectiveNow - lastScanTs) : null;
+  const intervalSec = Math.max(1, scanIntervalMs ? Math.round(scanIntervalMs / 1000) : (configIntervalSec || 15));
 
-  const scanAge = lastScanTs > 0 ? Math.max(0, now - lastScanTs) : null;
   let nextSlotSec = 0;
-  if (nextScanTs && nextScanTs > now) {
-    nextSlotSec = Math.max(0, Math.ceil((nextScanTs - now) / 1000));
+  if (nextScanTs && nextScanTs > 0) {
+    nextSlotSec = Math.max(0, Math.ceil((nextScanTs - effectiveNow) / 1000));
   } else if (lastScanTs > 0) {
-    const intervalSec = scanIntervalMs ? Math.round(scanIntervalMs / 1000) : (configIntervalSec || 15);
     nextSlotSec = Math.max(0, intervalSec - Math.floor((scanAge || 0) / 1000));
   }
 
@@ -575,22 +573,22 @@ const ScanStatus = React.memo(() => {
       {lastScanTs > 0 && (
         <>
           <div className="flex items-center gap-1">
-            <Clock size={10} className="text-dim/40" />
+            <Clock size={10} className="text-dim/40 shrink-0" />
             <span className={cn(
-              "text-[8.5px] text-dim font-bold uppercase tracking-wider transition-colors duration-500",
+              "text-[8.5px] text-dim font-bold uppercase tracking-wider tabular-nums min-w-[2.25rem] transition-colors duration-300",
               scanAge < 5000 && "text-green"
             )}>
-              {scanAge < 2000 ? 'Now' : `${formatDuration(scanAge)}`}
+              {scanAge < 2000 ? 'Live' : `${formatDuration(scanAge)}`}
             </span>
           </div>
           <div className="w-1 h-1 rounded-full bg-border/40" />
           <div className="flex items-center gap-1">
-            <RefreshCw size={10} className={cn("text-dim/40", nextSlotSec <= 1 && "animate-spin text-accent/60")} />
+            <RefreshCw size={10} className={cn("text-dim/40 shrink-0", nextSlotSec === 0 && "animate-spin text-accent/70")} />
             <span className={cn(
-              "text-[8.5px] font-black uppercase tracking-widest tabular-nums",
-              nextSlotSec <= 1 ? "text-accent" : "text-dim/60"
+              "text-[8.5px] font-black uppercase tracking-widest tabular-nums min-w-[2rem] text-right",
+              nextSlotSec === 0 ? "text-accent" : "text-dim/60"
             )}>
-              {nextSlotSec}s
+              {nextSlotSec === 0 ? 'Scan' : `${nextSlotSec}s`}
             </span>
           </div>
         </>

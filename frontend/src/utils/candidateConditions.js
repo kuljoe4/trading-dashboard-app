@@ -1495,6 +1495,131 @@ export function buildEngulfingPatternModel({
 }
 
 /**
+ * Normalizes close-confirmation telemetry for `ema_close` and `ema_dual_close`
+ * so Inspect Candidates renders completed-candle vs live-forming alignment
+ * alongside a live UTC-anchored candle close countdown.
+ */
+export function buildCloseConfirmationModel({
+  sigKey = '',
+  signalDetail = {},
+  timeframe = '5m',
+  isLong = true,
+  isExit = false,
+  nowMs = Date.now(),
+} = {}) {
+  const baseType = getBaseSignalType(sigKey);
+  if (baseType !== 'ema_close' && baseType !== 'ema_dual_close') return null;
+
+  const isDual = baseType === 'ema_dual_close';
+  const effectiveTf = String(signalDetail?.timeframe || timeframe || '5m');
+  const tfMs = timeframeToMs(effectiveTf) || 60000;
+  const wantUpper = isExit ? !isLong : isLong;
+
+  const numOrNull = (v) => {
+    if (v === undefined || v === null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  let closedVal = isDual
+    ? (numOrNull(signalDetail?.closed_fast) ?? numOrNull(signalDetail?.closed_value) ?? numOrNull(signalDetail?.value))
+    : (numOrNull(signalDetail?.closed_value) ?? numOrNull(signalDetail?.value));
+  let closedTarget = isDual
+    ? (numOrNull(signalDetail?.closed_slow) ?? numOrNull(signalDetail?.closed_threshold) ?? numOrNull(signalDetail?.threshold))
+    : (numOrNull(signalDetail?.closed_threshold) ?? numOrNull(signalDetail?.threshold));
+
+  // Backward compatibility with legacy backend snapshots where ema_dual_close placed completedClose in value and liveFast in live_price
+  if (isDual && signalDetail?.closed_fast === undefined && signalDetail?.live_fast === undefined && numOrNull(signalDetail?.live_price) !== null && numOrNull(signalDetail?.threshold) !== null) {
+    closedTarget = closedTarget ?? numOrNull(signalDetail?.threshold);
+  }
+
+  const liveVal = isDual
+    ? (numOrNull(signalDetail?.live_fast) ?? numOrNull(signalDetail?.live_price) ?? closedVal)
+    : (numOrNull(signalDetail?.live_price) ?? closedVal);
+  const liveTarget = isDual
+    ? (numOrNull(signalDetail?.live_slow) ?? numOrNull(signalDetail?.live_threshold) ?? numOrNull(signalDetail?.threshold) ?? closedTarget)
+    : (numOrNull(signalDetail?.live_threshold) ?? closedTarget);
+
+  if (closedVal === null && liveVal === null && closedTarget === null) {
+    // Still return structured metadata during warmup/standby so the close-wait contract is visible
+  }
+
+  const isAlignedSide = (v, t) => {
+    if (v === null || t === null || t === 0) return null;
+    return wantUpper ? v > t : v < t;
+  };
+
+  const pctGap = (v, t) => {
+    if (v === null || t === null || t === 0) return null;
+    const raw = ((v - t) / Math.abs(t)) * 100;
+    return wantUpper ? raw : -raw;
+  };
+
+  const fired = Boolean(signalDetail?.fired);
+  const rejected = Boolean(signalDetail?.rejected || signalDetail?.status === 'blocked');
+
+  const closedAligned = typeof signalDetail?.closed_aligned === 'boolean'
+    ? signalDetail.closed_aligned
+    : (fired ? true : Boolean(isAlignedSide(closedVal, closedTarget)));
+
+  const liveAligned = typeof signalDetail?.live_aligned === 'boolean'
+    ? signalDetail.live_aligned
+    : Boolean(isAlignedSide(liveVal, liveTarget));
+
+  let state = 'waiting';
+  if (rejected) {
+    state = 'rejected';
+  } else if (fired || closedAligned) {
+    state = 'confirmed';
+  } else if (liveAligned || signalDetail?.candle_confirm_state === 'wicked_only') {
+    state = 'wait_close';
+  }
+
+  let stateLabel = 'WAITING';
+  if (state === 'rejected') stateLabel = 'BLOCKED';
+  else if (state === 'confirmed') stateLabel = 'CONFIRMED';
+  else if (state === 'wait_close') stateLabel = 'WAIT CLOSE';
+
+  const explicitCloseTs = Number(signalDetail?.candle_close_ts);
+  const explicitCountdown = Number(signalDetail?.trig_close_countdown_ms);
+  const candleCloseTs = Number.isFinite(explicitCloseTs) && explicitCloseTs > 0
+    ? explicitCloseTs
+    : (Number.isFinite(explicitCountdown) && explicitCountdown > 0 && Number.isFinite(nowMs)
+        ? nowMs + explicitCountdown
+        : (tfMs > 0 && Number.isFinite(nowMs) ? Math.ceil((nowMs + 1) / tfMs) * tfMs : 0));
+
+  return {
+    enabled: true,
+    mode: isDual ? 'dual_ema' : 'price_ema',
+    timeframe: effectiveTf,
+    tfMs,
+    candleCloseTs,
+    wantUpper,
+    closedTitle: isDual ? 'Closed EMA' : 'Closed Candle',
+    liveTitle: isDual ? 'Live EMA' : 'Live Candle',
+    closedSubjectLabel: isDual ? 'Fast' : 'Close',
+    closedTargetLabel: isDual ? 'Slow' : 'EMA',
+    closedVal,
+    closedTarget,
+    closedValText: closedVal !== null ? formatCompactValue(closedVal, 'price', true) : '---',
+    closedTargetText: closedTarget !== null ? formatCompactValue(closedTarget, 'price', true) : '---',
+    closedDeltaPct: pctGap(closedVal, closedTarget),
+    closedAligned,
+    liveVal,
+    liveTarget,
+    liveValText: liveVal !== null ? formatCompactValue(liveVal, 'price', true) : '---',
+    liveTargetText: liveTarget !== null ? formatCompactValue(liveTarget, 'price', true) : '---',
+    liveDeltaPct: pctGap(liveVal, liveTarget),
+    liveAligned,
+    fired,
+    rejected,
+    pullingBack: state === 'confirmed' && liveVal !== null && liveTarget !== null && !liveAligned,
+    state,
+    stateLabel,
+  };
+}
+
+/**
  * Computes real-time tick delta and directional color-coding between two consecutive evaluations
  * of the same condition item so the UI can highlight what value is changing and whether it is
  * moving toward the target, pulling back, or extending past the cap.
@@ -1670,15 +1795,37 @@ export function buildCandidateConditionsModel({
       const fallbackTf = (!rawTf || rawTf === 'default') ? (tradeCfg.scan_interval || scanTf) : rawTf;
       const tf = asText(summary?.timeframe, fallbackTf) || fallbackTf;
       const paramsText = asText(summary, 'Standard') || 'Standard';
-      const effectiveExitValue = (s.live_price !== undefined && s.live_price !== null && Number.isFinite(Number(s.live_price)))
+      const closeConfirm = buildCloseConfirmationModel({
+        sigKey,
+        signalDetail: s,
+        timeframe: tf,
+        isLong,
+        isExit: true,
+        nowMs,
+      });
+
+      const rawEffectiveExitValue = (s.live_price !== undefined && s.live_price !== null && Number.isFinite(Number(s.live_price)))
         ? Number(s.live_price)
         : s.value;
-      const proximity = (est && typeof est.proximity === 'number')
+      const effectiveExitValue = closeConfirm && (s.fired || closeConfirm.closedAligned) && closeConfirm.closedVal !== null
+        ? closeConfirm.closedVal
+        : rawEffectiveExitValue;
+      const effectiveExitThreshold = closeConfirm && (s.fired || closeConfirm.closedAligned) && closeConfirm.closedTarget !== null
+        ? closeConfirm.closedTarget
+        : (closeConfirm?.liveTarget ?? s.threshold);
+
+      let proximity = (est && typeof est.proximity === 'number')
         ? Math.round(est.proximity)
-        : Math.round(calculateProximity({ ...s, value: effectiveExitValue, key: sigKey }, markPrice, entryPrice, isLong, true));
+        : Math.round(calculateProximity({ ...s, value: effectiveExitValue, threshold: effectiveExitThreshold, key: sigKey }, markPrice, entryPrice, isLong, true));
 
       const isTriggered = Boolean((s.fired && s.active) || est?.state === 'fired');
       const isDelayed = Number(s.remaining_delay || 0) > 0 && !isTriggered;
+      const isCloseWaitPending = Boolean(
+        closeConfirm && !s.insufficientData && !isTriggered && !s.fired && !closeConfirm.rejected && closeConfirm.state === 'wait_close'
+      );
+      if (isCloseWaitPending) {
+        proximity = Math.min(98, Math.max(88, proximity));
+      }
 
       let stateLabel = 'WATCHING';
       let tone = 'neutral';
@@ -1691,6 +1838,9 @@ export function buildCandidateConditionsModel({
       } else if (est?.state === 'blocked') {
         stateLabel = 'BLOCKED';
         tone = 'danger';
+      } else if (isCloseWaitPending) {
+        stateLabel = 'WAIT CLOSE';
+        tone = 'accent';
       } else if (est?.state === 'diverging') {
         stateLabel = 'DIVERGING';
         tone = 'dim';
@@ -1708,9 +1858,9 @@ export function buildCandidateConditionsModel({
       const exitRefSpanPct = entryPrice > 0 && slDist > 0
         ? (slDist / entryPrice) * 100
         : (Number(tradeCfg.sl_distance_pct) || 1.5);
-      const meter = computeConditionMeter({
+      let meter = computeConditionMeter({
         value: effectiveExitValue,
-        threshold: s.threshold,
+        threshold: effectiveExitThreshold,
         thresholdIsPrice: Boolean(s.threshold_is_price || s.thresholdIsPrice),
         unit: s.unit || '',
         isLong,
@@ -1724,6 +1874,20 @@ export function buildCandidateConditionsModel({
         isIndicatorPair: sigKey.includes('dual') || sigKey.includes('_cross'),
         referenceSpanPct: exitRefSpanPct,
       });
+
+      if (isCloseWaitPending) {
+        const clampedPre = Math.min(98, Math.max(88, Math.round(meter.dialPct >= 100 ? 98 : meter.dialPct)));
+        meter = {
+          ...meter,
+          dialPct: clampedPre,
+          rawDialPct: clampedPre,
+          meterFillPct: Math.min(49, Math.max(42, Number(meter.meterFillPct) || 46)),
+          dialZone: 'near',
+          dialStatus: 'Wait Close',
+          dialOverText: 'Crossed · wait close',
+          meterState: 'approaching',
+        };
+      }
 
       const connector = idx === 0
         ? 'IF'
@@ -1751,17 +1915,19 @@ export function buildCandidateConditionsModel({
       return {
         key: sigKey,
         connector,
+        visualization: 'dial',
         label: asText(s.label, formatSignalLabel(sigKey)),
         timeframe: tf,
         paramsText,
+        closeConfirm,
         macdFilter,
         engulfingPattern,
         liveValue: !s.insufficientData && Number.isFinite(Number(effectiveExitValue)) ? Number(effectiveExitValue) : null,
-        targetValue: Number.isFinite(Number(s.threshold)) ? Number(s.threshold) : null,
+        targetValue: Number.isFinite(Number(effectiveExitThreshold)) ? Number(effectiveExitThreshold) : null,
         unit: s.unit || '',
         thresholdIsPrice: Boolean(s.threshold_is_price || s.thresholdIsPrice),
         liveText: s.insufficientData ? '---' : formatCompactValue(effectiveExitValue, s.unit, s.threshold_is_price),
-        targetText: formatCompactValue(s.threshold, s.unit, s.threshold_is_price),
+        targetText: formatCompactValue(effectiveExitThreshold, s.unit, s.threshold_is_price),
         proximity,
         ...meter,
         etaCandles: est?.etaCandles ?? null,
@@ -1948,14 +2114,29 @@ export function buildCandidateConditionsModel({
         })
       : null;
 
-    const effectiveValue = (s.live_price !== undefined && s.live_price !== null && Number.isFinite(Number(s.live_price)))
+    const closeConfirm = buildCloseConfirmationModel({
+      sigKey,
+      signalDetail: s,
+      timeframe: tf,
+      isLong,
+      isExit: false,
+      nowMs,
+    });
+
+    const rawEffectiveValue = (s.live_price !== undefined && s.live_price !== null && Number.isFinite(Number(s.live_price)))
       ? Number(s.live_price)
       : (s.value !== undefined && s.value !== null
           ? s.value
           : (ladder ? ladder.livePrice : undefined));
-    const effectiveThreshold = s.threshold !== undefined && s.threshold !== null
+    const effectiveValue = closeConfirm && (s.fired || closeConfirm.closedAligned) && closeConfirm.closedVal !== null
+      ? closeConfirm.closedVal
+      : rawEffectiveValue;
+    const rawEffectiveThreshold = s.threshold !== undefined && s.threshold !== null
       ? s.threshold
       : (ladder ? ladder.breakoutLevel : undefined);
+    const effectiveThreshold = closeConfirm && (s.fired || closeConfirm.closedAligned) && closeConfirm.closedTarget !== null
+      ? closeConfirm.closedTarget
+      : (closeConfirm?.liveTarget ?? rawEffectiveThreshold);
     const effectiveThresholdIsPrice = Boolean(s.threshold_is_price || s.thresholdIsPrice || isHtfBreakout);
 
     let prox = Math.round(calculateProximity(
@@ -1973,6 +2154,9 @@ export function buildCandidateConditionsModel({
         (ladder && ladder.distFromLevelPct >= 0 && (ladder.mode !== 'closed_candle_confirm' || ladder.candleConfirmState === 'closed_beyond'))
       )
     );
+    const isCloseWaitPending = Boolean(
+      closeConfirm && !isWarming && !isRejected && !isPassed && closeConfirm.state === 'wait_close'
+    );
 
     if (!isPassed && !isWarming && !isRejected && !isIndicatorPair && effectiveThresholdIsPrice) {
       const vNum = Number(effectiveValue ?? markPrice);
@@ -1982,6 +2166,9 @@ export function buildCandidateConditionsModel({
         const scaledProx = Math.round(99 / (1 + 35 * distRatio));
         prox = Math.max(0, Math.min(99, scaledProx));
       }
+    }
+    if (isCloseWaitPending) {
+      prox = Math.min(98, Math.max(88, prox));
     }
 
     let stateLabel = 'WATCHING';
@@ -1997,6 +2184,9 @@ export function buildCandidateConditionsModel({
     } else if (isPassed) {
       stateLabel = 'PASS';
       tone = 'positive';
+    } else if (isCloseWaitPending) {
+      stateLabel = 'WAIT CLOSE';
+      tone = 'accent';
     } else if (ladder?.candleConfirmState === 'wicked_only' || prox >= 80) {
       stateLabel = 'NEAR';
       tone = 'accent';
@@ -2020,6 +2210,20 @@ export function buildCandidateConditionsModel({
         ? Number(opp.sl_dist_pct)
         : (Number(strategyConfig.sl_distance_pct) || 1.5),
     });
+
+    if (isCloseWaitPending) {
+      const clampedPre = Math.min(98, Math.max(88, Math.round(meter.dialPct >= 100 ? 98 : meter.dialPct)));
+      meter = {
+        ...meter,
+        dialPct: clampedPre,
+        rawDialPct: clampedPre,
+        meterFillPct: Math.min(49, Math.max(42, Number(meter.meterFillPct) || 46)),
+        dialZone: 'near',
+        dialStatus: 'Wait Close',
+        dialOverText: 'Crossed · wait close',
+        meterState: 'approaching',
+      };
+    }
 
     if (ladder && !isWarming) {
       const absDist = Math.abs(ladder.distFromLevelPct);
@@ -2068,6 +2272,7 @@ export function buildCandidateConditionsModel({
       connector,
       visualization: ladder ? 'ladder' : 'dial',
       ladder,
+      closeConfirm,
       macdFilter,
       engulfingPattern,
       label: asText(s.label, formatSignalLabel(sigKey)),

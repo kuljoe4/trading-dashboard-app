@@ -9,6 +9,7 @@ import {
   computeConditionValueDelta,
   buildMacdFilterModel,
   buildEngulfingPatternModel,
+  buildCloseConfirmationModel,
   buildHtfLadderModel,
   computeHtfLadderDomain,
   buildCandidateConditionsModel,
@@ -1060,6 +1061,182 @@ test('CandidateConditionsGauge helper suite', async (t) => {
     assert.strictEqual(clampedFromBackend.effectiveSlDistPct, 3.0);
     assert.strictEqual(clampedFromBackend.slClamped, true);
     assert.strictEqual(clampedFromBackend.slRejected, false);
+  });
+
+  await t.test('buildCloseConfirmationModel & buildCandidateConditionsModel handle ema_close / ema_dual_close wait-close vs confirmed states in Entry and Exit', () => {
+    const fixedNow = 1795400000000;
+
+    // 1. Entry ema_close crossed live mid-candle, but previous closed candle has not confirmed -> WAIT CLOSE
+    const entryWaitClose = buildCloseConfirmationModel({
+      sigKey: 'ema_close',
+      signalDetail: {
+        fired: false,
+        value: 0.0312,
+        threshold: 0.0318,
+        closed_value: 0.0312,
+        closed_threshold: 0.0318,
+        live_price: 0.0324,
+        live_threshold: 0.0319,
+        closed_aligned: false,
+        live_aligned: true,
+        candle_confirm_state: 'wicked_only',
+        timeframe: '1h',
+        trig_close_countdown_ms: 900000,
+        threshold_is_price: true,
+      },
+      timeframe: '1h',
+      isLong: true,
+      isExit: false,
+      nowMs: fixedNow,
+    });
+    assert.strictEqual(entryWaitClose.mode, 'price_ema');
+    assert.strictEqual(entryWaitClose.state, 'wait_close');
+    assert.strictEqual(entryWaitClose.stateLabel, 'WAIT CLOSE');
+    assert.strictEqual(entryWaitClose.closedAligned, false);
+    assert.strictEqual(entryWaitClose.liveAligned, true);
+    assert.strictEqual(entryWaitClose.candleCloseTs, fixedNow + 900000);
+
+    // Build full Entry model -> dial MUST NOT falsely turn green (dialPct <= 98, WAIT CLOSE badge, not ENTRY READY)
+    const entryWaitModel = buildCandidateConditionsModel({
+      opp: {
+        symbol: 'HUMAUSDT',
+        dir: 'long',
+        pct: 3.1,
+        close: 0.0324,
+        signalResult: {
+          allFired: false,
+          signals: {
+            ema_close: {
+              fired: false,
+              value: 0.0312,
+              threshold: 0.0318,
+              closed_value: 0.0312,
+              closed_threshold: 0.0318,
+              live_price: 0.0324,
+              live_threshold: 0.0319,
+              closed_aligned: false,
+              live_aligned: true,
+              candle_confirm_state: 'wicked_only',
+              timeframe: '1h',
+              trig_close_countdown_ms: 900000,
+              threshold_is_price: true,
+            },
+          },
+        },
+      },
+      strategyConfig: {
+        scan_interval: '1h',
+        scan_pct_threshold: 1.5,
+        entry_side: 'long',
+        enabled_signals: ['ema_close'],
+        signal_logic: 'all',
+        sl_type: 'pct',
+        sl_distance_pct: 2.0,
+      },
+      closedTrades: [],
+      nowMs: fixedNow,
+    });
+    const entryEmaCond = entryWaitModel.conditions.find((c) => c.key === 'ema_close');
+    assert.ok(entryEmaCond);
+    assert.strictEqual(entryEmaCond.stateLabel, 'WAIT CLOSE');
+    assert.strictEqual(entryEmaCond.tone, 'accent');
+    assert.strictEqual(entryEmaCond.dialZone, 'near');
+    assert.ok(entryEmaCond.dialPct <= 98, `Pre-close dialPct must clamp <= 98, got ${entryEmaCond.dialPct}`);
+    assert.strictEqual(entryEmaCond.dialOverText, 'Crossed · wait close');
+    assert.notStrictEqual(entryWaitModel.overallStatus, 'ENTRY READY');
+
+    // 2. Entry ema_dual_close confirmed on candle close, with live pulling back mid-candle -> CONFIRMED + pullingBack
+    const dualConfirmedPullback = buildCloseConfirmationModel({
+      sigKey: 'ema_dual_close',
+      signalDetail: {
+        fired: true,
+        value: 101.2,
+        threshold: 100.4,
+        closed_fast: 101.2,
+        closed_slow: 100.4,
+        live_fast: 100.1,
+        live_slow: 100.3,
+        closed_aligned: true,
+        live_aligned: false,
+        candle_confirm_state: 'closed_beyond',
+        timeframe: '15m',
+      },
+      timeframe: '15m',
+      isLong: true,
+      isExit: false,
+      nowMs: fixedNow,
+    });
+    assert.strictEqual(dualConfirmedPullback.mode, 'dual_ema');
+    assert.strictEqual(dualConfirmedPullback.state, 'confirmed');
+    assert.strictEqual(dualConfirmedPullback.stateLabel, 'CONFIRMED');
+    assert.strictEqual(dualConfirmedPullback.closedAligned, true);
+    assert.strictEqual(dualConfirmedPullback.pullingBack, true);
+
+    // 3. Entry ema_dual_close blocked by MACD -> BLOCKED state
+    const dualBlocked = buildCloseConfirmationModel({
+      sigKey: 'ema_dual_close',
+      signalDetail: {
+        fired: false,
+        rejected: true,
+        status: 'blocked',
+        closed_fast: 101.2,
+        closed_slow: 100.4,
+        closed_aligned: true,
+        live_aligned: true,
+        timeframe: '15m',
+      },
+      timeframe: '15m',
+      isLong: true,
+      isExit: false,
+      nowMs: fixedNow,
+    });
+    assert.strictEqual(dualBlocked.state, 'rejected');
+    assert.strictEqual(dualBlocked.stateLabel, 'BLOCKED');
+
+    // 4. Exit ema_dual_close for LONG active position (exit fires when Fast < Slow on close)
+    // Live crossed below mid-candle while closed candle still Fast > Slow -> WAIT CLOSE in Exit panel
+    const exitWaitModel = buildCandidateConditionsModel({
+      opp: { symbol: 'ETHUSDT', dir: 'long', pct: 1.0, close: 2495 },
+      activeTrade: {
+        symbol: 'ETHUSDT',
+        direction: 'LONG',
+        entry_price: 2500,
+        current_price: 2495,
+        current_sl: 2450,
+        qty: 1,
+        initial_risk_usdt: 50,
+        pnl: -5,
+        exit_signals_status: {
+          ema_dual_close: {
+            fired: false,
+            active: true,
+            value: 2506,
+            threshold: 2502,
+            closed_fast: 2506,
+            closed_slow: 2502,
+            live_fast: 2499,
+            live_slow: 2501,
+            closed_aligned: false,
+            live_aligned: true,
+            candle_confirm_state: 'wicked_only',
+            timeframe: '5m',
+            threshold_is_price: true,
+          },
+        },
+      },
+      strategyConfig: {
+        scan_interval: '5m',
+        exit_signals: ['ema_dual_close'],
+        exit_signal_logic: 'any',
+      },
+      nowMs: fixedNow,
+    });
+    const exitCond = exitWaitModel.conditions[0];
+    assert.strictEqual(exitCond.stateLabel, 'WAIT CLOSE');
+    assert.strictEqual(exitCond.tone, 'accent');
+    assert.ok(exitCond.proximity <= 98);
+    assert.strictEqual(exitCond.closeConfirm.state, 'wait_close');
+    assert.strictEqual(exitCond.closeConfirm.wantUpper, false);
   });
 });
 

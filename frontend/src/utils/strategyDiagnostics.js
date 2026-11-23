@@ -511,6 +511,8 @@ export function getStrategyRulesDiagnostics({
     configAuditNotes.push(`Possible typo in excluded_symbols: "${typoSymbols.join(', ')}" (did you mean BTC?)`);
   }
 
+  const maxFeeDragPct = Number(strategyConfig.max_fee_drag_pct ?? 5);
+
   riskChecks.push({
     key: 'guards_extras',
     label: 'Session Guards & Sizing Modifiers',
@@ -518,6 +520,7 @@ export function getStrategyRulesDiagnostics({
       windows.length > 0 ? `${windows.length} Trading Window(s)` : '24/7 Schedule',
       todOn ? `TOD WinRate ≥ ${strategyConfig.tod_min_winrate ?? 40}%` : null,
       guardUsdt > 0 ? `Session SL Guard $${guardUsdt}` : null,
+      maxFeeDragPct > 0 ? `Fee Drag ≤ ${maxFeeDragPct}% of 1R` : 'Fee Drag Gate Off',
       martOn ? `Martingale ×${strategyConfig.martingale_multiplier ?? 2} (max ${strategyConfig.martingale_max_steps ?? 3})` : null,
     ].filter(Boolean).join(' · '),
     liveText: isStrategyPaused
@@ -536,7 +539,7 @@ export function getStrategyRulesDiagnostics({
         ? `Gate blocked: ${effectiveReason || effectiveGate}`
         : configAuditNotes.length > 0
           ? configAuditNotes.join(' · ')
-          : `Slippage abort ≥ ${strategyConfig.slippage_abort_threshold ?? 1.5}% · All pre-trade guards clear`,
+          : `Fee drag cap ${maxFeeDragPct > 0 ? `${maxFeeDragPct}% 1R (SL ≥ ${(0.08 / (maxFeeDragPct / 100)).toFixed(2)}%)` : 'Off'} · Slippage abort ≥ ${strategyConfig.slippage_abort_threshold ?? 1.5}%`,
   });
 
   return {

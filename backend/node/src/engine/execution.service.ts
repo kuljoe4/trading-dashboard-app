@@ -870,13 +870,17 @@ export class ExecutionService {
         // BOLT: Fee Drag Gate for Small Accounts
         // Reject entries where the round-trip fee eats a massive chunk of 1R.
         // Assuming ~0.04% taker fee each way -> 0.08% round trip total notional fee.
+        const maxFeeDragPct = Number(resolvedConfig.max_fee_drag_pct ?? 5);
         const notional = price * qty;
         const estimatedFeeUsdt = notional * 0.0008;
-        if (prospectiveRiskUsdt > 0 && (estimatedFeeUsdt / prospectiveRiskUsdt) > 0.05) {
-           const feeDragReason = `Fee drag too high (${((estimatedFeeUsdt / prospectiveRiskUsdt) * 100).toFixed(1)}% of 1R risk).`;
-           this.logger.debug(`${opp.symbol}: Entry skipped - ${feeDragReason}`);
-           this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'fee_drag', feeDragReason);
-           continue;
+        if (Number.isFinite(maxFeeDragPct) && maxFeeDragPct > 0 && prospectiveRiskUsdt > 0) {
+           const feeDragPct = (estimatedFeeUsdt / prospectiveRiskUsdt) * 100;
+           if (feeDragPct > maxFeeDragPct) {
+              const feeDragReason = `Fee drag too high (${feeDragPct.toFixed(1)}% of 1R risk > ${maxFeeDragPct}% limit).`;
+              this.logger.debug(`${opp.symbol}: Entry skipped - ${feeDragReason}`);
+              this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'fee_drag', feeDragReason);
+              continue;
+           }
         }
 
         this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);

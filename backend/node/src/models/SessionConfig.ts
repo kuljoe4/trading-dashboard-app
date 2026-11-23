@@ -742,6 +742,12 @@ export class SessionConfig {
   @Max(CONFIG_LIMITS.SLIPPAGE_ABORT_MAX)
   slippage_abort_threshold: number = CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT;
 
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  @Max(50)
+  max_fee_drag_pct?: number = 5;
+
   @IsBoolean()
   @IsOptional()
   debug_mode?: boolean = false;

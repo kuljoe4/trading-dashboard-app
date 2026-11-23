@@ -241,6 +241,7 @@ const sessionConfigAllowedKeys = [
   'main_loop_interval_ms',
   'slippage_warning_threshold',
   'slippage_abort_threshold',
+  'max_fee_drag_pct',
   'debug_mode',
   'hibernation_mode',
   'hibernation_grace_period_sec',

@@ -294,6 +294,7 @@ SignalListWithCollapse.displayName = 'SignalListWithCollapse';
 
 const TAB_ERROR_MAP = {
   slippage_warning_threshold: 'risk',
+  max_fee_drag_pct: 'risk',
   release_risk_est_pnl_min_usdt: 'risk',
   release_risk_est_pnl_min_rr: 'risk',
   scan_interval: 'scan',
@@ -324,6 +325,7 @@ const SECTION_ERROR_MAP = {
   scanner_weights_trend: 'scan_global',
   scanner_signal_depth: 'scan_global',
   slippage_warning_threshold: 'risk_guards',
+  max_fee_drag_pct: 'risk_guards',
   release_risk_est_pnl_min_usdt: 'risk_guards',
   release_risk_est_pnl_min_rr: 'risk_guards',
   risk_pct_per_trade: 'risk_guards',
@@ -2851,6 +2853,9 @@ const flattenConfig = (config) => {
       slippage_warning_threshold: isAlreadyFlattened
         ? (config.slippage_warning_threshold !== undefined ? Number(config.slippage_warning_threshold) : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1))
         : (config.slippage_warning_threshold !== undefined ? config.slippage_warning_threshold * 100 : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1)),
+      max_fee_drag_pct: config.max_fee_drag_pct !== undefined && config.max_fee_drag_pct !== null && config.max_fee_drag_pct !== ''
+        ? Number(config.max_fee_drag_pct)
+        : 5,
       leverage: config.leverage !== undefined ? Number(config.leverage) : CONFIG_LIMITS.LEVERAGE_DEFAULT,
       slippage_abort_threshold: config.slippage_abort_threshold !== undefined ? Number(config.slippage_abort_threshold) : (CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT || 0.05),
       hibernation_mode: config.hibernation_mode || 'adaptive',
@@ -3027,7 +3032,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
-      'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
+      'slippage_abort_threshold', 'max_fee_drag_pct', 'htf_ema_cross_count', 'htf_ema_fast_period',
       'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight',
       'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score',
       'switched_sl_distance_pct', 'peak_rr_switch_threshold', 'peak_rr_switch_count',
@@ -3850,6 +3855,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (!Number.isFinite(Number(c.slippage_warning_threshold)) || Number(c.slippage_warning_threshold) < 0 || Number(c.slippage_warning_threshold) > 100) {
       errs.slippage_warning_threshold = 'Saved value is invalid. Enter a warning percentage between 0 and 100.';
     }
+    if (c.max_fee_drag_pct !== undefined && c.max_fee_drag_pct !== null && c.max_fee_drag_pct !== '' && (!Number.isFinite(Number(c.max_fee_drag_pct)) || Number(c.max_fee_drag_pct) < 0 || Number(c.max_fee_drag_pct) > 50)) {
+      errs.max_fee_drag_pct = 'Must be between 0 (disabled) and 50%';
+    }
     if (c.scan_mode === 'active_window' && (!c.scan_window_duration_sec || !c.scan_check_interval_sec)) errs.scan_mode = 'Params missing';
 
     // DEPLOY-05: Harden validation against missing API keys for chosen trading mode
@@ -4425,7 +4433,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
-      'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
+      'slippage_abort_threshold', 'max_fee_drag_pct', 'htf_ema_cross_count', 'htf_ema_fast_period',
       'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight',
       'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score',
       'switched_sl_distance_pct', 'peak_rr_switch_threshold', 'peak_rr_switch_count',
@@ -6792,6 +6800,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   max: 100,
                   step: 0.1,
                   helpText: "Warn when execution slippage exceeds this percentage. Invalid legacy values must be corrected before saving; this does not change the separate abort threshold."
+                })}
+                {renderField('Max Fee Drag (% of 1R)', 'max_fee_drag_pct', 'number', null, {
+                  min: 0,
+                  max: 50,
+                  step: 0.5,
+                  placeholder: '5',
+                  helpText: "Skips entries when estimated 0.08% round-trip taker fee exceeds this % of 1R risk (5% requires SL distance ≥ 1.60%). Increase (e.g. 25%) for tight stops or set 0 to disable."
                 })}
               </div>
 

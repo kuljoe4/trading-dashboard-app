@@ -742,6 +742,7 @@ const defaultConfig = {
   hot_loop_interval_ms: CONFIG_LIMITS.HOT_LOOP_DEFAULT,
   main_loop_interval_ms: CONFIG_LIMITS.MAIN_LOOP_DEFAULT,
   slippage_warning_threshold: CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT || 0.001,
+  max_fee_drag_pct: 5,
   auto_scale_min_notional: true,
   hibernation_mode: 'adaptive',
   debug_mode: typeof localStorage !== 'undefined' && localStorage.getItem('global_debug_mode') === 'true',

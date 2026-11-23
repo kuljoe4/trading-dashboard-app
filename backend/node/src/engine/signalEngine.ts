@@ -1543,8 +1543,6 @@ export class SignalEngineService {
       }
 
       let fired = false;
-      const threshold = side === 'SHORT' ? Math.min(fastEma, slowEma) : Math.max(fastEma, slowEma);
-
       if (purpose === 'entry') {
         if (side === 'LONG') fired = fastEma > slowEma;
         else if (side === 'SHORT') fired = fastEma < slowEma;
@@ -1555,6 +1553,7 @@ export class SignalEngineService {
         else if (side === 'SHORT') fired = fastEma > slowEma;
         else fired = false;
       }
+      const closedEmaAligned = fired;
 
       const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'ema_dual_macd_filter', false);
       let macdRejected = false;
@@ -1633,17 +1632,60 @@ export class SignalEngineService {
         description = `Closed candle aligned with EMA(${fastPeriod}/${slowPeriod}), but rejected by MACD histogram (${this.formatAdaptiveNumber(macdHistValue, false)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
       }
 
-      const liveClose = candles[candles.length - 1]?.close ?? completedClose;
+      const formingCandle = candles[candles.length - 1];
+      const liveClose = formingCandle?.close ?? completedClose;
       const liveFastRes = this.calculateEMAAt(candles, candles.length - 1, fastPeriod, interval, symbol);
       const liveSlowRes = this.calculateEMAAt(candles, candles.length - 1, slowPeriod, interval, symbol);
+      const liveFast = liveFastRes.value || fastEma;
+      const liveSlow = liveSlowRes.value || slowEma;
+
+      let liveEmaAligned = false;
+      if (purpose === 'entry') {
+        if (side === 'LONG') liveEmaAligned = liveFast > liveSlow;
+        else if (side === 'SHORT') liveEmaAligned = liveFast < liveSlow;
+        else liveEmaAligned = true;
+      } else {
+        if (side === 'LONG') liveEmaAligned = liveFast < liveSlow;
+        else if (side === 'SHORT') liveEmaAligned = liveFast > liveSlow;
+        else liveEmaAligned = false;
+      }
+
+      const tfUnit = String(interval || '1m').slice(-1);
+      const tfNum = parseInt(String(interval || '1m').slice(0, -1), 10) || 1;
+      const tfMs = tfUnit === 'm' ? tfNum * 60000 : tfUnit === 'h' ? tfNum * 3600000 : tfUnit === 'd' ? tfNum * 86400000 : tfUnit === 'w' ? tfNum * 7 * 86400000 : 60000;
+      const candleCloseTs = formingCandle?.time && formingCandle.time > 1000000000000
+        ? formingCandle.time + tfMs
+        : undefined;
+      const nowMs = Date.now();
+      const trigCloseCountdownMs = candleCloseTs
+        ? Math.max(0, candleCloseTs - nowMs)
+        : Math.max(0, tfMs - (nowMs % tfMs));
+      const candleConfirmState = closedEmaAligned
+        ? 'closed_beyond'
+        : (liveEmaAligned ? 'wicked_only' : 'below');
 
       return {
         fired,
         status: fired ? 'fired' : macdRejected ? 'blocked' : 'approaching',
-        value: roundTo(completedClose, 8),
-        closed_value: roundTo(completedClose, 8),
-        live_price: roundTo(liveFastRes.value || liveClose, 8),
-        threshold: roundTo( liveSlowRes.value || threshold, 8),
+        value: roundTo(fastEma, 8),
+        threshold: roundTo(slowEma, 8),
+        closed_value: roundTo(fastEma, 8),
+        closed_threshold: roundTo(slowEma, 8),
+        closed_fast: roundTo(fastEma, 8),
+        closed_slow: roundTo(slowEma, 8),
+        closed_close: roundTo(completedClose, 8),
+        live_price: roundTo(liveFast, 8),
+        live_threshold: roundTo(liveSlow, 8),
+        live_fast: roundTo(liveFast, 8),
+        live_slow: roundTo(liveSlow, 8),
+        live_close: roundTo(liveClose, 8),
+        close_wait: true,
+        closed_aligned: closedEmaAligned,
+        live_aligned: liveEmaAligned,
+        candle_confirm_state: candleConfirmState,
+        timeframe: interval,
+        trig_close_countdown_ms: trigCloseCountdownMs,
+        ...(candleCloseTs ? { candle_close_ts: candleCloseTs } : {}),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',
@@ -1681,12 +1723,16 @@ export class SignalEngineService {
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType?: string,
   ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
-      const period = purpose === 'exit'
-        ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
-        : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
+      const signalTypeKey = signalType || arguments[7] || 'ema_close';
+      const baseType = 'ema_close';
+      const rawPeriod = purpose === 'exit'
+        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_period', this.resolveSignalParam(params, signalTypeKey, baseType, 'ema_period', '12'))
+        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_period', this.resolveSignalParam(params, signalTypeKey, baseType, 'ema_period', '12'));
+      const period = parseInt(String(rawPeriod || '12'), 10) || 12;
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 2) {
@@ -1721,18 +1767,56 @@ export class SignalEngineService {
 
       if (minimal) return fired;
 
-      const liveClose = candles[candles.length - 1]?.close ?? completedClose;
+      const formingCandle = candles[candles.length - 1];
+      const liveClose = formingCandle?.close ?? completedClose;
+      const liveEmaRes = this.calculateEMAAt(candles, candles.length - 1, period, interval, symbol);
+      const liveEma = liveEmaRes.value || ema;
+
+      let liveAligned = false;
+      if (purpose === 'entry') {
+        if (side === 'LONG') liveAligned = liveClose > liveEma;
+        else if (side === 'SHORT') liveAligned = liveClose < liveEma;
+        else liveAligned = true;
+      } else {
+        if (side === 'LONG') liveAligned = liveClose < liveEma;
+        else if (side === 'SHORT') liveAligned = liveClose > liveEma;
+        else liveAligned = false;
+      }
+
+      const tfUnit = String(interval || '1m').slice(-1);
+      const tfNum = parseInt(String(interval || '1m').slice(0, -1), 10) || 1;
+      const tfMs = tfUnit === 'm' ? tfNum * 60000 : tfUnit === 'h' ? tfNum * 3600000 : tfUnit === 'd' ? tfNum * 86400000 : tfUnit === 'w' ? tfNum * 7 * 86400000 : 60000;
+      const candleCloseTs = formingCandle?.time && formingCandle.time > 1000000000000
+        ? formingCandle.time + tfMs
+        : undefined;
+      const nowMs = Date.now();
+      const trigCloseCountdownMs = candleCloseTs
+        ? Math.max(0, candleCloseTs - nowMs)
+        : Math.max(0, tfMs - (nowMs % tfMs));
+      const candleConfirmState = fired
+        ? 'closed_beyond'
+        : (liveAligned ? 'wicked_only' : 'below');
 
       return {
         fired,
+        status: fired ? 'fired' : 'approaching',
         value: roundTo(completedClose, 8),
         closed_value: roundTo(completedClose, 8),
-        live_price: roundTo(liveClose, 8),
         threshold: roundTo(ema, 8),
+        closed_threshold: roundTo(ema, 8),
+        live_price: roundTo(liveClose, 8),
+        live_threshold: roundTo(liveEma, 8),
+        close_wait: true,
+        closed_aligned: fired,
+        live_aligned: liveAligned,
+        candle_confirm_state: candleConfirmState,
+        timeframe: interval,
+        trig_close_countdown_ms: trigCloseCountdownMs,
+        ...(candleCloseTs ? { candle_close_ts: candleCloseTs } : {}),
         insufficientData: emaRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Close' : 'Entry EMA Close',
-        description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${period})`,
+        description: `Last closed candle (${this.formatAdaptiveNumber(completedClose)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${period})`,
         threshold_is_price: true,
         slPrice: roundTo(ema, 8),
       };

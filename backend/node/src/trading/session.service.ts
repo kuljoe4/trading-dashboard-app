@@ -865,6 +865,11 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Slippage warning threshold must be between 0 and 1 (0–100%). Repair the saved threshold before applying this configuration.');
     }
 
+    if (config.max_fee_drag_pct != null &&
+      (!Number.isFinite(config.max_fee_drag_pct) || config.max_fee_drag_pct < 0 || config.max_fee_drag_pct > 50)) {
+      throw new BadRequestException('Max fee drag (% of 1R) must be between 0 (disabled) and 50.');
+    }
+
     // 5. Risk Constraints
     const riskPerTrade = config.risk_pct_per_trade ?? 0;
     const maxTotalRisk = config.max_total_risk_pct ?? 100;

@@ -355,6 +355,7 @@ export const ActiveSummaryPanel = React.memo(({
   ]);
   const riskErrCount = countErrorsForKeys([
     'slippage_warning_threshold',
+    'max_fee_drag_pct',
     'risk_pct_per_trade',
     'max_open_trades',
     'sl_distance_pct',
@@ -990,10 +991,12 @@ export const ActiveSummaryPanel = React.memo(({
           )}
         </div>
 
-        {(errors?.slippage_warning_threshold || cfg.release_risk_on_est_pnl_be || (slType !== 'pct' && errors?.sl_distance_pct)) && (
+        {(errors?.slippage_warning_threshold || errors?.max_fee_drag_pct || cfg.release_risk_on_est_pnl_be || (slType !== 'pct' && errors?.sl_distance_pct)) && (
           <div className="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
             {errors?.slippage_warning_threshold &&
               renderField('Slippage warning (%)', 'slippage_warning_threshold', 'number', null, { min: 0, max: 100, step: 0.1 })}
+            {errors?.max_fee_drag_pct &&
+              renderField('Max Fee Drag (% of 1R)', 'max_fee_drag_pct', 'number', null, { min: 0, max: 50, step: 0.5 })}
             {slType !== 'pct' && errors?.sl_distance_pct &&
               renderField('Distance %', 'sl_distance_pct', 'number', null, { min: 0.1, max: 50, step: 0.1 })}
             {cfg.release_risk_on_est_pnl_be && (

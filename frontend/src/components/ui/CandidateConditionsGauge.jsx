@@ -1313,6 +1313,93 @@ export const EngulfingPatternStrip = React.memo(function EngulfingPatternStrip({
 });
 
 /**
+ * Compact Close Confirmation strip for `ema_close` and `ema_dual_close`:
+ * - Explicitly separates Completed (closed) candle confirmation from Live forming candle state
+ * - Shows a UTC-anchored CandleCloseCountdown so traders see when the next close evaluates
+ */
+export const CloseConfirmationStrip = React.memo(function CloseConfirmationStrip({ closeConfirm, changeInfo = null }) {
+  if (!closeConfirm || !closeConfirm.enabled) return null;
+
+  const isConfirmed = closeConfirm.state === 'confirmed';
+  const isWaitClose = closeConfirm.state === 'wait_close';
+  const isRejected = closeConfirm.state === 'rejected';
+
+  const statusTone = isConfirmed
+    ? 'text-green'
+    : isRejected
+      ? 'text-purple-400'
+      : isWaitClose
+        ? 'text-accent'
+        : 'text-dim';
+
+  const formatGap = (pct) => {
+    if (!Number.isFinite(pct)) return '';
+    const sign = pct >= 0 ? '+' : '-';
+    const abs = Math.abs(pct);
+    return `${sign}${abs >= 10 ? abs.toFixed(1) : abs.toFixed(2)}%`;
+  };
+
+  const closedGap = formatGap(closeConfirm.closedDeltaPct);
+  const liveGap = formatGap(closeConfirm.liveDeltaPct);
+  const compOp = closeConfirm.wantUpper ? '>' : '<';
+  void changeInfo;
+
+  return (
+    <div
+      className="rounded-lg border border-border/35 bg-bg/45 px-2 py-1.5 flex flex-col gap-1 text-[9.5px] font-mono tabular-nums"
+      data-testid="close-confirmation-strip"
+    >
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <span className="text-dim truncate">
+          Close Confirm · <strong className="text-text/85">{closeConfirm.timeframe}</strong>
+        </span>
+        <span className={cn('inline-flex items-center gap-1 font-black tracking-wider whitespace-nowrap shrink-0', statusTone)}>
+          <span>{closeConfirm.stateLabel}</span>
+          {(closeConfirm.candleCloseTs > 0 || closeConfirm.tfMs > 0) && (
+            <>
+              <span className="text-dim/60 font-normal" aria-hidden="true">·</span>
+              <span className="text-dim font-semibold">
+                <CandleCloseCountdown closeTs={closeConfirm.candleCloseTs} tfMs={closeConfirm.tfMs} />
+              </span>
+            </>
+          )}
+        </span>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/25 min-w-0">
+        <span className="text-dim shrink-0">Closed:</span>
+        <div className="flex items-center gap-1.5 min-w-0 truncate">
+          <span className={cn('truncate', closeConfirm.closedAligned ? 'text-green font-semibold' : 'text-dim')}>
+            {closeConfirm.closedSubjectLabel} {closeConfirm.closedValText} {compOp} {closeConfirm.closedTargetLabel} {closeConfirm.closedTargetText}
+          </span>
+          <span className={cn('font-bold shrink-0', closeConfirm.closedAligned ? 'text-green' : 'text-dim')}>
+            {closeConfirm.closedAligned ? '✓' : '✕'}{closedGap ? ` ${closedGap}` : ''}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <span className="text-dim shrink-0">Live:</span>
+        <div className="flex items-center gap-1.5 min-w-0 truncate">
+          <span className={cn('truncate', isWaitClose ? 'text-accent font-semibold' : closeConfirm.liveAligned ? 'text-green' : closeConfirm.pullingBack ? 'text-amber' : 'text-dim')}>
+            {closeConfirm.liveValText} {compOp} {closeConfirm.liveTargetText}
+          </span>
+          <span className={cn('font-bold shrink-0 whitespace-nowrap', isWaitClose ? 'text-accent' : closeConfirm.liveAligned ? 'text-green' : closeConfirm.pullingBack ? 'text-amber' : 'text-dim')}>
+            {isWaitClose
+              ? `⏳ Wait close${liveGap ? ` (${liveGap})` : ''}`
+              : closeConfirm.pullingBack
+                ? `↻ Pullback${liveGap ? ` (${liveGap})` : ''}`
+                : closeConfirm.liveAligned
+                  ? `✓${liveGap ? ` ${liveGap}` : ''}`
+                  : `✕${liveGap ? ` ${liveGap}` : ''}`}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/**
  * Real-time condition gauges & spatial HTF breakout ladder:
  * - Semicircular 0–150% dials for threshold/spread signals
  * - Vertical Level Ladder for HTF Breakouts (`htf_breakout` / `prev_day_breakout`)
@@ -1397,7 +1484,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
 
   const valueSignature = useMemo(
     () => `${model.markPrice}:${model.compositeDialPct}:` + model.conditions.map(
-      c => `${c.key}:${c.stateLabel}:${c.liveText}:${c.dialPct}:${c.rawDialPct ?? ''}:${c.ladder?.livePrice ?? ''}:${c.macdFilter?.histogram ?? ''}:${c.macdFilter?.aligned ? 1 : 0}:${c.engulfingPattern?.state ?? ''}:${c.engulfingPattern?.streakFound ?? ''}`
+      c => `${c.key}:${c.stateLabel}:${c.liveText}:${c.dialPct}:${c.rawDialPct ?? ''}:${c.ladder?.livePrice ?? ''}:${c.closeConfirm?.state ?? ''}:${c.closeConfirm?.liveValText ?? ''}:${c.macdFilter?.histogram ?? ''}:${c.macdFilter?.aligned ? 1 : 0}:${c.engulfingPattern?.state ?? ''}:${c.engulfingPattern?.streakFound ?? ''}`
     ).join('|'),
     [model.markPrice, model.compositeDialPct, model.conditions]
   );
@@ -2104,6 +2191,9 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                             </div>
                           )}
 
+                          {c.closeConfirm && (
+                            <CloseConfirmationStrip closeConfirm={c.closeConfirm} changeInfo={changeInfo} />
+                          )}
                           {c.macdFilter && (
                             <MacdFilterStrip macdFilter={c.macdFilter} changeInfo={changeInfo} />
                           )}

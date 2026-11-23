@@ -185,6 +185,27 @@ describe('Strategy Diagnostics & UX Clarity', () => {
     assert.strictEqual(slCheck.status, 'allowed');
     assert.strictEqual(slCheck.liveText, '1.00%');
     assert.ok(slCheck.reasonText.includes('Initial SL 1.00% within'));
+
+    const guardsExtras = diag.riskChecks.find(c => c.key === 'guards_extras');
+    assert.ok(guardsExtras, 'Must surface guards_extras risk check');
+    assert.ok(guardsExtras.configuredText.includes('Fee Drag ≤ 5% of 1R'), `Expected Fee Drag limit in configuredText, got ${guardsExtras.configuredText}`);
+
+    const disabledFeeDiag = getStrategyRulesDiagnostics({
+      strategyConfig: {
+        sl_type: 'pct',
+        max_fee_drag_pct: 0,
+      },
+      focusedOpp: null,
+      activeTrade: null,
+      activeTradeCount: 0,
+      totalRiskPct: 0,
+      startingBal: 1000,
+      effectiveGate: 'ACTIVE',
+      effectiveReason: 'OK',
+      isStrategyPaused: false,
+    });
+    const disabledGuardsExtras = disabledFeeDiag.riskChecks.find(c => c.key === 'guards_extras');
+    assert.ok(disabledGuardsExtras.configuredText.includes('Fee Drag Gate Off'));
   });
 
   test('formatDiagnosticDetailEntry formats readable keys/values and omits internal metadata', () => {

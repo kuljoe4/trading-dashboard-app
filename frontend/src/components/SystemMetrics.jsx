@@ -500,50 +500,51 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, apiSta
 
            {/* Filterable Endpoint Breakdown & Call Success Rates */}
            {breakdown && Object.keys(breakdown).length > 0 && (
-             <div className="flex flex-col gap-1.5 pt-1 border-t border-border/30">
-               <div className="flex items-center justify-between">
-                 <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
-                   <Filter size={9} className="text-accent" /> REST Call Filter
+             <div className="flex flex-col gap-2 pt-2 border-t border-border/30">
+               <div className="flex items-center justify-between gap-2">
+                 <span className="text-[10px] font-bold text-dim uppercase tracking-wider flex items-center gap-1.5">
+                   <Filter size={11} className="text-accent" /> REST Call Filter
                  </span>
                  <Tooltip content="Copy detailed diagnostic telemetry snippet to clipboard">
                    <Btn
                      variant="ghost"
                      onClick={handleCopyDiagnostics}
-                     className="px-1.5 py-0.5 text-[8px] font-bold border border-border/50 hover:border-accent/40 text-dim hover:text-accent flex items-center gap-1 shrink-0"
+                     className="min-h-[32px] sm:min-h-[24px] px-2.5 py-1 text-[10px] font-semibold border border-border/50 hover:border-accent/40 text-dim hover:text-accent flex items-center gap-1 shrink-0 rounded-lg"
                    >
-                     {copiedDiag ? <Check size={9} className="text-green" /> : <Copy size={9} />}
+                     {copiedDiag ? <Check size={11} className="text-green" /> : <Copy size={11} />}
                      {copiedDiag ? "Copied" : "Copy Diag"}
                    </Btn>
                  </Tooltip>
                </div>
 
                {/* Endpoint Filter Chips */}
-               <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+               <div className="flex flex-wrap items-center gap-1.5 py-0.5">
                  {endpointOptions.map(ep => (
                    <button
                      key={ep}
                      type="button"
+                     aria-pressed={selectedEndpoint === ep}
                      onClick={() => setSelectedEndpoint(ep)}
                      className={cn(
-                       "px-1.5 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-tight shrink-0 transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                       "min-h-[32px] sm:min-h-[24px] px-2.5 py-1 rounded-lg text-[10px] font-mono font-semibold uppercase tracking-tight shrink-0 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                        selectedEndpoint === ep
-                         ? "bg-accent text-white shadow-sm"
+                         ? "bg-accent text-white shadow-xs"
                          : "bg-surface border border-border/60 text-dim hover:text-text"
                      )}
                    >
-                     {ep === 'all' ? 'ALL CALLS' : ep}
+                     {ep === 'all' ? 'All Calls' : ep}
                    </button>
                  ))}
                </div>
 
-               {/* Filtered Endpoint Badges */}
-               <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pr-1 text-[9px] font-mono">
+               {/* Filtered Endpoint Counts */}
+               <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1 text-[10.5px] font-mono">
                  {Object.entries(breakdown)
                    .filter(([label]) => selectedEndpoint === 'all' || label === selectedEndpoint)
                    .map(([label, count]) => (
-                     <span key={label} className="px-1.5 py-0.5 rounded bg-surface border border-border/60 text-text/80 flex items-center gap-1">
+                     <span key={label} className="px-2 py-1 rounded-lg bg-surface border border-border/60 text-text/85 flex items-center gap-1.5 tabular-nums">
                        <span className="text-accent font-bold">{count}</span>
-                       <span className="truncate max-w-[90px]" title={label}>{label}</span>
+                       <span className="truncate max-w-[120px]" title={label}>{label}</span>
                      </span>
                    ))}
                </div>

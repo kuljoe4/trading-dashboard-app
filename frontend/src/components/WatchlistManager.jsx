@@ -316,16 +316,17 @@ export const WatchlistManager = React.memo(({
     >
       {/* Strategy Switcher Tabs (only shown when standalone and variants exist) */}
       {!activeStrategyLabel && variants.length > 0 && (
-        <div className="flex items-center gap-1.5 mb-3 pb-2.5 border-b border-border/50 overflow-x-auto no-scrollbar">
+        <div className="flex flex-wrap items-center gap-1.5 mb-3 pb-2.5 border-b border-border/50">
           <span className="flex items-center gap-1 text-[11px] font-medium text-muted shrink-0 mr-1">
             <Layers size={12} className="text-accent" />
             Strategy:
           </span>
           <button
             type="button"
+            aria-pressed={activeTab === 'base'}
             onClick={() => handleSelectTab('base')}
             className={cn(
-              'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors border shrink-0 cursor-pointer',
+              'min-h-[36px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors border shrink-0 cursor-pointer',
               activeTab === 'base'
                 ? 'bg-accent/15 text-accent border-accent/40'
                 : 'bg-background/40 border-border/60 text-muted hover:text-text'
@@ -337,9 +338,10 @@ export const WatchlistManager = React.memo(({
             <button
               key={v.strategy_label || i}
               type="button"
+              aria-pressed={activeTab === v.strategy_label}
               onClick={() => handleSelectTab(v.strategy_label)}
               className={cn(
-                'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors border shrink-0 cursor-pointer',
+                'min-h-[36px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors border shrink-0 cursor-pointer',
                 activeTab === v.strategy_label
                   ? 'bg-accent/15 text-accent border-accent/40'
                   : 'bg-background/40 border-border/60 text-muted hover:text-text'

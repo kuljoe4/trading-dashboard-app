@@ -434,18 +434,19 @@ export const DecisionLog = React.memo(() => {
 
   return (
     <div className="flex flex-col gap-3 h-[500px] min-h-0 overflow-hidden">
-      <div className="flex flex-col gap-3">
-        <div className="relative group p-1.5">
-          <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
+      <div className="flex flex-col gap-2.5">
+        <div className="relative group">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50 group-focus-within:text-accent pointer-events-none transition-colors" />
           <input
             ref={searchInputRef}
             type="text"
+            inputMode="search"
             placeholder="Search activity logs..."
             aria-label="Search activity logs"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-            className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-2 text-[11px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+            className="w-full min-h-[42px] sm:min-h-[36px] bg-surface border border-border rounded-xl pl-9 pr-9 py-2 text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
           />
           {search ? (
               <Tooltip content="Clear Search">
@@ -455,14 +456,14 @@ export const DecisionLog = React.memo(() => {
                     setSearch('');
                     searchInputRef.current?.focus();
                   }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-[34px] min-h-[34px] flex items-center justify-center text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg transition-colors cursor-pointer"
                   aria-label="Clear Search"
                 >
                   <XCircle size={16} />
                 </button>
               </Tooltip>
           ) : (
-            <kbd className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+            <kbd className="hidden sm:inline-block absolute right-3 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
               /
             </kbd>
           )}
@@ -471,81 +472,86 @@ export const DecisionLog = React.memo(() => {
         <div
           role="group"
           aria-label="Filter logs by level"
-          className="flex flex-wrap gap-2 items-center"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"
         >
-          <div className="flex-1 flex gap-2 overflow-x-auto min-w-0">
-            <CopyButton
-              value={copyAllText}
-              className="bg-surface border border-border"
-              tooltip="Copy All Visible Logs"
-            />
-            <Tooltip content="Export Visible Logs (JSON)">
-              <button
-                type="button"
-                onClick={handleExportLogs}
-                disabled={visibleLogs.length === 0}
-                aria-label="Export visible logs as JSON"
-                className="p-1.5 rounded-lg border border-border bg-surface text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer shrink-0 inline-flex items-center justify-center disabled:opacity-40"
-              >
-                <Download size={13} />
-              </button>
-            </Tooltip>
-            {(filterButtons || []).map((filter) => {
-              const active = (safeLogFilters[filter.level] ?? true)
-              return (
-                <button
-                  key={filter.level}
-                  type="button"
-                  aria-pressed={active}
-                  aria-label={`Filter by ${filter.label} logs`}
-                  onClick={() => toggleLogFilter(filter.level)}
-                  className={cn(
-                    "px-2.5 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                    active ? "bg-surface-elevated border-border text-text shadow-xs" : "bg-transparent border-border/40 text-dim/60 hover:text-dim hover:border-border/60",
-                    active && filter.level === 'warn' && "text-amber border-amber/30 bg-amber/5",
-                    active && filter.level === 'error' && "text-red border-red/30 bg-red/5",
-                    active && filter.level === 'info' && "text-accent border-accent/30 bg-accent/5"
-                  )}
-                >
-                  {filter.label}
-                </button>
-              )
-            })}
-          </div>
-          <div className="flex items-center gap-2 shrink-0 mt-1 md:mt-0 w-full md:w-auto justify-between md:justify-end">
-            <Tooltip content="Refresh Logs">
-              <button
-                type="button"
-                onClick={() => handleFetchLogs(logLimit)}
-                disabled={isRefreshing}
-                aria-label="Refresh decision logs"
-                className="p-1.5 rounded-lg border border-border bg-surface text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer disabled:opacity-50"
-              >
-                <RotateCw size={12} className={cn("transition-transform", isRefreshing && "animate-spin text-accent")} />
-              </button>
-            </Tooltip>
-
-            <div role="group" aria-label="Log count limit" className="flex items-center gap-1 bg-background/50 p-1 rounded-lg border border-border/50 shrink-0">
-              <span className="text-[9px] font-bold text-dim/80 uppercase px-1 hidden sm:inline">Limit:</span>
-              {LIMIT_OPTIONS.map((opt) => {
-                const active = logLimit === opt;
+          {/* Level Toggles + Quick Utilities */}
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            <div className="grid grid-cols-3 sm:inline-flex items-center gap-1 flex-1 sm:flex-initial">
+              {(filterButtons || []).map((filter) => {
+                const active = (safeLogFilters[filter.level] ?? true)
                 return (
                   <button
-                    key={opt}
+                    key={filter.level}
                     type="button"
                     aria-pressed={active}
-                    aria-label={`Show ${opt} logs`}
-                    onClick={() => handleLimitChange(opt)}
+                    aria-label={`Filter by ${filter.label} logs`}
+                    onClick={() => toggleLogFilter(filter.level)}
                     className={cn(
-                      "px-2 py-0.5 rounded text-[9.5px] font-mono font-bold transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                      active ? "bg-accent text-white shadow-sm font-black" : "text-dim hover:text-text hover:bg-white/5"
+                      "min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-xl border text-[11px] font-semibold transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center justify-center",
+                      active ? "bg-surface-elevated border-border text-text shadow-xs" : "bg-transparent border-border/40 text-dim/60 hover:text-dim hover:border-border/60",
+                      active && filter.level === 'warn' && "text-amber border-amber/35 bg-amber/10",
+                      active && filter.level === 'error' && "text-red border-red/35 bg-red/10",
+                      active && filter.level === 'info' && "text-accent border-accent/35 bg-accent/10"
                     )}
                   >
-                    {opt}
+                    {filter.label}
                   </button>
-                );
+                )
               })}
             </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <CopyButton
+                value={copyAllText}
+                className="min-h-[38px] min-w-[38px] sm:min-h-[30px] sm:min-w-[30px] bg-surface border border-border rounded-xl"
+                tooltip="Copy All Visible Logs"
+              />
+              <Tooltip content="Export Visible Logs (JSON)">
+                <button
+                  type="button"
+                  onClick={handleExportLogs}
+                  disabled={visibleLogs.length === 0}
+                  aria-label="Export visible logs as JSON"
+                  className="min-h-[38px] min-w-[38px] sm:min-h-[30px] sm:min-w-[30px] p-1.5 rounded-xl border border-border bg-surface text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer shrink-0 inline-flex items-center justify-center disabled:opacity-40"
+                >
+                  <Download size={14} />
+                </button>
+              </Tooltip>
+              <Tooltip content="Refresh Logs">
+                <button
+                  type="button"
+                  onClick={() => handleFetchLogs(logLimit)}
+                  disabled={isRefreshing}
+                  aria-label="Refresh decision logs"
+                  className="min-h-[38px] min-w-[38px] sm:min-h-[30px] sm:min-w-[30px] p-1.5 rounded-xl border border-border bg-surface text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer shrink-0 inline-flex items-center justify-center disabled:opacity-50"
+                >
+                  <RotateCw size={14} className={cn("transition-transform", isRefreshing && "animate-spin text-accent")} />
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+
+          {/* Mobile-First Segmented Limit Control */}
+          <div role="group" aria-label="Log count limit" className="grid grid-cols-5 sm:inline-flex items-center gap-1 bg-background/60 p-1 rounded-xl border border-border/50 w-full sm:w-auto shrink-0">
+            <span className="text-[10px] font-semibold text-dim/80 px-1.5 hidden md:inline">Limit</span>
+            {LIMIT_OPTIONS.map((opt) => {
+              const active = logLimit === opt;
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  aria-pressed={active}
+                  aria-label={`Show ${opt} logs`}
+                  onClick={() => handleLimitChange(opt)}
+                  className={cn(
+                    "min-h-[36px] sm:min-h-[26px] px-2 py-1 rounded-lg text-[11px] font-mono font-semibold tabular-nums transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center justify-center whitespace-nowrap",
+                    active ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-white/5"
+                  )}
+                >
+                  {opt}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

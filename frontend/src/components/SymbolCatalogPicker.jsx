@@ -371,24 +371,25 @@ export const SymbolCatalogPicker = React.memo(({
         <div className="rounded-xl border border-border/70 bg-background/40 overflow-hidden">
           {activeTab === 'catalog' ? (
             <>
-              {/* Filter & Sort Strip */}
-              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-border/50 bg-surface/40">
-                <div className="flex items-center gap-1 flex-wrap">
+              {/* Mobile-First Filter & Sort Strip */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2.5 border-b border-border/50 bg-surface/40">
+                <div className="grid grid-cols-2 sm:flex sm:items-center gap-1.5 sm:flex-wrap w-full sm:w-auto">
                   {[
                     { id: 'all', label: `All (${universe.length})` },
                     { id: 'crypto', label: `Crypto (${cryptoCount})` },
-                    { id: 'tradfi', label: `TradFi / Overnight (${tradFiCount})` },
+                    { id: 'tradfi', label: `TradFi (${tradFiCount})` },
                     { id: 'movers', label: 'Movers >2%' },
                   ].map((tab) => (
                     <button
                       key={tab.id}
                       type="button"
+                      aria-pressed={category === tab.id}
                       onClick={() => setCategory(tab.id)}
                       className={cn(
-                        'px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer',
+                        'min-h-[38px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center',
                         category === tab.id
-                          ? 'bg-accent/15 text-accent border border-accent/30'
-                          : 'text-muted hover:text-text border border-transparent hover:bg-white/5'
+                          ? 'bg-accent/15 text-accent border border-accent/35'
+                          : 'bg-background/40 sm:bg-transparent text-muted hover:text-text border border-border/40 sm:border-transparent hover:bg-white/5'
                       )}
                     >
                       {tab.label}
@@ -396,33 +397,36 @@ export const SymbolCatalogPicker = React.memo(({
                   ))}
                 </div>
 
-                <div className="flex items-center gap-1.5 text-[11px] text-muted">
-                  <span className="hidden sm:inline">Sort:</span>
-                  {[
-                    { id: 'volume', label: 'Volume' },
-                    { id: 'change', label: '24h %' },
-                    { id: 'alpha', label: 'A–Z' },
-                  ].map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setSortBy(s.id)}
-                      className={cn(
-                        'px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer',
-                        sortBy === s.id ? 'text-text font-semibold bg-white/10' : 'text-muted hover:text-text'
-                      )}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between sm:justify-end gap-1.5 text-[11px] text-muted w-full sm:w-auto">
+                  <div className="grid grid-cols-3 sm:inline-flex items-center gap-1 bg-background/50 border border-border/40 p-0.5 rounded-lg flex-1 sm:flex-initial">
+                    <span className="hidden md:inline px-1.5 text-[10px] font-semibold">Sort</span>
+                    {[
+                      { id: 'volume', label: 'Volume' },
+                      { id: 'change', label: '24h %' },
+                      { id: 'alpha', label: 'A–Z' },
+                    ].map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        aria-pressed={sortBy === s.id}
+                        onClick={() => setSortBy(s.id)}
+                        className={cn(
+                          'min-h-[34px] sm:min-h-[24px] px-2 py-0.5 rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center',
+                          sortBy === s.id ? 'text-text font-semibold bg-surface border border-border/60 shadow-xs' : 'text-muted hover:text-text'
+                        )}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
                   {!defaultExpanded && (
                     <button
                       type="button"
                       onClick={() => setIsOpen(false)}
                       aria-label="Close symbol browser"
-                      className="ml-1 p-0.5 rounded text-muted hover:text-text cursor-pointer"
+                      className="min-w-[34px] min-h-[34px] sm:min-w-[26px] sm:min-h-[26px] flex items-center justify-center rounded-lg text-muted hover:text-text hover:bg-white/5 cursor-pointer shrink-0"
                     >
-                      <X size={13} />
+                      <X size={14} />
                     </button>
                   )}
                 </div>

@@ -2473,7 +2473,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                     <div
                       role="group"
                       aria-label="Filter snapshots by trade status"
-                      className="inline-flex items-center gap-0.5 p-0.5 bg-background/50 border border-border/40 rounded-lg shrink-0 animate-in fade-in duration-150"
+                      className="grid grid-cols-3 sm:inline-flex items-center gap-0.5 p-1 bg-background/60 border border-border/40 rounded-xl w-full sm:w-auto shrink-0 animate-in fade-in duration-150"
                     >
                       {[
                         { id: 'all', label: 'All', count: allSnapshotChips.length },
@@ -2486,7 +2486,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                           aria-pressed={snapshotStatusFilter === opt.id}
                           onClick={() => handleSelectSnapshotStatusFilter(opt.id)}
                           className={cn(
-                            "relative min-h-[28px] sm:min-h-[24px] px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                            "relative min-h-[38px] sm:min-h-[26px] px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                             snapshotStatusFilter === opt.id
                               ? (opt.id === 'open' ? "text-green" : "text-text")
                               : "text-dim hover:text-text"
@@ -2497,7 +2497,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                               layoutId="strategy-snapshot-status"
                               duration={0.18}
                               className={cn(
-                                "rounded-md",
+                                "rounded-lg",
                                 opt.id === 'open'
                                   ? "bg-green/15 border border-green/35"
                                   : "bg-surface border border-border/60"
@@ -3055,11 +3055,11 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
       {/* TAB 2: Decision Log (Causal Filtering & Trade Story) */}
       {activeTab === 'decisions' && (
         <div className="space-y-2.5 sm:space-y-3 text-left">
-          {/* Faceted Filter Bar */}
-          <div className="p-2.5 sm:p-3 bg-surface/40 border border-border/50 rounded-xl flex flex-col gap-2">
+          {/* Mobile-First Faceted Filter Bar */}
+          <div className="p-3 bg-surface/50 border border-border/50 rounded-xl flex flex-col gap-2.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               {/* Outcome Segmented Filter */}
-              <div className="grid grid-cols-4 sm:inline-flex items-center gap-0.5 sm:gap-1 p-0.5 bg-background/60 border border-border/40 rounded-lg w-full sm:w-auto">
+              <div className="grid grid-cols-4 sm:inline-flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl w-full sm:w-auto">
                 {[
                   { id: 'all', short: 'All', label: 'All', count: reasonOutcomeCounts.all },
                   { id: 'allowed', short: 'Allow', label: 'Allowed / Fired', count: reasonOutcomeCounts.allowed },
@@ -3074,7 +3074,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                       setVisibleReasonsLimit(25);
                     }}
                     className={cn(
-                      "min-h-[38px] sm:min-h-0 px-1.5 sm:px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 min-w-0",
+                      "min-h-[40px] sm:min-h-[30px] px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 min-w-0",
                       reasonsOutcome === tab.id
                         ? "bg-surface text-text border border-border/60 shadow-xs"
                         : "text-dim hover:text-text"
@@ -3088,13 +3088,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
               </div>
 
               {/* View Mode & Noise Filter */}
-              <div className="flex items-center justify-between sm:justify-end gap-2">
+              <div className="grid grid-cols-2 sm:flex items-center sm:justify-end gap-2 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setHideRoutineMisses(!hideRoutineMisses)}
                   aria-pressed={hideRoutineMisses}
                   className={cn(
-                    "min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border text-[11px] sm:text-xs font-medium cursor-pointer transition-colors whitespace-nowrap",
+                    "min-h-[40px] sm:min-h-[32px] px-2.5 py-1 rounded-xl border text-[11px] sm:text-xs font-medium cursor-pointer transition-colors whitespace-nowrap flex items-center justify-center",
                     hideRoutineMisses
                       ? "bg-accent/10 border-accent/40 text-accent"
                       : "bg-background/50 border-border/40 text-dim hover:text-text"
@@ -3105,12 +3105,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                     : 'Show Misses'}
                 </button>
 
-                <div className="inline-flex items-center gap-0.5 p-0.5 bg-background/60 border border-border/40 rounded-lg shrink-0">
+                <div className="grid grid-cols-2 sm:inline-flex items-center gap-0.5 p-1 bg-background/60 border border-border/40 rounded-xl shrink-0">
                   <button
                     type="button"
                     onClick={() => setReasonsViewMode('timeline')}
                     className={cn(
-                      "min-h-[34px] sm:min-h-0 px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-md cursor-pointer transition-colors",
+                      "min-h-[36px] sm:min-h-[26px] px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-lg cursor-pointer transition-colors whitespace-nowrap",
                       reasonsViewMode === 'timeline' ? "bg-surface text-text shadow-xs" : "text-dim hover:text-text"
                     )}
                   >
@@ -3120,7 +3120,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                     type="button"
                     onClick={() => setReasonsViewMode('story')}
                     className={cn(
-                      "min-h-[34px] sm:min-h-0 px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-md cursor-pointer transition-colors",
+                      "min-h-[36px] sm:min-h-[26px] px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-lg cursor-pointer transition-colors whitespace-nowrap",
                       reasonsViewMode === 'story' ? "bg-surface text-text shadow-xs" : "text-dim hover:text-text"
                     )}
                   >
@@ -3140,7 +3140,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                     setReasonsStage(e.target.value);
                     setVisibleReasonsLimit(25);
                   }}
-                  className="w-full min-h-[38px] sm:min-h-0 px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text focus:outline-none focus:border-accent"
+                  className="w-full min-h-[40px] sm:min-h-[34px] px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-xl text-xs font-mono text-text focus:outline-none focus:border-accent"
                 >
                   <option value="all">All Stages</option>
                   <option value="1">1. Discovery</option>
@@ -3160,7 +3160,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                     setReasonsSymbol(e.target.value);
                     setVisibleReasonsLimit(25);
                   }}
-                  className="w-full min-h-[38px] sm:min-h-0 px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text focus:outline-none focus:border-accent"
+                  className="w-full min-h-[40px] sm:min-h-[34px] px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-xl text-xs font-mono text-text focus:outline-none focus:border-accent"
                 >
                   <option value="all">All Pairs ({availableReasonSymbols.length})</option>
                   {availableReasonSymbols.map(sym => (
@@ -3170,19 +3170,20 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
               </div>
 
               <div className="col-span-2 sm:col-span-4 relative">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim" />
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
                 <input
                   type="text"
+                  inputMode="search"
                   value={reasonsSearch}
                   onChange={(e) => setReasonsSearch(e.target.value)}
                   placeholder="Filter keyword (SL, MACD, ETH)..."
-                  className="w-full min-h-[38px] sm:min-h-0 pl-8 pr-8 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text placeholder:text-dim/60 focus:outline-none focus:border-accent"
+                  className="w-full min-h-[40px] sm:min-h-[34px] pl-8 pr-8 py-1.5 bg-background/70 border border-border/50 rounded-xl text-xs font-mono text-text placeholder:text-dim/60 focus:outline-none focus:border-accent"
                 />
                 {reasonsSearch && (
                   <button
                     type="button"
                     onClick={() => setReasonsSearch('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text cursor-pointer p-1"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-[30px] min-h-[30px] flex items-center justify-center text-dim hover:text-text cursor-pointer rounded-md"
                     aria-label="Clear search"
                   >
                     <X size={13} />
@@ -3202,7 +3203,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                       setReasonsSearch('');
                       setVisibleReasonsLimit(25);
                     }}
-                    className="text-accent hover:underline cursor-pointer py-0.5"
+                    className="min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg border border-red/25 text-red hover:bg-red/10 font-semibold cursor-pointer transition-colors"
                   >
                     Reset
                   </button>
@@ -3211,7 +3212,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
             </div>
 
             {/* Bulk Copy Actions: Visible / Filtered / All */}
-            <div className="pt-2 border-t border-border/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono">
+            <div className="pt-2.5 border-t border-border/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono">
               <div className="flex items-center gap-1.5 text-dim min-w-0">
                 <Copy size={12} className="text-accent shrink-0" />
                 <span className="truncate">
@@ -3234,7 +3235,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                       title={opt.title}
                       onClick={() => handleCopyLogScope(opt.id)}
                       className={cn(
-                        "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg border text-[11px] font-mono transition-colors flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        "min-h-[38px] sm:min-h-[28px] px-2.5 py-1 rounded-xl border text-[11px] font-mono transition-colors flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                         isCopied
                           ? "bg-green/10 border-green/40 text-green font-semibold"
                           : "bg-background/60 border-border/50 text-text/85 hover:text-accent hover:border-accent/40"

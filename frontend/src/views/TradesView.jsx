@@ -233,19 +233,21 @@ const TradesView = () => {
 
         return (
           <div className="flex flex-col gap-3">
-            {/* Ultra-Dense Mobile-Optimized Filter Bar */}
-            <div id="active-trades-filter-toolbar" className="bg-surface border border-border rounded-xl p-2.5 sm:p-3 shadow-xs flex flex-col gap-2 w-full">
-              <div className="flex items-center justify-between gap-2 w-full min-h-[32px]">
+            {/* Mobile-First Tactical Filter Bar */}
+            <div id="active-trades-filter-toolbar" className="bg-surface border border-border rounded-2xl p-3 sm:p-3.5 shadow-xs flex flex-col gap-2.5 w-full">
+              <div className="flex items-center justify-between gap-2 w-full min-h-[40px] sm:min-h-[32px]">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-6 h-6 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-                    <Filter size={12} className="text-accent" />
+                  <div className="w-7 h-7 sm:w-6 sm:h-6 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+                    <Filter size={13} className="text-accent" />
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-text truncate">Tactical Filters</span>
-                  {hasActiveFilters && (
-                    <span className="text-[9px] font-mono font-bold text-accent tracking-wider shrink-0">
-                      · ACTIVE
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <span className="text-xs font-semibold text-text truncate">Tactical Filters</span>
+                    {hasActiveFilters && (
+                      <span className="text-[11px] font-mono font-semibold text-accent shrink-0 tabular-nums">
+                        · {(strategyFilter !== 'ALL' ? 1 : 0) + (directionFilter !== 'ALL' ? 1 : 0) + (riskFilter !== 'ALL' ? 1 : 0)} active
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -253,11 +255,11 @@ const TradesView = () => {
                     <button
                       type="button"
                       onClick={resetAllFilters}
-                      className="min-h-[32px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider text-red hover:bg-red/10 border border-red/20 transition-all flex items-center justify-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none"
+                      className="min-h-[40px] sm:min-h-[30px] px-2.5 sm:px-3 py-1 rounded-xl text-[11px] font-semibold text-red hover:bg-red/10 border border-red/25 transition-all flex items-center justify-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none whitespace-nowrap"
                       aria-label="Reset position filters"
                     >
-                      <RotateCcw size={10} />
-                      <span className="hidden sm:inline">Reset</span>
+                      <RotateCcw size={12} />
+                      <span>Reset</span>
                     </button>
                   )}
                   <button
@@ -266,94 +268,120 @@ const TradesView = () => {
                     aria-expanded={filtersExpanded}
                     aria-label={filtersExpanded ? "Collapse active trade filters" : "Expand active trade filters"}
                     className={cn(
-                      "min-h-[32px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
-                      filtersExpanded
+                      "min-h-[40px] sm:min-h-[30px] px-3 py-1 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 whitespace-nowrap",
+                      filtersExpanded || hasActiveFilters
                         ? "bg-accent/15 border-accent/40 text-accent"
                         : "bg-surface-elevated border-border text-dim hover:text-text hover:border-accent/30"
                     )}
                   >
-                    <SlidersHorizontal size={11} className={cn(filtersExpanded ? "text-accent" : "text-dim")} />
-                    <span>Options</span>
-                    <ChevronDown size={11} className={cn("transition-transform duration-200", filtersExpanded && "rotate-180")} />
+                    <SlidersHorizontal size={12} className={cn(filtersExpanded || hasActiveFilters ? "text-accent" : "text-dim")} />
+                    <span>Filters</span>
+                    <ChevronDown size={12} className={cn("transition-transform duration-200", filtersExpanded && "rotate-180")} />
                   </button>
                 </div>
               </div>
 
-              {/* Collapsible Ultra-Dense Filter Chip Groups */}
+              {!filtersExpanded && hasActiveFilters && (
+                <div className="flex items-center gap-2 flex-wrap text-[11px] font-mono text-dim pt-1.5 border-t border-border/20">
+                  {strategyFilter !== 'ALL' && (
+                    <span>Strategy: <strong className="text-text">{strategyFilter}</strong></span>
+                  )}
+                  {strategyFilter !== 'ALL' && (directionFilter !== 'ALL' || riskFilter !== 'ALL') && (
+                    <span aria-hidden="true" className="opacity-40">·</span>
+                  )}
+                  {directionFilter !== 'ALL' && (
+                    <span>Side: <strong className="text-text">{directionFilter}</strong></span>
+                  )}
+                  {directionFilter !== 'ALL' && riskFilter !== 'ALL' && (
+                    <span aria-hidden="true" className="opacity-40">·</span>
+                  )}
+                  {riskFilter !== 'ALL' && (
+                    <span>Risk: <strong className="text-text">{riskFilter === 'ACTIVE' ? 'Active Risk' : 'Protected'}</strong></span>
+                  )}
+                </div>
+              )}
+
+              {/* Collapsible Mobile-First Filter Chip Groups */}
               <SmoothCollapse isOpen={filtersExpanded}>
-                <div className="pt-2 border-t border-border/20 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-2">
+                <div className="pt-2.5 border-t border-border/25 grid grid-cols-1 md:grid-cols-2 lg:flex lg:flex-wrap items-stretch gap-2.5">
                   {/* Strategy Filter */}
                   {availableStrategies.length > 1 && (
-                    <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl max-w-full overflow-x-auto no-scrollbar">
-                      <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider px-1.5 shrink-0">Strategy</span>
-                      <button
-                        type="button"
-                        onClick={() => handleStrategyFilterChange('ALL')}
-                        aria-pressed={strategyFilter === 'ALL'}
-                        className={cn(
-                          "min-h-[28px] sm:min-h-[24px] px-2.5 py-0.5 rounded-lg text-[9px] font-bold tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                          strategyFilter === 'ALL' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
-                        )}
-                      >
-                        ALL
-                      </button>
-                      {availableStrategies.map(st => (
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 p-2 bg-background/60 border border-border/40 rounded-xl w-full lg:w-auto">
+                      <span className="text-[11px] text-dim font-semibold px-1 shrink-0">Strategy</span>
+                      <div className="flex flex-wrap items-center gap-1">
                         <button
-                          key={st}
                           type="button"
-                          onClick={() => handleStrategyFilterChange(st)}
-                          aria-pressed={strategyFilter === st}
+                          onClick={() => handleStrategyFilterChange('ALL')}
+                          aria-pressed={strategyFilter === 'ALL'}
                           className={cn(
-                            "min-h-[28px] sm:min-h-[24px] px-2.5 py-0.5 rounded-lg text-[9px] font-bold tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                            strategyFilter === st ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                            "min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
+                            strategyFilter === 'ALL' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
                           )}
                         >
-                          {st}
+                          All
                         </button>
-                      ))}
+                        {availableStrategies.map(st => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => handleStrategyFilterChange(st)}
+                            aria-pressed={strategyFilter === st}
+                            className={cn(
+                              "min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
+                              strategyFilter === st ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                            )}
+                          >
+                            {st}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
 
                   {/* Direction Filter */}
-                  <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl max-w-full overflow-x-auto no-scrollbar">
-                    <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider px-1.5 shrink-0">Direction</span>
-                    {['ALL', 'LONG', 'SHORT'].map(d => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => handleDirectionFilterChange(d)}
-                        aria-pressed={directionFilter === d}
-                        className={cn(
-                          "min-h-[28px] sm:min-h-[24px] px-2.5 py-0.5 rounded-lg text-[9px] font-bold tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                          directionFilter === d ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
-                        )}
-                      >
-                        {d}
-                      </button>
-                    ))}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 p-2 bg-background/60 border border-border/40 rounded-xl w-full md:w-auto">
+                    <span className="text-[11px] text-dim font-semibold px-1 shrink-0">Direction</span>
+                    <div className="grid grid-cols-3 sm:inline-flex items-center gap-1 w-full sm:w-auto">
+                      {['ALL', 'LONG', 'SHORT'].map(d => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => handleDirectionFilterChange(d)}
+                          aria-pressed={directionFilter === d}
+                          className={cn(
+                            "min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
+                            directionFilter === d ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                          )}
+                        >
+                          {d}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Risk Status Filter */}
-                  <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl max-w-full overflow-x-auto no-scrollbar">
-                    <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider px-1.5 shrink-0">Risk</span>
-                    {[
-                      { id: 'ALL', label: 'ALL' },
-                      { id: 'PROTECTED', label: 'PROTECTED' },
-                      { id: 'ACTIVE', label: 'ACTIVE RISK' }
-                    ].map(r => (
-                      <button
-                        key={r.id}
-                        type="button"
-                        onClick={() => handleRiskFilterChange(r.id)}
-                        aria-pressed={riskFilter === r.id}
-                        className={cn(
-                          "min-h-[28px] sm:min-h-[24px] px-2.5 py-0.5 rounded-lg text-[9px] font-bold tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                          riskFilter === r.id ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
-                        )}
-                      >
-                        {r.label}
-                      </button>
-                    ))}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 p-2 bg-background/60 border border-border/40 rounded-xl w-full md:w-auto">
+                    <span className="text-[11px] text-dim font-semibold px-1 shrink-0">Risk</span>
+                    <div className="grid grid-cols-3 sm:inline-flex items-center gap-1 w-full sm:w-auto">
+                      {[
+                        { id: 'ALL', label: 'All' },
+                        { id: 'PROTECTED', label: 'Protected' },
+                        { id: 'ACTIVE', label: 'Active Risk' }
+                      ].map(r => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => handleRiskFilterChange(r.id)}
+                          aria-pressed={riskFilter === r.id}
+                          className={cn(
+                            "min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
+                            riskFilter === r.id ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                          )}
+                        >
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </SmoothCollapse>

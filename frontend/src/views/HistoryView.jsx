@@ -1254,6 +1254,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle, onInspec
   const [sessionStrategyFilter, setSessionStrategyFilter] = useState('ALL');
   const [sessionSymbolFilter, setSessionSymbolFilter] = useState('ALL');
   const [sessionFilterTab, setSessionFilterTab] = useState('strategy'); // 'strategy' | 'symbol' | 'combo'
+  const [sessionFilterQuery, setSessionFilterQuery] = useState('');
 
   const handleToggleClick = React.useCallback(() => {
     if (onToggle) onToggle(session.id);
@@ -1663,201 +1664,326 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle, onInspec
             className="border-t border-border/10"
           >
             <div className="p-4 flex flex-col gap-4 bg-background/20">
-              {/* Session Trade Filter Toolbar (Strategy, Symbol, & Combined Strategy+Symbol) */}
-              {(availableSessionStrategies.length > 1 || availableSessionSymbols.length > 1 || availableSessionCombos.length > 1) && (
-                <div className="bg-surface/40 border border-border/20 rounded-xl p-3 flex flex-col gap-2.5">
-                  {/* Mode Header & Active Filter Status Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/10 pb-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[8.5px] text-dim font-black uppercase tracking-widest flex items-center gap-1 shrink-0">
-                        <Layers size={11} className="text-accent" /> Filter Session Trades:
-                      </span>
+              {/* Mobile-First Session Trade Filter Panel (Strategy, Symbol, & Pairs) */}
+              {(availableSessionStrategies.length > 1 || availableSessionSymbols.length > 1 || availableSessionCombos.length > 1) && (() => {
+                const hasSessionFilter = sessionStrategyFilter !== 'ALL' || sessionSymbolFilter !== 'ALL';
+                const q = sessionFilterQuery.trim().toLowerCase();
+                const activeTabItemsCount = sessionFilterTab === 'strategy'
+                  ? availableSessionStrategies.length
+                  : sessionFilterTab === 'symbol'
+                    ? availableSessionSymbols.length
+                    : availableSessionCombos.length;
+                const filteredStrategyItems = q
+                  ? availableSessionStrategies.filter(st => st.label.toLowerCase().includes(q))
+                  : availableSessionStrategies;
+                const filteredSymbolItems = q
+                  ? availableSessionSymbols.filter(sym => sym.symbol.toLowerCase().includes(q))
+                  : availableSessionSymbols;
+                const filteredComboItems = q
+                  ? availableSessionCombos.filter(cb => cb.strategy.toLowerCase().includes(q) || cb.symbol.toLowerCase().includes(q))
+                  : availableSessionCombos;
 
-                      {/* View Mode Switcher: Strategy | Symbol | Strategy + Symbol */}
-                      <div className="flex items-center gap-1 bg-surface border border-border/30 p-0.5 rounded-lg">
-                        <button
-                          type="button"
-                          onClick={() => setSessionFilterTab('strategy')}
-                          aria-pressed={sessionFilterTab === 'strategy'}
-                          aria-label="Filter session by strategy"
-                          className={cn(
-                            "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
-                            sessionFilterTab === 'strategy' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
-                          )}
-                        >
-                          Strategy ({availableSessionStrategies.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSessionFilterTab('symbol')}
-                          aria-pressed={sessionFilterTab === 'symbol'}
-                          aria-label="Filter session by symbol"
-                          className={cn(
-                            "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
-                            sessionFilterTab === 'symbol' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
-                          )}
-                        >
-                          Symbol ({availableSessionSymbols.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSessionFilterTab('combo')}
-                          aria-pressed={sessionFilterTab === 'combo'}
-                          aria-label="Filter session by strategy and symbol together"
-                          className={cn(
-                            "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1",
-                            sessionFilterTab === 'combo' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
-                          )}
-                        >
-                          <span>Strategy + Symbol</span>
-                          <span className="text-[7px] px-1 py-0.1 rounded bg-black/20 font-mono font-bold">
-                            {availableSessionCombos.length}
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Active Filter Badge & Reset Button */}
-                    {(sessionStrategyFilter !== 'ALL' || sessionSymbolFilter !== 'ALL') && (
-                      <div className="flex items-center gap-1.5 ml-auto">
-                        <span className="text-[8px] font-mono font-black uppercase text-accent bg-accent/10 border border-accent/20 px-2 py-0.5 rounded-lg flex items-center gap-1">
-                          <span>Filtered:</span>
-                          {sessionStrategyFilter !== 'ALL' && <span>{sessionStrategyFilter}</span>}
-                          {sessionStrategyFilter !== 'ALL' && sessionSymbolFilter !== 'ALL' && <span>+</span>}
-                          {sessionSymbolFilter !== 'ALL' && <span>{sessionSymbolFilter}</span>}
-                          <span className="text-text/70">({filteredTrades.length} trades{avgDuration > 0 ? ` · Avg ${formatDuration(avgDuration)}` : ''})</span>
+                return (
+                  <div className="bg-surface/50 border border-border/50 rounded-xl p-3 sm:p-4 flex flex-col gap-3">
+                    {/* Header Row: Title + Quick All/Reset Action */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Layers size={14} className="text-accent shrink-0" />
+                        <span className="text-xs font-semibold text-text truncate">Filter Session Trades</span>
+                        <span className="text-[11px] font-mono text-dim tabular-nums shrink-0">
+                          {filteredTrades.length}/{trades.length}
                         </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
                           onClick={() => {
                             setSessionStrategyFilter('ALL');
                             setSessionSymbolFilter('ALL');
+                            setSessionFilterQuery('');
                           }}
-                          className="text-[8px] font-black uppercase text-dim hover:text-accent px-1.5 py-0.5 rounded border border-border/30 hover:border-accent/30 transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1"
-                          aria-label="Reset session filters"
+                          aria-pressed={!hasSessionFilter}
+                          aria-label="Show all session trades without filter"
+                          className={cn(
+                            "min-h-[36px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer whitespace-nowrap shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                            !hasSessionFilter
+                              ? "bg-accent/15 border-accent/45 text-accent"
+                              : "bg-background/60 border-border/60 text-dim hover:text-text hover:border-accent/40"
+                          )}
                         >
-                          <RotateCcw size={9} /> Reset
+                          All ({trades.length})
                         </button>
+                        {hasSessionFilter && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSessionStrategyFilter('ALL');
+                              setSessionSymbolFilter('ALL');
+                              setSessionFilterQuery('');
+                            }}
+                            className="min-h-[36px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-semibold text-red hover:bg-red/10 border border-red/30 transition-colors cursor-pointer whitespace-nowrap shrink-0 focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none flex items-center gap-1"
+                            aria-label="Reset session filters"
+                          >
+                            <RotateCcw size={12} />
+                            <span>Reset</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Full-Width Mobile-First Mode Switcher: Strategy | Symbol | Pairs */}
+                    <div className="grid grid-cols-3 sm:inline-flex sm:self-start items-center gap-1 p-1 rounded-xl bg-background/70 border border-border/50 w-full sm:w-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSessionFilterTab('strategy');
+                          setSessionFilterQuery('');
+                        }}
+                        aria-pressed={sessionFilterTab === 'strategy'}
+                        aria-label="Filter session by strategy"
+                        className={cn(
+                          "min-h-[40px] sm:min-h-[32px] px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                          sessionFilterTab === 'strategy' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                        )}
+                      >
+                        <span>Strategy</span>
+                        <span className="font-mono text-[10px] opacity-80 tabular-nums">{availableSessionStrategies.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSessionFilterTab('symbol');
+                          setSessionFilterQuery('');
+                        }}
+                        aria-pressed={sessionFilterTab === 'symbol'}
+                        aria-label="Filter session by symbol"
+                        className={cn(
+                          "min-h-[40px] sm:min-h-[32px] px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                          sessionFilterTab === 'symbol' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                        )}
+                      >
+                        <span>Symbol</span>
+                        <span className="font-mono text-[10px] opacity-80 tabular-nums">{availableSessionSymbols.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSessionFilterTab('combo');
+                          setSessionFilterQuery('');
+                        }}
+                        aria-pressed={sessionFilterTab === 'combo'}
+                        aria-label="Filter session by strategy and symbol together"
+                        className={cn(
+                          "min-h-[40px] sm:min-h-[32px] px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                          sessionFilterTab === 'combo' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                        )}
+                      >
+                        <span className="sm:hidden">Pairs</span>
+                        <span className="hidden sm:inline">Strategy + Symbol</span>
+                        <span className="font-mono text-[10px] opacity-80 tabular-nums">{availableSessionCombos.length}</span>
+                      </button>
+                    </div>
+
+                    {/* Active Filter Summary Line */}
+                    {hasSessionFilter && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg bg-accent/8 border border-accent/25 text-[11px] font-mono tabular-nums">
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0 text-text">
+                          <span className="text-dim">Active:</span>
+                          {sessionStrategyFilter !== 'ALL' && (
+                            <span className="font-semibold text-accent">{sessionStrategyFilter}</span>
+                          )}
+                          {sessionStrategyFilter !== 'ALL' && sessionSymbolFilter !== 'ALL' && (
+                            <span className="text-dim" aria-hidden="true">·</span>
+                          )}
+                          {sessionSymbolFilter !== 'ALL' && (
+                            <span className="font-semibold text-text">{sessionSymbolFilter}</span>
+                          )}
+                        </div>
+                        <span className="text-dim shrink-0">
+                          {filteredTrades.length} {filteredTrades.length === 1 ? 'trade' : 'trades'}
+                          {avgDuration > 0 ? ` · Avg ${formatDuration(avgDuration)}` : ''}
+                        </span>
                       </div>
                     )}
-                  </div>
 
-                  {/* Filter Chips Container */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-                    {/* ALL Option Chip */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSessionStrategyFilter('ALL');
-                        setSessionSymbolFilter('ALL');
-                      }}
-                      aria-pressed={sessionStrategyFilter === 'ALL' && sessionSymbolFilter === 'ALL'}
-                      aria-label="Show all session trades without filter"
-                      className={cn(
-                        "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
-                        sessionStrategyFilter === 'ALL' && sessionSymbolFilter === 'ALL'
-                          ? "bg-accent/15 border-accent text-accent shadow-sm"
-                          : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
+                    {/* Quick Search Input when breakdown has >5 entries */}
+                    {activeTabItemsCount > 5 && (
+                      <div className="relative">
+                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
+                        <input
+                          type="text"
+                          inputMode="search"
+                          value={sessionFilterQuery}
+                          onChange={(e) => setSessionFilterQuery(e.target.value)}
+                          placeholder={
+                            sessionFilterTab === 'strategy'
+                              ? 'Filter strategies in session...'
+                              : sessionFilterTab === 'symbol'
+                                ? 'Filter symbols in session...'
+                                : 'Filter strategy or symbol pair...'
+                          }
+                          aria-label="Search session filter options"
+                          className="w-full min-h-[38px] sm:min-h-[32px] bg-background/70 border border-border/50 rounded-xl pl-8 pr-8 py-1.5 text-xs text-text placeholder:text-dim/60 focus:border-accent focus:outline-none transition-colors"
+                        />
+                        {sessionFilterQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setSessionFilterQuery('')}
+                            aria-label="Clear session filter search"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-[28px] min-h-[28px] flex items-center justify-center text-dim hover:text-text rounded-md cursor-pointer"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Mobile-First Selectable Breakdown Cards Grid (zero horizontal clipping) */}
+                    <div className={cn(
+                      "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2",
+                      activeTabItemsCount > 9 && "max-h-[256px] overflow-y-auto pr-0.5 touch-pan-y"
+                    )}>
+                      {sessionFilterTab === 'strategy' && (
+                        filteredStrategyItems.length > 0 ? filteredStrategyItems.map(st => {
+                          const isSelected = sessionStrategyFilter === st.label && sessionSymbolFilter === 'ALL';
+                          return (
+                            <button
+                              key={st.label}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSessionStrategyFilter('ALL');
+                                  setSessionSymbolFilter('ALL');
+                                } else {
+                                  setSessionStrategyFilter(st.label);
+                                  setSessionSymbolFilter('ALL');
+                                }
+                              }}
+                              aria-pressed={isSelected}
+                              aria-label={`Filter session trades to strategy ${st.label}`}
+                              title={st.durationCount > 0 ? `Span: ${formatDuration(st.spanMs)} · Avg: ${formatDuration(st.avgDurationMs)} · Total: ${formatDuration(st.totalDurationMs)}` : undefined}
+                              className={cn(
+                                "min-h-[46px] px-3 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-2.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0",
+                                isSelected
+                                  ? "bg-accent/12 border-accent text-text shadow-xs"
+                                  : "bg-background/55 border-border/50 text-text/90 hover:border-accent/40 hover:bg-background/80"
+                              )}
+                            >
+                              <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                                <span className={cn("text-xs font-semibold truncate", isSelected && "text-accent")}>
+                                  {st.label}
+                                </span>
+                                <span className="text-[11px] font-mono text-dim tabular-nums truncate">
+                                  {st.count} {st.count === 1 ? 'trade' : 'trades'}
+                                  {st.durationCount > 0 ? ` · Avg ${formatDuration(st.avgDurationMs)}` : ''}
+                                </span>
+                              </div>
+                              <span className={cn("text-xs font-mono font-bold tabular-nums shrink-0", pnlClass(st.pnl))}>
+                                {st.pnl > 0 ? `+${fmtUSD(st.pnl)}` : fmtUSD(st.pnl)}
+                              </span>
+                            </button>
+                          );
+                        }) : (
+                          <div className="col-span-full py-4 text-center text-xs text-dim">
+                            No strategies matching "{sessionFilterQuery}"
+                          </div>
+                        )
                       )}
-                    >
-                      All Session Trades ({trades.length})
-                    </button>
 
-                    {/* Strategy Mode Chips */}
-                    {sessionFilterTab === 'strategy' && availableSessionStrategies.map(st => (
-                      <button
-                        key={st.label}
-                        type="button"
-                        onClick={() => {
-                          setSessionStrategyFilter(st.label);
-                          setSessionSymbolFilter('ALL');
-                        }}
-                        aria-pressed={sessionStrategyFilter === st.label && sessionSymbolFilter === 'ALL'}
-                        aria-label={`Filter session trades to strategy ${st.label}`}
-                        title={st.durationCount > 0 ? `Span: ${formatDuration(st.spanMs)} · Avg: ${formatDuration(st.avgDurationMs)} · Total: ${formatDuration(st.totalDurationMs)}` : undefined}
-                        className={cn(
-                          "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
-                          sessionStrategyFilter === st.label && sessionSymbolFilter === 'ALL'
-                            ? "bg-accent/15 border-accent text-accent shadow-sm"
-                            : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
-                        )}
-                      >
-                        <span>{st.label}</span>
-                        <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
-                          {st.count}
-                        </span>
-                        {st.durationCount > 0 && (
-                          <span className="text-[7.5px] font-mono font-bold text-dim/90 flex items-center gap-0.5">
-                            <Clock size={8.5} className="text-accent/80 shrink-0" />
-                            {formatDuration(st.avgDurationMs)}
-                          </span>
-                        )}
-                        <span className={cn("text-[7.5px] font-mono font-black", pnlClass(st.pnl))}>
-                          {fmtUSD(st.pnl)}
-                        </span>
-                      </button>
-                    ))}
+                      {sessionFilterTab === 'symbol' && (
+                        filteredSymbolItems.length > 0 ? filteredSymbolItems.map(sym => {
+                          const isSelected = sessionSymbolFilter === sym.symbol && sessionStrategyFilter === 'ALL';
+                          return (
+                            <button
+                              key={sym.symbol}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSessionSymbolFilter('ALL');
+                                  setSessionStrategyFilter('ALL');
+                                } else {
+                                  setSessionSymbolFilter(sym.symbol);
+                                  setSessionStrategyFilter('ALL');
+                                }
+                              }}
+                              aria-pressed={isSelected}
+                              aria-label={`Filter session trades to symbol ${sym.symbol}`}
+                              className={cn(
+                                "min-h-[46px] px-3 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-2.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0",
+                                isSelected
+                                  ? "bg-accent/12 border-accent text-text shadow-xs"
+                                  : "bg-background/55 border-border/50 text-text/90 hover:border-accent/40 hover:bg-background/80"
+                              )}
+                            >
+                              <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                                <span className={cn("text-xs font-mono font-semibold truncate", isSelected && "text-accent")}>
+                                  {sym.symbol}
+                                </span>
+                                <span className="text-[11px] font-mono text-dim tabular-nums truncate">
+                                  {sym.count} {sym.count === 1 ? 'trade' : 'trades'}
+                                </span>
+                              </div>
+                              <span className={cn("text-xs font-mono font-bold tabular-nums shrink-0", pnlClass(sym.pnl))}>
+                                {sym.pnl > 0 ? `+${fmtUSD(sym.pnl)}` : fmtUSD(sym.pnl)}
+                              </span>
+                            </button>
+                          );
+                        }) : (
+                          <div className="col-span-full py-4 text-center text-xs text-dim">
+                            No symbols matching "{sessionFilterQuery}"
+                          </div>
+                        )
+                      )}
 
-                    {/* Symbol Mode Chips */}
-                    {sessionFilterTab === 'symbol' && availableSessionSymbols.map(sym => (
-                      <button
-                        key={sym.symbol}
-                        type="button"
-                        onClick={() => {
-                          setSessionSymbolFilter(sym.symbol);
-                          setSessionStrategyFilter('ALL');
-                        }}
-                        aria-pressed={sessionSymbolFilter === sym.symbol && sessionStrategyFilter === 'ALL'}
-                        aria-label={`Filter session trades to symbol ${sym.symbol}`}
-                        className={cn(
-                          "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
-                          sessionSymbolFilter === sym.symbol && sessionStrategyFilter === 'ALL'
-                            ? "bg-accent/15 border-accent text-accent shadow-sm"
-                            : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
-                        )}
-                      >
-                        <span className="font-mono">{sym.symbol}</span>
-                        <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
-                          {sym.count}
-                        </span>
-                        <span className={cn("text-[7.5px] font-mono font-black", pnlClass(sym.pnl))}>
-                          {fmtUSD(sym.pnl)}
-                        </span>
-                      </button>
-                    ))}
-
-                    {/* Strategy + Symbol Combo Mode Chips */}
-                    {sessionFilterTab === 'combo' && availableSessionCombos.map(cb => (
-                      <button
-                        key={cb.key}
-                        type="button"
-                        onClick={() => {
-                          setSessionStrategyFilter(cb.strategy);
-                          setSessionSymbolFilter(cb.symbol);
-                        }}
-                        aria-pressed={sessionStrategyFilter === cb.strategy && sessionSymbolFilter === cb.symbol}
-                        aria-label={`Filter session trades to ${cb.strategy} strategy on ${cb.symbol}`}
-                        className={cn(
-                          "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
-                          sessionStrategyFilter === cb.strategy && sessionSymbolFilter === cb.symbol
-                            ? "bg-accent/15 border-accent text-accent shadow-sm"
-                            : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
-                        )}
-                      >
-                        <span>{cb.strategy}</span>
-                        <span className="text-accent/60 font-bold">·</span>
-                        <span className="font-mono text-text">{cb.symbol}</span>
-                        <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
-                          {cb.count}
-                        </span>
-                        <span className={cn("text-[7.5px] font-mono font-black", pnlClass(cb.pnl))}>
-                          {fmtUSD(cb.pnl)}
-                        </span>
-                      </button>
-                    ))}
+                      {sessionFilterTab === 'combo' && (
+                        filteredComboItems.length > 0 ? filteredComboItems.map(cb => {
+                          const isSelected = sessionStrategyFilter === cb.strategy && sessionSymbolFilter === cb.symbol;
+                          return (
+                            <button
+                              key={cb.key}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSessionStrategyFilter('ALL');
+                                  setSessionSymbolFilter('ALL');
+                                } else {
+                                  setSessionStrategyFilter(cb.strategy);
+                                  setSessionSymbolFilter(cb.symbol);
+                                }
+                              }}
+                              aria-pressed={isSelected}
+                              aria-label={`Filter session trades to ${cb.strategy} strategy on ${cb.symbol}`}
+                              className={cn(
+                                "min-h-[46px] px-3 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-2.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0",
+                                isSelected
+                                  ? "bg-accent/12 border-accent text-text shadow-xs"
+                                  : "bg-background/55 border-border/50 text-text/90 hover:border-accent/40 hover:bg-background/80"
+                              )}
+                            >
+                              <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                                <span className={cn("text-xs font-semibold truncate", isSelected && "text-accent")}>
+                                  {cb.symbol} · {cb.strategy}
+                                </span>
+                                <span className="text-[11px] font-mono text-dim tabular-nums truncate">
+                                  {cb.count} {cb.count === 1 ? 'trade' : 'trades'}
+                                </span>
+                              </div>
+                              <span className={cn("text-xs font-mono font-bold tabular-nums shrink-0", pnlClass(cb.pnl))}>
+                                {cb.pnl > 0 ? `+${fmtUSD(cb.pnl)}` : fmtUSD(cb.pnl)}
+                              </span>
+                            </button>
+                          );
+                        }) : (
+                          <div className="col-span-full py-4 text-center text-xs text-dim">
+                            No pairs matching "{sessionFilterQuery}"
+                          </div>
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Session Extremes: Top 5 Wins & Top 5 Losses */}
               {(sessionTopWins.length > 0 || sessionTopLosses.length > 0) && (
@@ -2579,231 +2705,277 @@ export const HistoryView = () => {
           <div>
 
         {/* Mobile-First Non-Sticky Filter Toolbar */}
-        <div id="history-filter-toolbar" className="bg-surface/40 border border-border/50 rounded-2xl p-3 mb-5 flex flex-col gap-3 w-full">
-          {/* Primary Row: Env Switcher, Search Input & Filters Toggle */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 w-full">
-            {/* Environment Switcher */}
-            <div className="grid grid-cols-3 sm:inline-flex items-center gap-1 bg-background/60 border border-border/40 p-1 rounded-xl w-full md:w-auto">
-              {['paper', 'testnet', 'live'].map(m => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => {
-                    setLifetimeMode(m);
-                    localStorage.setItem('history_trade_mode', m);
-                  }}
-                  aria-pressed={lifetimeMode === m}
-                  aria-label={`Switch history to ${m} mode`}
-                  className={cn(
-                    "min-h-[38px] sm:min-h-[32px] px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                    lifetimeMode === m ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
-                  )}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
+        {(() => {
+          const activeFilterCount =
+            (timeRange !== 'ALL' ? 1 : 0) +
+            (sortBy !== 'time' ? 1 : 0) +
+            (tradeLimit !== 'AUTO' ? 1 : 0) +
+            (sessionLimit !== 'AUTO' ? 1 : 0) +
+            (!hideEmptySessions ? 1 : 0);
+          const hasResettableFilters = search.trim() !== '' || activeFilterCount > 0;
+          const handleResetHistoryFilters = () => {
+            setSearch('');
+            handleTimeRangeChange('ALL');
+            handleSortByChange('time');
+            handleTradeLimitChange('AUTO');
+            handleSessionLimitChange('AUTO');
+            if (!hideEmptySessions) {
+              setHideEmptySessions(true);
+              localStorage.setItem('history_hide_empty_sessions', 'true');
+            }
+          };
 
-            {/* Search & Filter Toggle Cluster */}
-            <div className="flex items-center gap-2 flex-1 md:justify-end">
-              <div className="relative group flex-1 md:max-w-[260px]">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50 group-focus-within:text-accent pointer-events-none transition-colors" />
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  inputMode="search"
-                  placeholder="Search strategy, symbol, ID..."
-                  aria-label="Search trade history"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-                  className="w-full min-h-[40px] sm:min-h-[34px] bg-background/60 border border-border/50 rounded-xl pl-9 pr-8 py-1.5 text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                />
-                {search ? (
-                  <Tooltip content="Clear Search">
+          return (
+            <div id="history-filter-toolbar" className="bg-surface/50 border border-border/50 rounded-2xl p-3 sm:p-3.5 mb-5 flex flex-col gap-3 w-full">
+              {/* Primary Row: Env Switcher, Search Input & Filters Toggle */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 w-full">
+                {/* Environment Switcher */}
+                <div className="grid grid-cols-3 sm:inline-flex items-center gap-1 bg-background/60 border border-border/40 p-1 rounded-xl w-full md:w-auto">
+                  {['paper', 'testnet', 'live'].map(m => (
                     <button
+                      key={m}
                       type="button"
                       onClick={() => {
-                        setSearch('');
-                        searchInputRef.current?.focus();
+                        setLifetimeMode(m);
+                        localStorage.setItem('history_trade_mode', m);
                       }}
-                      className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-[32px] min-h-[32px] flex items-center justify-center text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-lg"
-                      aria-label="Clear Search"
+                      aria-pressed={lifetimeMode === m}
+                      aria-label={`Switch history to ${m} mode`}
+                      className={cn(
+                        "min-h-[40px] sm:min-h-[32px] px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all whitespace-nowrap shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                        lifetimeMode === m ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                      )}
                     >
-                      <XCircle size={14} />
+                      {m}
                     </button>
-                  </Tooltip>
-                ) : (
-                  <kbd className="hidden sm:inline-block absolute right-3 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
-                    /
-                  </kbd>
-                )}
-              </div>
+                  ))}
+                </div>
 
-              <button
-                type="button"
-                onClick={handleToggleFilters}
-                aria-expanded={filtersExpanded}
-                aria-label={filtersExpanded ? "Collapse advanced history filters" : "Expand advanced history filters"}
-                className={cn(
-                  "min-h-[40px] sm:min-h-[34px] px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 border transition-all whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                  filtersExpanded
-                    ? "bg-accent/15 border-accent/40 text-accent"
-                    : "bg-background/60 border-border/50 text-dim hover:text-text hover:border-accent/30"
-                )}
-              >
-                <SlidersHorizontal size={13} className={cn(filtersExpanded ? "text-accent" : "text-dim")} />
-                <span>Filters</span>
-                <ChevronDown size={13} className={cn("transition-transform duration-200", filtersExpanded && "rotate-180")} />
-              </button>
-            </div>
-          </div>
-
-          <SmoothHeightContainer duration={0.22}>
-            <SmoothSwap contentKey={filtersExpanded ? 'expanded' : 'collapsed'} duration={0.14} yOffset={2}>
-              {/* Unboxed Quiet Summary Strip when Collapsed */}
-              {!filtersExpanded ? (
-                <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-dim tabular-nums pt-1 border-t border-border/15 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span>Range: <strong className="text-text font-semibold">{timeRange}</strong></span>
-                    <span aria-hidden="true" className="opacity-40">·</span>
-                    <span>
-                      Trades: <strong className="text-accent font-semibold">
-                        {tradeLimit === 'AUTO'
-                          ? `Auto (${resolvedTradeLimitInfo.isKnown ? resolvedTradeLimitInfo.actualCount : resolvedTradeLimitInfo.limit})`
-                          : tradeLimit}
-                      </strong>
-                    </span>
-                    <span aria-hidden="true" className="opacity-40">·</span>
-                    <span>
-                      Sessions: <strong className="text-accent font-semibold">
-                        {sessionLimit === 'AUTO'
-                          ? `Auto (${resolvedSessionLimitInfo.isKnown ? resolvedSessionLimitInfo.modeCount : sessionList.length})`
-                          : sessionLimit}
-                      </strong>
-                    </span>
-                    <span aria-hidden="true" className="opacity-40">·</span>
-                    <span>Sort: <strong className="text-text font-semibold">{sortBy === 'time' ? 'Recent' : sortBy === 'pnl' ? 'Best P&L' : 'Win Rate'}</strong></span>
-                    {hiddenEmptyCount > 0 && (
-                      <>
-                        <span aria-hidden="true" className="opacity-40">·</span>
+                {/* Search & Filter Controls Cluster */}
+                <div className="flex items-center gap-2 flex-1 md:justify-end">
+                  <div className="relative group flex-1 md:max-w-[280px] min-w-0">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50 group-focus-within:text-accent pointer-events-none transition-colors" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      inputMode="search"
+                      placeholder="Search strategy, symbol, ID..."
+                      aria-label="Search trade history"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
+                      className="w-full min-h-[42px] sm:min-h-[36px] bg-background/60 border border-border/50 rounded-xl pl-9 pr-9 py-1.5 text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                    />
+                    {search ? (
+                      <Tooltip content="Clear Search">
                         <button
                           type="button"
-                          onClick={handleToggleHideEmptySessions}
-                          className="text-amber hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
+                          onClick={() => {
+                            setSearch('');
+                            searchInputRef.current?.focus();
+                          }}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 min-w-[34px] min-h-[34px] flex items-center justify-center text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-lg cursor-pointer"
+                          aria-label="Clear Search"
                         >
-                          {hiddenEmptyCount} empty hidden (show)
+                          <XCircle size={15} />
                         </button>
-                      </>
-                    )}
-                    {!hideEmptySessions && (
-                      <>
-                        <span aria-hidden="true" className="opacity-40">·</span>
-                        <button
-                          type="button"
-                          onClick={handleToggleHideEmptySessions}
-                          className="text-accent hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
-                        >
-                          Showing empty (hide)
-                        </button>
-                      </>
+                      </Tooltip>
+                    ) : (
+                      <kbd className="hidden sm:inline-block absolute right-3 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+                        /
+                      </kbd>
                     )}
                   </div>
+
+                  {hasResettableFilters && (
+                    <button
+                      type="button"
+                      onClick={handleResetHistoryFilters}
+                      aria-label="Reset history filters"
+                      className="min-h-[42px] sm:min-h-[36px] px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] font-semibold text-red hover:bg-red/10 border border-red/25 transition-colors whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none"
+                    >
+                      <RotateCcw size={13} />
+                      <span className="hidden sm:inline">Reset</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleToggleFilters}
+                    aria-expanded={filtersExpanded}
+                    aria-label={filtersExpanded ? "Collapse advanced history filters" : "Expand advanced history filters"}
+                    className={cn(
+                      "min-h-[42px] sm:min-h-[36px] px-3 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 border transition-all whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                      filtersExpanded || activeFilterCount > 0
+                        ? "bg-accent/15 border-accent/40 text-accent"
+                        : "bg-background/60 border-border/50 text-dim hover:text-text hover:border-accent/30"
+                    )}
+                  >
+                    <SlidersHorizontal size={13} className={cn(filtersExpanded || activeFilterCount > 0 ? "text-accent" : "text-dim")} />
+                    <span>Filters</span>
+                    {activeFilterCount > 0 && (
+                      <span className="font-mono text-[10px] tabular-nums opacity-85">({activeFilterCount})</span>
+                    )}
+                    <ChevronDown size={13} className={cn("transition-transform duration-200", filtersExpanded && "rotate-180")} />
+                  </button>
                 </div>
-              ) : (
-                <div className="pt-2.5 border-t border-border/20 grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                   {/* Time Range Filter */}
-                   <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
-                      <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Range</span>
-                      {['24H', '7D', '30D', 'ALL'].map(r => (
-                        <button
-                          key={r}
-                          type="button"
-                          onClick={() => handleTimeRangeChange(r)}
-                          aria-pressed={timeRange === r}
-                          aria-label={`Filter history to ${r} time range`}
-                          className={cn(
-                            "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                            timeRange === r ? "bg-accent text-white" : "text-dim hover:text-text"
-                          )}
-                        >
-                          {r}
-                        </button>
-                      ))}
-                   </div>
+              </div>
 
-                   {/* Sort controls */}
-                   <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
-                      <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Sort</span>
-                      {[
-                        { id: 'time', label: 'Recent' },
-                        { id: 'pnl', label: 'Best P&L' },
-                        { id: 'winrate', label: 'Win Rate' }
-                      ].map(opt => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => handleSortByChange(opt.id)}
-                          aria-pressed={sortBy === opt.id}
-                          aria-label={`Sort sessions by ${opt.label}`}
-                          className={cn(
-                            "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                            sortBy === opt.id ? "bg-accent text-white" : "text-dim hover:text-text"
-                          )}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                   </div>
+              <SmoothHeightContainer duration={0.22}>
+                <SmoothSwap contentKey={filtersExpanded ? 'expanded' : 'collapsed'} duration={0.14} yOffset={2}>
+                  {/* Unboxed Quiet Summary Strip when Collapsed */}
+                  {!filtersExpanded ? (
+                    <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-dim tabular-nums pt-2 border-t border-border/20 flex-wrap">
+                      <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
+                        <span>Range: <strong className="text-text font-semibold">{timeRange}</strong></span>
+                        <span aria-hidden="true" className="opacity-40">·</span>
+                        <span>
+                          Trades: <strong className="text-accent font-semibold">
+                            {tradeLimit === 'AUTO'
+                              ? `Auto (${resolvedTradeLimitInfo.isKnown ? resolvedTradeLimitInfo.actualCount : resolvedTradeLimitInfo.limit})`
+                              : tradeLimit}
+                          </strong>
+                        </span>
+                        <span aria-hidden="true" className="opacity-40">·</span>
+                        <span>
+                          Sessions: <strong className="text-accent font-semibold">
+                            {sessionLimit === 'AUTO'
+                              ? `Auto (${resolvedSessionLimitInfo.isKnown ? resolvedSessionLimitInfo.modeCount : sessionList.length})`
+                              : sessionLimit}
+                          </strong>
+                        </span>
+                        <span aria-hidden="true" className="opacity-40">·</span>
+                        <span>Sort: <strong className="text-text font-semibold">{sortBy === 'time' ? 'Recent' : sortBy === 'pnl' ? 'Best P&L' : 'Win Rate'}</strong></span>
+                        {hiddenEmptyCount > 0 && (
+                          <>
+                            <span aria-hidden="true" className="opacity-40">·</span>
+                            <button
+                              type="button"
+                              onClick={handleToggleHideEmptySessions}
+                              className="text-amber hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
+                            >
+                              {hiddenEmptyCount} empty hidden (show)
+                            </button>
+                          </>
+                        )}
+                        {!hideEmptySessions && (
+                          <>
+                            <span aria-hidden="true" className="opacity-40">·</span>
+                            <button
+                              type="button"
+                              onClick={handleToggleHideEmptySessions}
+                              className="text-accent hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
+                            >
+                              Showing empty (hide)
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="pt-2.5 border-t border-border/20 grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      {/* Time Range Filter */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 border border-border/40 rounded-xl">
+                        <span className="text-[11px] text-dim font-semibold px-1 shrink-0">Time Range</span>
+                        <div className="grid grid-cols-4 sm:inline-flex items-center gap-1 w-full sm:w-auto">
+                          {['24H', '7D', '30D', 'ALL'].map(r => (
+                            <button
+                              key={r}
+                              type="button"
+                              onClick={() => handleTimeRangeChange(r)}
+                              aria-pressed={timeRange === r}
+                              aria-label={`Filter history to ${r} time range`}
+                              className={cn(
+                                "min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                                timeRange === r ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                              )}
+                            >
+                              {r}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
 
-                   {/* Adaptive Trade Limit Selector */}
-                   <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
-                      <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Trades</span>
-                      {['AUTO', 50, 250, 1000, 'ALL'].map(l => (
-                        <button
-                          key={String(l)}
-                          type="button"
-                          onClick={() => handleTradeLimitChange(l)}
-                          aria-pressed={tradeLimit === l}
-                          aria-label={l === 'AUTO' ? 'Use adaptive trade history limit' : `Set trade history limit to ${l}`}
-                          className={cn(
-                            "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                            tradeLimit === l ? "bg-accent text-white" : "text-dim hover:text-text"
-                          )}
-                        >
-                          {l === 'AUTO'
-                            ? (resolvedTradeLimitInfo.isKnown ? `Auto (${resolvedTradeLimitInfo.actualCount})` : 'Auto')
-                            : l}
-                        </button>
-                      ))}
-                   </div>
+                      {/* Sort Controls */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 border border-border/40 rounded-xl">
+                        <span className="text-[11px] text-dim font-semibold px-1 shrink-0">Sort Sessions</span>
+                        <div className="grid grid-cols-3 sm:inline-flex items-center gap-1 w-full sm:w-auto">
+                          {[
+                            { id: 'time', label: 'Recent' },
+                            { id: 'pnl', label: 'Best P&L' },
+                            { id: 'winrate', label: 'Win Rate' }
+                          ].map(opt => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => handleSortByChange(opt.id)}
+                              aria-pressed={sortBy === opt.id}
+                              aria-label={`Sort sessions by ${opt.label}`}
+                              className={cn(
+                                "min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                                sortBy === opt.id ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                              )}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
 
-                   {/* Adaptive Session Limit Selector */}
-                   <div className="flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl overflow-x-auto no-scrollbar">
-                      <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider px-2 shrink-0">Sessions</span>
-                      {['AUTO', 20, 50, 100, 'ALL'].map(sl => (
-                        <button
-                          key={String(sl)}
-                          type="button"
-                          onClick={() => handleSessionLimitChange(sl)}
-                          aria-pressed={sessionLimit === sl}
-                          aria-label={sl === 'AUTO' ? 'Use adaptive session history limit' : `Set session history limit to ${sl}`}
-                          className={cn(
-                            "min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                            sessionLimit === sl ? "bg-accent text-white" : "text-dim hover:text-text"
-                          )}
-                        >
-                          {sl === 'AUTO'
-                            ? (resolvedSessionLimitInfo.isKnown ? `Auto (${resolvedSessionLimitInfo.modeCount})` : 'Auto')
-                            : sl}
-                        </button>
-                      ))}
-                   </div>
-                </div>
-              )}
-            </SmoothSwap>
-          </SmoothHeightContainer>
-        </div>
+                      {/* Adaptive Trade Limit Selector */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 border border-border/40 rounded-xl">
+                        <span className="text-[11px] text-dim font-semibold px-1 shrink-0">Trade Limit</span>
+                        <div className="grid grid-cols-3 sm:inline-flex items-center gap-1 w-full sm:w-auto">
+                          {['AUTO', 50, 250, 1000, 'ALL'].map(l => (
+                            <button
+                              key={String(l)}
+                              type="button"
+                              onClick={() => handleTradeLimitChange(l)}
+                              aria-pressed={tradeLimit === l}
+                              aria-label={l === 'AUTO' ? 'Use adaptive trade history limit' : `Set trade history limit to ${l}`}
+                              className={cn(
+                                "min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                                tradeLimit === l ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                              )}
+                            >
+                              {l === 'AUTO'
+                                ? (resolvedTradeLimitInfo.isKnown ? `Auto (${resolvedTradeLimitInfo.actualCount})` : 'Auto')
+                                : l}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Adaptive Session Limit Selector */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 border border-border/40 rounded-xl">
+                        <span className="text-[11px] text-dim font-semibold px-1 shrink-0">Session Limit</span>
+                        <div className="grid grid-cols-3 sm:inline-flex items-center gap-1 w-full sm:w-auto">
+                          {['AUTO', 20, 50, 100, 'ALL'].map(sl => (
+                            <button
+                              key={String(sl)}
+                              type="button"
+                              onClick={() => handleSessionLimitChange(sl)}
+                              aria-pressed={sessionLimit === sl}
+                              aria-label={sl === 'AUTO' ? 'Use adaptive session history limit' : `Set session history limit to ${sl}`}
+                              className={cn(
+                                "min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                                sessionLimit === sl ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                              )}
+                            >
+                              {sl === 'AUTO'
+                                ? (resolvedSessionLimitInfo.isKnown ? `Auto (${resolvedSessionLimitInfo.modeCount})` : 'Auto')
+                                : sl}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </SmoothSwap>
+              </SmoothHeightContainer>
+            </div>
+          );
+        })()}
 
         {/* Modern Collapsible Analytics & Optimization Section */}
         <div className="mb-8">
@@ -3319,20 +3491,20 @@ export const HistoryView = () => {
                 </span>
               </div>
               {allSessionsWithTrades.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
                   {(hiddenEmptyCount > 0 || !hideEmptySessions) && (
                     <button
                       type="button"
                       onClick={handleToggleHideEmptySessions}
                       aria-pressed={!hideEmptySessions}
                       className={cn(
-                        "min-h-[44px] sm:min-h-[32px] text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center gap-1.5",
+                        "min-h-[42px] sm:min-h-[32px] text-[11px] font-semibold px-3 py-1.5 rounded-xl border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center justify-center gap-1.5",
                         !hideEmptySessions
                           ? "border-accent/40 bg-accent/15 text-accent"
                           : "border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim"
                       )}
                     >
-                      {hideEmptySessions ? <Eye size={12} /> : <EyeOff size={12} />}
+                      {hideEmptySessions ? <Eye size={13} /> : <EyeOff size={13} />}
                       <span>{hideEmptySessions ? `Show Empty (${hiddenEmptyCount})` : 'Hide Empty'}</span>
                     </button>
                   )}
@@ -3340,13 +3512,13 @@ export const HistoryView = () => {
                     <button
                       type="button"
                       onClick={handleIncreaseAdaptiveTradeLimit}
-                      className="min-h-[44px] sm:min-h-[32px] text-[10px] font-bold font-mono uppercase tracking-wider px-3 py-1.5 rounded-lg border border-accent/40 bg-accent/10 hover:bg-accent/20 text-accent transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center gap-1.5"
+                      className="min-h-[42px] sm:min-h-[32px] text-[11px] font-semibold font-mono px-3 py-1.5 rounded-xl border border-accent/40 bg-accent/10 hover:bg-accent/20 text-accent transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center justify-center gap-1.5"
                       title="Load more historical trades from the server to populate older sessions"
                     >
                       <span>
                         {nextTradeStepInfo.isAll
-                          ? `Load All Trades${nextTradeStepInfo.remainingTrades ? ` (+${nextTradeStepInfo.remainingTrades})` : ''}`
-                          : `Increase Limit (${nextTradeStepInfo.nextLimit} Trades)`}
+                          ? `Load All${nextTradeStepInfo.remainingTrades ? ` (+${nextTradeStepInfo.remainingTrades})` : ''}`
+                          : `+${nextTradeStepInfo.nextLimit} Trades`}
                       </span>
                     </button>
                   )}
@@ -3356,7 +3528,7 @@ export const HistoryView = () => {
                         type="button"
                         onClick={handleExpandAll}
                         aria-label="Expand all trading session groups"
-                        className="min-h-[44px] sm:min-h-[32px] text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                        className="min-h-[42px] sm:min-h-[32px] text-[11px] font-semibold px-3 py-1.5 rounded-xl border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
                       >
                         Expand All
                       </button>
@@ -3364,7 +3536,7 @@ export const HistoryView = () => {
                         type="button"
                         onClick={handleCollapseAll}
                         aria-label="Collapse all trading session groups"
-                        className="min-h-[44px] sm:min-h-[32px] text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                        className="min-h-[42px] sm:min-h-[32px] text-[11px] font-semibold px-3 py-1.5 rounded-xl border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
                       >
                         Collapse All
                       </button>

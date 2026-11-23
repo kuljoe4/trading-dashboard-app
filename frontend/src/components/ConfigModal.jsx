@@ -7845,35 +7845,36 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-presets"
             className="flex flex-col gap-0 animate-in fade-in duration-200 -mx-2.5 sm:-mx-4 -mt-1.5 sm:-mt-2.5"
           >
-            {/* Sticky Presets Toolbar + Inline Filter Nav */}
-            <div className="sticky top-0 z-20 bg-surface/95 backdrop-blur-md flex flex-col gap-2 px-3 sm:px-4 pt-2.5 pb-2 border-b border-border/40">
+            {/* Sticky Presets Toolbar + Mobile-First Filter Nav */}
+            <div className="sticky top-0 z-20 bg-surface/95 backdrop-blur-md flex flex-col gap-2 px-3 sm:px-4 pt-2.5 pb-2.5 border-b border-border/40">
                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
                     <div className="relative flex-1 min-w-0">
-                      <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
+                      <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
                       <input
                          ref={presetSearchInputRef}
                          type="text"
+                         inputMode="search"
                          placeholder="Search presets by name or mode... (/)"
                          value={presetSearch}
                          onChange={(e) => setPresetSearch(e.target.value)}
-                         className="w-full bg-background/70 border border-border/70 hover:border-border rounded-lg h-8 pl-8 pr-7 text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus:bg-background focus:outline-none transition-all"
+                         className="w-full bg-background/70 border border-border/70 hover:border-border rounded-xl min-h-[40px] sm:min-h-0 sm:h-8 pl-8 pr-8 text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus:bg-background focus:outline-none transition-all"
                       />
                       {presetSearch && (
                          <button
                             type="button"
                             onClick={() => setPresetSearch('')}
                             aria-label="Clear search"
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-dim hover:text-text rounded-md transition-colors"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-[30px] min-h-[30px] flex items-center justify-center text-dim hover:text-text rounded-md transition-colors cursor-pointer"
                          >
-                            <X size={11} />
+                            <X size={12} />
                          </button>
                       )}
                     </div>
                     <button
                        type="button"
                        onClick={() => handleOpenSaveAsNew(null)}
-                       className="h-8 px-3 rounded-lg bg-accent hover:bg-accent/90 text-white text-[11px] font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
+                       className="min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-xl sm:rounded-lg bg-accent hover:bg-accent/90 text-white text-[11px] font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
                     >
                        <Plus size={12} />
                        <span className="hidden sm:inline">Save as Preset</span>
@@ -7883,7 +7884,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                        type="button"
                        onClick={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
                        className={cn(
-                          "h-8 px-2.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer shrink-0",
+                          "min-h-[40px] sm:min-h-0 sm:h-8 px-2.5 rounded-xl sm:rounded-lg border text-[11px] font-bold transition-colors cursor-pointer shrink-0",
                           openSectionId === 'presets_tools'
                              ? "bg-accent/10 border-accent/40 text-accent"
                              : "border-border/70 text-dim hover:text-text hover:bg-background/60"
@@ -7893,43 +7894,42 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </button>
                   </div>
 
-                  {/* Single-Row Filter Strip (merges onto same row on sm+ desktop to maximize vertical preset space) */}
-                  <div className="flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar shrink-0">
-                    <div className="flex items-center gap-1">
-                      {[
-                         { id: 'all', label: 'All', count: Array.isArray(presets) ? presets.length : 0 },
-                         { id: 'live', label: 'Live' },
-                         { id: 'testnet', label: 'Testnet' },
-                         { id: 'paper', label: 'Paper' },
-                         { id: 'variants', label: 'Variants', count: activeVariants.length, isVariantTab: true }
-                      ].map(f => (
-                         <button
-                            key={f.id}
-                            type="button"
-                            onClick={() => setPresetTabFilter(f.id)}
-                            className={cn(
-                               "h-7 px-2.5 text-[11px] font-bold rounded-md transition-all whitespace-nowrap flex items-center gap-1 shrink-0 cursor-pointer",
-                               presetTabFilter === f.id
-                                  ? f.isVariantTab
-                                     ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
-                                     : "bg-accent/15 text-accent border border-accent/30"
-                                  : "text-dim hover:text-text hover:bg-surface/50 border border-transparent"
-                            )}
-                         >
-                            <span>{f.label}</span>
-                            {f.count !== undefined && (
-                               <span className={cn(
-                                  "text-[9px] px-1 rounded font-bold leading-tight",
-                                  presetTabFilter === f.id
-                                     ? (f.isVariantTab ? "bg-violet-500/40 text-violet-100" : "bg-accent/30 text-white")
-                                     : "bg-background/60 border border-border/40 text-dim"
-                               )}>
-                                  {f.count}
-                               </span>
-                            )}
-                         </button>
-                      ))}
-                    </div>
+                  {/* Mobile-First Preset Filter Strip (grid/wrap on mobile, single row on sm+) */}
+                  <div className="grid grid-cols-3 xs:grid-cols-5 sm:flex sm:items-center gap-1 shrink-0 w-full sm:w-auto">
+                    {[
+                       { id: 'all', label: 'All', count: Array.isArray(presets) ? presets.length : 0 },
+                       { id: 'live', label: 'Live' },
+                       { id: 'testnet', label: 'Testnet' },
+                       { id: 'paper', label: 'Paper' },
+                       { id: 'variants', label: 'Variants', count: activeVariants.length, isVariantTab: true }
+                    ].map(f => (
+                       <button
+                          key={f.id}
+                          type="button"
+                          aria-pressed={presetTabFilter === f.id}
+                          onClick={() => setPresetTabFilter(f.id)}
+                          className={cn(
+                             "min-h-[36px] sm:min-h-0 sm:h-7 px-2.5 text-[11px] font-bold rounded-lg sm:rounded-md transition-all whitespace-nowrap flex items-center justify-center gap-1 shrink-0 cursor-pointer",
+                             presetTabFilter === f.id
+                                ? f.isVariantTab
+                                   ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
+                                   : "bg-accent/15 text-accent border border-accent/30"
+                                : "bg-background/40 sm:bg-transparent text-dim hover:text-text hover:bg-surface/50 border border-border/40 sm:border-transparent"
+                          )}
+                       >
+                          <span>{f.label}</span>
+                          {f.count !== undefined && (
+                             <span className={cn(
+                                "text-[10px] font-mono tabular-nums leading-tight opacity-85",
+                                presetTabFilter === f.id
+                                   ? (f.isVariantTab ? "text-violet-200" : "text-accent")
+                                   : "text-dim"
+                             )}>
+                                ({f.count})
+                             </span>
+                          )}
+                       </button>
+                    ))}
                   </div>
                </div>
 

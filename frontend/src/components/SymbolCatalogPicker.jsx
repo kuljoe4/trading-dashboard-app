@@ -13,6 +13,11 @@ import {
 } from 'lucide-react';
 import { useTradingStore } from '../store/trading';
 import { cn, Tooltip } from './ui/primitives';
+import {
+  extractHtfEmaCross,
+  compareByHtfEmaCross,
+  formatHtfCrossCompact,
+} from '../utils/htfEmaCross';
 
 const STARTER_SYMBOLS = [
   { symbol: 'BTCUSDT', baseAsset: 'BTC', assetClass: 'crypto' },
@@ -61,15 +66,18 @@ export const SymbolCatalogPicker = React.memo(({
 }) => {
   const availableSymbols = useTradingStore((s) => s.availableSymbols || []);
   const availableSymbolsLoading = useTradingStore((s) => s.availableSymbolsLoading);
+  const availableSymbolsHtfIncluded = useTradingStore((s) => s.availableSymbolsHtfIncluded);
   const fetchAvailableSymbols = useTradingStore((s) => s.fetchAvailableSymbols);
   const scannerResults = useTradingStore((s) => s.scannerResults || []);
   const variantScannerResults = useTradingStore((s) => s.variantScannerResults || {});
   const storeConfig = useTradingStore((s) => s.config || {});
+  const htfCatalogEnabled = Boolean(storeConfig?.htf_ema_cross_catalog_enabled);
+  const preferFresh = storeConfig?.htf_ema_cross_prefer_fresh !== false;
 
   const [query, setQuery] = useState('');
   const [activeTab, setActiveTab] = useState('catalog'); // 'catalog' | 'strategies'
   const [category, setCategory] = useState('all'); // 'all' | 'crypto' | 'tradfi' | 'movers'
-  const [sortBy, setSortBy] = useState('volume'); // 'volume' | 'change' | 'alpha'
+  const [sortBy, setSortBy] = useState('volume'); // 'volume' | 'ema_cross' | 'change' | 'alpha'
   const [isOpen, setIsOpen] = useState(defaultExpanded);
   const [copiedSourceKey, setCopiedSourceKey] = useState(null);
 
@@ -78,9 +86,9 @@ export const SymbolCatalogPicker = React.memo(({
 
   useEffect(() => {
     if (typeof fetchAvailableSymbols === 'function') {
-      fetchAvailableSymbols(false);
+      fetchAvailableSymbols(false, { includeHtfCross: sortBy === 'ema_cross' || htfCatalogEnabled });
     }
-  }, [fetchAvailableSymbols]);
+  }, [fetchAvailableSymbols, sortBy, htfCatalogEnabled]);
 
   const selectedSet = useMemo(() => {
     return new Set((Array.isArray(selectedSymbols) ? selectedSymbols : []).map((s) => String(s || '').toUpperCase()));
@@ -104,16 +112,18 @@ export const SymbolCatalogPicker = React.memo(({
         pct: Number(item.pct || 0),
         volume_24h: Number(item.volume_24h || 0),
         score: undefined,
+        htf_ema_cross: extractHtfEmaCross(item),
       });
     }
 
-    // 2. Overlay live scanner results (base + variants) for live score & freshest price/pct
+    // 2. Overlay live scanner results (base + variants) for live score & freshest price/pct/HTF cross telemetry
     const overlayOpp = (opp) => {
       if (!opp?.symbol) return;
       const sym = String(opp.symbol).toUpperCase();
       if (!sym.endsWith('USDT')) return;
       const existing = map.get(sym);
       const pctVal = opp.pct !== undefined ? Number(opp.pct) : (opp.momentum !== undefined ? Number(opp.momentum) : existing?.pct ?? 0);
+      const oppHtf = extractHtfEmaCross(opp);
       map.set(sym, {
         symbol: sym,
         baseAsset: existing?.baseAsset || sym.replace(/USDT$/, ''),
@@ -124,6 +134,7 @@ export const SymbolCatalogPicker = React.memo(({
         pct: pctVal,
         volume_24h: Number(opp.vol || opp.volume || opp.volume_24h || existing?.volume_24h || 0),
         score: opp.score !== undefined ? Number(opp.score) : existing?.score,
+        htf_ema_cross: oppHtf || existing?.htf_ema_cross || null,
       });
     };
 
@@ -144,6 +155,7 @@ export const SymbolCatalogPicker = React.memo(({
           pct: 0,
           volume_24h: 0,
           score: undefined,
+          htf_ema_cross: null,
         });
       }
     }
@@ -153,6 +165,7 @@ export const SymbolCatalogPicker = React.memo(({
 
   const tradFiCount = useMemo(() => universe.filter((u) => u.assetClass === 'tradfi').length, [universe]);
   const cryptoCount = universe.length - tradFiCount;
+  const htfEvaluatedCount = useMemo(() => universe.filter((u) => Boolean(u.htf_ema_cross)).length, [universe]);
 
   const filteredCatalog = useMemo(() => {
     const q = query.trim().toUpperCase();
@@ -164,7 +177,9 @@ export const SymbolCatalogPicker = React.memo(({
       return true;
     });
 
-    if (sortBy === 'change') {
+    if (sortBy === 'ema_cross') {
+      list = [...list].sort(compareByHtfEmaCross);
+    } else if (sortBy === 'change') {
       list = [...list].sort((a, b) => Math.abs(b.pct || 0) - Math.abs(a.pct || 0));
     } else if (sortBy === 'alpha') {
       list = [...list].sort((a, b) => a.symbol.localeCompare(b.symbol));
@@ -355,7 +370,7 @@ export const SymbolCatalogPicker = React.memo(({
           <Tooltip content="Refresh Binance Futures symbol catalog">
             <button
               type="button"
-              onClick={() => fetchAvailableSymbols?.(true)}
+              onClick={() => fetchAvailableSymbols?.(true, { includeHtfCross: sortBy === 'ema_cross' || htfCatalogEnabled })}
               disabled={availableSymbolsLoading}
               aria-label="Refresh symbol catalog"
               className="p-1.5 rounded-lg border border-border/70 bg-background/50 text-muted hover:text-text hover:border-border transition-colors cursor-pointer disabled:opacity-50"
@@ -398,10 +413,11 @@ export const SymbolCatalogPicker = React.memo(({
                 </div>
 
                 <div className="flex items-center justify-between sm:justify-end gap-1.5 text-[11px] text-muted w-full sm:w-auto">
-                  <div className="grid grid-cols-3 sm:inline-flex items-center gap-1 bg-background/50 border border-border/40 p-0.5 rounded-lg flex-1 sm:flex-initial">
+                  <div className="grid grid-cols-2 sm:inline-flex items-center gap-1 bg-background/50 border border-border/40 p-0.5 rounded-lg flex-1 sm:flex-initial">
                     <span className="hidden md:inline px-1.5 text-[10px] font-semibold">Sort</span>
                     {[
                       { id: 'volume', label: 'Volume' },
+                      { id: 'ema_cross', label: 'EMA Cross' },
                       { id: 'change', label: '24h %' },
                       { id: 'alpha', label: 'A–Z' },
                     ].map((s) => (
@@ -431,6 +447,25 @@ export const SymbolCatalogPicker = React.memo(({
                   )}
                 </div>
               </div>
+
+              {sortBy === 'ema_cross' && (
+                <div className="px-3 py-1.5 border-b border-border/40 bg-background/30 text-[11px] text-muted flex items-center justify-between gap-2">
+                  <span className="truncate">
+                    {preferFresh
+                      ? 'Ranked by fresh, profitable HTF EMA crossovers — stale & overextended runs are demoted.'
+                      : 'Ranked by historical HTF EMA crossover profitability across cached bars.'}
+                  </span>
+                  {htfEvaluatedCount > 0 ? (
+                    <span className="font-mono text-[10px] tabular-nums text-accent shrink-0 whitespace-nowrap">
+                      {htfEvaluatedCount} scored
+                    </span>
+                  ) : !availableSymbolsHtfIncluded && availableSymbolsLoading ? (
+                    <span className="font-mono text-[10px] text-muted shrink-0 whitespace-nowrap">
+                      Scoring…
+                    </span>
+                  ) : null}
+                </div>
+              )}
 
               {/* Symbol Grid (Fixed height eliminates CLS during async catalog load and category switches) */}
               <div className={cn('p-2 overflow-y-auto no-scrollbar', compact ? 'h-52' : 'h-64')}>
@@ -477,6 +512,16 @@ export const SymbolCatalogPicker = React.memo(({
                       const volStr = formatCompactVol(item.volume_24h);
                       const priceStr = formatPrice(item.price);
                       const base = item.symbol.replace(/USDT$/, '');
+                      const htfCompact = formatHtfCrossCompact(item.htf_ema_cross);
+                      const htfToneClass = htfCompact?.tone === 'fresh'
+                        ? 'text-green font-medium'
+                        : htfCompact?.tone === 'approaching'
+                        ? 'text-accent font-medium'
+                        : htfCompact?.tone === 'early'
+                        ? 'text-text'
+                        : htfCompact?.tone === 'extended' || htfCompact?.tone === 'stale'
+                        ? 'text-amber/80'
+                        : 'text-muted';
 
                       return (
                         <button
@@ -494,7 +539,7 @@ export const SymbolCatalogPicker = React.memo(({
                             <div className="flex items-center gap-1 min-w-0">
                               <span className="font-mono text-xs font-semibold truncate">{base}</span>
                               {item.assetClass === 'tradfi' && (
-                                <span className="text-[9px] font-mono font-medium text-amber px-1 rounded bg-amber/10 shrink-0">
+                                <span className="text-[9px] font-mono font-medium text-amber shrink-0">
                                   {item.underlyingType === 'COMMODITY'
                                     ? 'CMD'
                                     : item.underlyingType === 'EQUITY'
@@ -506,8 +551,16 @@ export const SymbolCatalogPicker = React.memo(({
                               )}
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono tabular-nums text-muted truncate">
-                              {priceStr ? <span>{priceStr}</span> : <span>USDT Perp</span>}
-                              {volStr && <span className="opacity-70">{volStr}</span>}
+                              {(sortBy === 'ema_cross' || htfCatalogEnabled) && htfCompact ? (
+                                <span className={cn('truncate', htfToneClass)} title={`Suitability ${Math.round(htfCompact.suitability || 0)}/100`}>
+                                  {htfCompact.label}
+                                </span>
+                              ) : (
+                                <>
+                                  {priceStr ? <span>{priceStr}</span> : <span>USDT Perp</span>}
+                                  {volStr && <span className="opacity-70">{volStr}</span>}
+                                </>
+                              )}
                             </div>
                           </div>
 

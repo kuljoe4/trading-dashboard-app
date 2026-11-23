@@ -352,9 +352,13 @@ export class SessionController {
   }
 
   @Get("symbols")
-  async getAvailableSymbols(@Query("includeNonUsdt") includeNonUsdt?: string) {
+  async getAvailableSymbols(
+    @Query("includeNonUsdt") includeNonUsdt?: string,
+    @Query("htfCross") htfCross?: string,
+  ) {
     return this.sessionService.getAvailableSymbols(
       includeNonUsdt === "1" || includeNonUsdt === "true",
+      htfCross === "1" || htfCross === "true",
     );
   }
 

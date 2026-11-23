@@ -167,6 +167,7 @@ const sessionConfigAllowedKeys = [
   'watchlist_rotate_interval_min',
   'watchlist_min_score',
   'watchlist_last_rotated_ts',
+  'watchlist_rotate_mode',
   'discovery_mode',
   'entry_side',
   'excluded_symbols',
@@ -295,6 +296,9 @@ const sessionConfigAllowedKeys = [
   'htf_ema_slow_period',
   'htf_ema_cross_max_boost',
   'htf_ema_cross_rr_weight',
+  'htf_ema_cross_prefer_fresh',
+  'htf_ema_cross_max_bars',
+  'htf_ema_cross_catalog_enabled',
   'htf_breakout_ref_timeframe',
   'htf_breakout_trigger_timeframe',
   'htf_breakout_mode',
@@ -364,9 +368,14 @@ export const createSessionAPI = (apiInstance = api) => ({
   }, { timeout: 60000 }),
   stop: () => apiInstance.post('/session/stop'),
   status: (config) => apiInstance.get('/session/status', config),
-  getSymbols: (includeNonUsdt = false) => apiInstance.get('/session/symbols', {
-    params: includeNonUsdt ? { includeNonUsdt: '1' } : undefined,
-  }),
+  getSymbols: (includeNonUsdt = false, includeHtfCross = false) => {
+    const params = {};
+    if (includeNonUsdt) params.includeNonUsdt = '1';
+    if (includeHtfCross) params.htfCross = '1';
+    return apiInstance.get('/session/symbols', {
+      params: Object.keys(params).length > 0 ? params : undefined,
+    });
+  },
   list: (limit, withCounts = true) => apiInstance.get('/session/list', {
     params: {
       ...(limit ? { limit } : {}),

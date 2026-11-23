@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { cn, Tooltip } from './primitives';
 import { price as fmtPrice } from '../../lib/formatters';
-import { computeConditionMeter, buildHtfLadderModel, buildMacdFilterModel, buildEngulfingPatternModel, computeConditionValueDelta } from '../../utils/candidateConditions';
+import { computeConditionMeter, buildHtfLadderModel, buildMacdFilterModel, buildEngulfingPatternModel, computeConditionValueDelta, isCrossoverEventSignal } from '../../utils/candidateConditions';
 import { ConditionDial, HtfBreakoutLadder, MacdFilterStrip, EngulfingPatternStrip } from './CandidateConditionsGauge';
 
 const ZONE_TEXT_CLASS = {
@@ -10,6 +10,7 @@ const ZONE_TEXT_CLASS = {
   fresh: 'text-green',
   stale: 'text-amber',
   late: 'text-red',
+  crossed_stale: 'text-amber',
   warming: 'text-amber',
   blocked: 'text-purple-400',
 };
@@ -20,6 +21,7 @@ const ZONE_DOT_CLASS = {
   fresh: 'bg-green',
   stale: 'bg-amber',
   late: 'bg-red',
+  crossed_stale: 'bg-amber',
   warming: 'bg-amber',
   blocked: 'bg-purple-400',
 };
@@ -30,6 +32,7 @@ const ZONE_COLOR_MAP = {
   fresh: '#22c55e',
   stale: '#f59e0b',
   late: '#ef4444',
+  crossed_stale: '#f59e0b',
   warming: '#f59e0b',
   blocked: '#a855f7',
 };
@@ -126,6 +129,20 @@ export const SignalGauge = React.memo(({
     });
   }, [isHtfBreakout, finalInsufficient, s, propSignalKey, opp, strategyConfig, finalValue, markPrice, isLong, effectiveIsExit]);
 
+  const isAlreadyCrossed = useMemo(() => {
+    if (finalInsufficient || isFired || isRejected || isHtfBreakout) return false;
+    if (s.status === 'stale' || signalEstimation?.state === 'stale') return true;
+    if (isCrossoverEventSignal(sigKey, s)) {
+      const v = Number(finalValue);
+      const t = Number(finalThreshold);
+      if (Number.isFinite(v) && Number.isFinite(t)) {
+        const wantUpper = effectiveIsExit ? !isLong : isLong;
+        return wantUpper ? v > t : v < t;
+      }
+    }
+    return false;
+  }, [finalInsufficient, isFired, isRejected, isHtfBreakout, s, signalEstimation?.state, sigKey, finalValue, finalThreshold, effectiveIsExit, isLong]);
+
   const meter = useMemo(() => computeConditionMeter({
     value: finalValue,
     threshold: finalThreshold,
@@ -136,15 +153,16 @@ export const SignalGauge = React.memo(({
     fired: Boolean(isFired),
     active: isActive !== false,
     rejected: Boolean(isRejected || ladder?.isOverCap),
+    alreadyCrossed: isAlreadyCrossed,
     insufficientData: Boolean(finalInsufficient),
     signalKey: s.key || propSignalKey || finalLabel,
-    proximity: finalProx,
+    proximity: isAlreadyCrossed ? 0 : finalProx,
     isIndicatorPair:
       sigKey.includes('dual') ||
       sigKey.includes('cross') ||
       String(s.metric || signalMetric || '').toLowerCase().includes('dual') ||
       String(s.metric || signalMetric || '').toLowerCase().includes('cross'),
-  }), [finalValue, finalThreshold, isPrice, finalUnit, isLong, effectiveIsExit, isFired, isActive, isRejected, ladder?.isOverCap, finalInsufficient, s.key, propSignalKey, finalLabel, finalProx, sigKey, s.metric, signalMetric]);
+  }), [finalValue, finalThreshold, isPrice, finalUnit, isLong, effectiveIsExit, isFired, isActive, isRejected, ladder?.isOverCap, isAlreadyCrossed, finalInsufficient, s.key, propSignalKey, finalLabel, finalProx, sigKey, s.metric, signalMetric]);
 
   const formatVal = (val) => {
     if (val === undefined || val === null || Number.isNaN(Number(val))) return '---';
@@ -288,7 +306,7 @@ export const SignalGauge = React.memo(({
               {hasDeltaReadout && (
                 <div className="flex items-center justify-between gap-2 text-[9px] border-t border-border/25 pt-1 min-w-0">
                   <span className="text-dim uppercase tracking-wider font-semibold text-[8.5px] shrink-0">
-                    {(Number(meter.dialPct) || 0) >= 100 ? 'Past target' : 'To go'}
+                    {meter.deltaLabel || ((Number(meter.dialPct) || 0) >= 100 ? 'Past target' : 'To go')}
                   </span>
                   <span
                     className={cn(

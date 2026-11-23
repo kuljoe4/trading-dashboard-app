@@ -18,6 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTradingStore } from '../store/trading';
 import { cn, Tooltip } from './ui/primitives';
 import { SymbolCatalogPicker } from './SymbolCatalogPicker';
+import { formatHtfCrossCompact } from '../utils/htfEmaCross';
 
 const LIMIT_PRESETS = [
   { label: '1 (Solo)', value: 1 },
@@ -155,6 +156,7 @@ export const WatchlistManager = React.memo(({
   const isAutoRotate = !!(activeStrategyConfig.watchlist_auto_rotate ?? config.watchlist_auto_rotate);
   const isLocked = !!(activeStrategyConfig.watchlist_locked ?? config.watchlist_locked);
   const intervalMin = Number(activeStrategyConfig.watchlist_rotate_interval_min ?? config.watchlist_rotate_interval_min) || 15;
+  const rotateMode = activeStrategyConfig.watchlist_rotate_mode ?? config.watchlist_rotate_mode ?? 'score';
 
   const activeTradeSymbols = useMemo(() => {
     return new Set(activeTrades.map((t) => t.symbol));
@@ -521,6 +523,40 @@ export const WatchlistManager = React.memo(({
                 </div>
               </div>
 
+              {/* Rotation Priority Mode */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                <div className="min-w-0">
+                  <span className="text-[11px] font-medium text-text">Rotation Priority</span>
+                  <p className="text-[10px] text-muted">
+                    {rotateMode === 'htf_ema_cross'
+                      ? 'Prefers fresh, profitable HTF EMA crossovers and avoids stale extended runs.'
+                      : 'Uses raw composite scanner score and 24h liquidity momentum.'}
+                  </p>
+                </div>
+                <div className="inline-flex items-center gap-1 bg-background/50 border border-border/50 p-0.5 rounded-lg shrink-0">
+                  {[
+                    { id: 'score', label: 'Scanner Score' },
+                    { id: 'htf_ema_cross', label: 'Fresh HTF Cross' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={isLocked}
+                      aria-pressed={rotateMode === opt.id}
+                      onClick={() => handleSetTargetScheduler({ watchlist_rotate_mode: opt.id })}
+                      className={cn(
+                        'min-h-[34px] sm:min-h-[26px] px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap disabled:opacity-45',
+                        rotateMode === opt.id
+                          ? 'bg-accent text-background font-semibold'
+                          : 'text-muted hover:text-text'
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* 1-Click Scheduler Presets */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
                 {SCHEDULER_PRESETS.map((preset) => {
@@ -571,6 +607,7 @@ export const WatchlistManager = React.memo(({
             const pct = meta?.pct;
             const isLong = (pct || 0) >= 0;
             const priceStr = formatPrice(meta?.price);
+            const soloHtf = formatHtfCrossCompact(meta?.htf_ema_cross || meta?.htf_ema_cross_perf);
 
             return (
               <div className="bg-background/50 border border-accent/35 rounded-lg p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
@@ -593,11 +630,19 @@ export const WatchlistManager = React.memo(({
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2.5 mt-0.5 text-xs font-mono tabular-nums text-muted">
+                    <div className="flex items-center gap-2.5 mt-0.5 text-xs font-mono tabular-nums text-muted flex-wrap">
                       {priceStr && <span className="text-text">{priceStr}</span>}
                       {pct !== undefined && meta?.price > 0 && (
                         <span className={cn(isLong ? 'text-green' : 'text-red')}>
                           {isLong ? '+' : ''}{Number(pct).toFixed(2)}%
+                        </span>
+                      )}
+                      {soloHtf && (
+                        <span className={cn(
+                          'text-[11px]',
+                          soloHtf.tone === 'fresh' ? 'text-green' : soloHtf.tone === 'approaching' ? 'text-accent' : 'text-muted'
+                        )}>
+                          {soloHtf.label}
                         </span>
                       )}
                     </div>

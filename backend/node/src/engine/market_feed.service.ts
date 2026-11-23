@@ -16,6 +16,7 @@ import { ENGINE_EVENTS } from './events';
 import { BinanceExchangeInfo } from '../models/binance.types';
 import { BinanceRequestQueue, BinanceClientFactory } from '../lib/binanceClientFactory';
 import { BinanceSubscriptionManager } from '../lib/binanceSubscriptionManager';
+import { evaluateHtfEmaCross, HtfEmaCrossSummary } from './htfEmaCross';
 
 interface BinanceKline {
   stream?: string;
@@ -94,6 +95,8 @@ export class MarketFeedService {
     timestamp: number;
     signature: string;
   } | null = null;
+
+  private readonly catalogHtfCache = new Map<string, { key: string; summary: HtfEmaCrossSummary }>();
 
   private getWatchlistConfigSignature(config: SessionConfig, activeSymbolList: string[]): string {
     return JSON.stringify({
@@ -406,12 +409,66 @@ export class MarketFeedService {
    * any available live ticker metrics (zero extra Binance REST calls when cached).
    * Allows users to browse and add Static Watchlist symbols without running a dynamic scan first.
    */
-  async getAvailableSymbols(options?: { includeNonUsdt?: boolean }) {
+  async getAvailableSymbols(options?: { includeNonUsdt?: boolean; includeHtfCross?: boolean }) {
     const includeNonUsdt = Boolean(options?.includeNonUsdt);
 
     if (this.exchangeInfo.size === 0 && !this.sessionState.isBanned()) {
       await this.fetchExchangeInfo(this.currentRestBase || ENGINE_CONSTANTS.BINANCE_REST_BASE);
     }
+
+    const cfg = this.sessionState?.config;
+    const includeHtfCross = Boolean(options?.includeHtfCross || cfg?.htf_ema_cross_catalog_enabled);
+    const htfInterval = cfg?.htf_ema_cross_interval || '4h';
+    const htfFast = cfg?.htf_ema_fast_period || 9;
+    const htfSlow = cfg?.htf_ema_slow_period || 21;
+    const htfCount = cfg?.htf_ema_cross_count || 4;
+    const slDistPct = cfg?.sl_distance_pct ?? 0.8;
+    const preferFresh = cfg?.htf_ema_cross_prefer_fresh !== false;
+    const maxFreshBars = Math.min(30, Math.max(2, Math.round(cfg?.htf_ema_cross_max_bars ?? 6)));
+
+    const resolveCachedHtfCross = (sym: string): HtfEmaCrossSummary | undefined => {
+      if (!includeHtfCross) return undefined;
+      if (!this.klineStore || typeof this.klineStore.peekRawCandles !== 'function') {
+        return undefined;
+      }
+      const primary = this.klineStore.peekRawCandles(sym, htfInterval);
+      let usedInterval = htfInterval;
+      let candles = primary;
+      if ((!candles || candles.length < htfSlow + 3) && htfInterval !== '1h') {
+        const alt = this.klineStore.peekRawCandles(sym, '1h');
+        if (alt && alt.length >= htfSlow + 3) {
+          candles = alt;
+          usedInterval = '1h';
+        }
+      }
+      if (!candles || candles.length < htfSlow + 3) return undefined;
+
+      const last = candles[candles.length - 1];
+      const cacheKey = `${usedInterval}_${htfFast}_${htfSlow}_${htfCount}_${preferFresh ? 1 : 0}_${maxFreshBars}_${last.time}_${Number(last.close).toPrecision(6)}`;
+      const cached = this.catalogHtfCache.get(sym);
+      if (cached && cached.key === cacheKey) {
+        return cached.summary;
+      }
+
+      const summary = evaluateHtfEmaCross(candles, {
+        interval: usedInterval,
+        fastPeriod: htfFast,
+        slowPeriod: htfSlow,
+        targetCrossCount: htfCount,
+        slDistPct,
+        allowPreCrossOnly: true,
+        preferFresh,
+        maxFreshBars,
+      });
+      if (!summary) return undefined;
+
+      if (this.catalogHtfCache.size >= 400 && !this.catalogHtfCache.has(sym)) {
+        const oldest = this.catalogHtfCache.keys().next().value;
+        if (oldest) this.catalogHtfCache.delete(oldest);
+      }
+      this.catalogHtfCache.set(sym, { key: cacheKey, summary });
+      return summary;
+    };
 
     const items: Array<{
       symbol: string;
@@ -426,6 +483,7 @@ export class MarketFeedService {
       open_24h: number;
       pct: number;
       volume_24h: number;
+      htf_ema_cross?: HtfEmaCrossSummary;
     }> = [];
 
     const seen = new Set<string>();
@@ -453,6 +511,7 @@ export class MarketFeedService {
           : 'crypto';
 
       seen.add(symbol);
+      const htfCross = resolveCachedHtfCross(symbol);
       items.push({
         symbol,
         baseAsset: String(info?.baseAsset || symbol.replace(/USDT$/, '')),
@@ -466,6 +525,7 @@ export class MarketFeedService {
         open_24h: open24h,
         pct,
         volume_24h: volume24h,
+        ...(htfCross ? { htf_ema_cross: htfCross } : {}),
       });
     });
 
@@ -478,6 +538,7 @@ export class MarketFeedService {
       const open24h = Number(t.open_24h || 0);
       const pct = price > 0 && open24h > 0 ? ((price - open24h) / open24h) * 100 : 0;
       seen.add(t.symbol);
+      const htfCross = resolveCachedHtfCross(t.symbol);
       items.push({
         symbol: t.symbol,
         baseAsset: t.symbol.replace(/USDT$/, ''),
@@ -491,6 +552,7 @@ export class MarketFeedService {
         open_24h: open24h,
         pct,
         volume_24h: Number(t.volume_24h || 0),
+        ...(htfCross ? { htf_ema_cross: htfCross } : {}),
       });
     }
 

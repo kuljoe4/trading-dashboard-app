@@ -273,6 +273,8 @@ export class TradingSessionService implements OnApplicationShutdown {
       htfs: config.htf_ema_slow_period,
       htfm: config.htf_ema_cross_max_boost,
       htfr: config.htf_ema_cross_rr_weight,
+      htfp: config.htf_ema_cross_prefer_fresh,
+      htfmb: config.htf_ema_cross_max_bars,
       es: config.entry_side,
       ex: config.excluded_symbols,
       sym: config.symbols,

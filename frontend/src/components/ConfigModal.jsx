@@ -2913,6 +2913,7 @@ const flattenConfig = (config) => {
       watchlist_rotate_interval_min: config.watchlist_rotate_interval_min || 15,
       watchlist_locked: !!config.watchlist_locked,
       watchlist_min_score: config.watchlist_min_score !== undefined ? config.watchlist_min_score : 75,
+      watchlist_rotate_mode: config.watchlist_rotate_mode || 'score',
       trading_windows: Array.isArray(config.trading_windows) ? config.trading_windows : [],
       single_symbol_configs: Array.isArray(config.single_symbol_configs) ? config.single_symbol_configs : [],
       strategy_variants: Array.isArray(config.strategy_variants) ? config.strategy_variants : [],
@@ -2924,6 +2925,9 @@ const flattenConfig = (config) => {
       htf_ema_slow_period: config.htf_ema_slow_period || 21,
       htf_ema_cross_max_boost: config.htf_ema_cross_max_boost !== undefined ? config.htf_ema_cross_max_boost : 25.0,
       htf_ema_cross_rr_weight: config.htf_ema_cross_rr_weight !== undefined ? config.htf_ema_cross_rr_weight : 1.5,
+      htf_ema_cross_prefer_fresh: config.htf_ema_cross_prefer_fresh !== false,
+      htf_ema_cross_max_bars: config.htf_ema_cross_max_bars !== undefined ? config.htf_ema_cross_max_bars : 6,
+      htf_ema_cross_catalog_enabled: !!config.htf_ema_cross_catalog_enabled,
     };
 
     // Dynamically map params without overwriting live UI edits on already-flattened configs
@@ -4434,7 +4438,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
       'slippage_abort_threshold', 'max_fee_drag_pct', 'htf_ema_cross_count', 'htf_ema_fast_period',
-      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight',
+      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight', 'htf_ema_cross_max_bars',
       'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score',
       'switched_sl_distance_pct', 'peak_rr_switch_threshold', 'peak_rr_switch_count',
       'trailing_activation_rr', 'auto_scale_max_overshoot',
@@ -4469,6 +4473,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     c.htf_ema_cross_boost_enabled = c.htf_ema_cross_boost_enabled !== false;
     c.htf_ema_cross_interval = c.htf_ema_cross_interval || '4h';
+    c.htf_ema_cross_prefer_fresh = c.htf_ema_cross_prefer_fresh !== false;
+    c.htf_ema_cross_catalog_enabled = !!c.htf_ema_cross_catalog_enabled;
 
     c.scanner_weights = {
       momentum: Number(cfg.scanner_weights_momentum || 0) / 100,
@@ -5874,6 +5880,32 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   {renderField('Slow EMA Period', 'htf_ema_slow_period', 'number', null, { min: 2, max: 200 })}
                   {renderField('Max Score Boost', 'htf_ema_cross_max_boost', 'number', null, { min: 0, max: 50, step: 1 })}
                   {renderField('R:R Score Weight', 'htf_ema_cross_rr_weight', 'number', null, { min: 0, max: 10, step: 0.1 })}
+                  {cfg.htf_ema_cross_prefer_fresh !== false &&
+                    renderField('Fresh Window (Bars)', 'htf_ema_cross_max_bars', 'number', null, { min: 2, max: 30, step: 1 })}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="p-3 bg-background/50 border border-border/60 rounded-xl flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-xs font-semibold text-text block">Prefer Non-Stale Crosses</span>
+                      <span className="text-[11px] text-muted block">Dampen extended &amp; older crossovers</span>
+                    </div>
+                    <Toggle
+                      value={cfg.htf_ema_cross_prefer_fresh !== false}
+                      onChange={(v) => setField('htf_ema_cross_prefer_fresh', v)}
+                    />
+                  </div>
+
+                  <div className="p-3 bg-background/50 border border-border/60 rounded-xl flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-xs font-semibold text-text block">Catalog HTF Ranking</span>
+                      <span className="text-[11px] text-muted block">Pre-score static catalog (else on-demand)</span>
+                    </div>
+                    <Toggle
+                      value={!!cfg.htf_ema_cross_catalog_enabled}
+                      onChange={(v) => setField('htf_ema_cross_catalog_enabled', v)}
+                    />
+                  </div>
                 </div>
               </div>
             </CollapsibleSection>
@@ -6152,6 +6184,34 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                         ))}
                       </div>
                     )}
+
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="text-[11px] text-muted">Rotation Priority</span>
+                      <div className="inline-flex items-center gap-1 bg-background/50 border border-border/50 p-0.5 rounded-md">
+                        {[
+                          { id: 'score', label: 'Scanner Score' },
+                          { id: 'htf_ema_cross', label: 'Fresh HTF Cross' },
+                        ].map((opt) => {
+                          const activeMode = cfg.watchlist_rotate_mode || 'score';
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              disabled={cfg.watchlist_locked}
+                              onClick={() => setField('watchlist_rotate_mode', opt.id)}
+                              className={cn(
+                                "px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors cursor-pointer whitespace-nowrap disabled:opacity-45",
+                                activeMode === opt.id
+                                  ? "bg-surface text-accent font-semibold border border-accent/35 shadow-xs"
+                                  : "text-muted hover:text-text"
+                              )}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
 

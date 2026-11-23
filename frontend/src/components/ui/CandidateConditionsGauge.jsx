@@ -16,6 +16,7 @@ const ZONE_COLOR_MAP = {
   fresh: '#22c55e',
   stale: '#22c55e',
   late: '#22c55e',
+  crossed_stale: '#f59e0b',
   warming: '#f59e0b',
   blocked: '#a855f7',
 };
@@ -26,6 +27,7 @@ const ZONE_TEXT_CLASS = {
   fresh: 'text-green',
   stale: 'text-green',
   late: 'text-green',
+  crossed_stale: 'text-amber',
   warming: 'text-amber',
   blocked: 'text-purple-400',
 };
@@ -36,14 +38,17 @@ const ZONE_DOT_CLASS = {
   fresh: 'bg-green',
   stale: 'bg-green',
   late: 'bg-green',
+  crossed_stale: 'bg-amber',
   warming: 'bg-amber',
   blocked: 'bg-purple-400',
 };
 
 function formatCleanCardStatus(cZone, stateLabel) {
+  if (cZone === 'crossed_stale' && (!stateLabel || stateLabel === 'Watching')) return 'Already Crossed';
   if (stateLabel && stateLabel !== 'Watching') return stateLabel;
   if (cZone === 'near') return 'Near';
   if (cZone === 'fresh' || cZone === 'stale' || cZone === 'late') return 'Triggered';
+  if (cZone === 'crossed_stale') return 'Already Crossed';
   if (cZone === 'blocked') return 'Blocked';
   if (cZone === 'warming') return 'Warming';
   return stateLabel || 'Watching';
@@ -2191,6 +2196,14 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                             </div>
                           )}
 
+                          {c.alreadyCrossed && (
+                            <div
+                              data-testid="already-crossed-notice"
+                              className="rounded border border-amber/35 bg-amber/10 px-2 py-1 text-[9px] font-mono text-amber leading-snug"
+                            >
+                              Already crossed on prior candle — doesn&apos;t pass until Fast &amp; Slow reset and re-cross.
+                            </div>
+                          )}
                           {c.closeConfirm && (
                             <CloseConfirmationStrip closeConfirm={c.closeConfirm} changeInfo={changeInfo} />
                           )}

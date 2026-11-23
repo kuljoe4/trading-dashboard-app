@@ -2479,6 +2479,8 @@ export class OrderManagerService {
       value: number,
       threshold: number,
       unit: string,
+      status?: string,
+      rejected?: boolean,
       description?: string,
       insufficientData?: boolean,
       threshold_is_price?: boolean,

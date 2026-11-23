@@ -126,6 +126,39 @@ describe('ExitEstimationService', () => {
       expect(est.proximity).toBe(0);
       expect(est.etaCandles).toBeNull();
     });
+
+    it('should return state = stale and 0% proximity for unfired ema_dual_cross when already crossed (explicit stale or currentSpread <= 0)', () => {
+      const trade = createTrade({ direction: 'LONG', entry_price: 100, qty: 10 });
+      const config = new SessionConfig();
+      config.exit_signals = ['ema_dual_cross'];
+
+      const candles = generateCandles([100, 99, 98, 97, 96]);
+      const estExplicit = service.estimateExitSignal('ema_dual_cross', trade, config, '1m', candles, {
+        fired: false,
+        status: 'stale',
+        value: 97.5,
+        threshold: 99.0,
+        prevFast: 97.8,
+        prevSlow: 99.2,
+      });
+
+      expect(estExplicit.state).toBe('stale');
+      expect(estExplicit.proximity).toBe(0);
+      expect(estExplicit.etaCandles).toBeNull();
+      expect(estExplicit.description).toContain('already crossed');
+
+      const estFallback = service.estimateExitSignal('ema_dual_cross', trade, config, '1m', candles, {
+        fired: false,
+        value: 100.5,
+        threshold: 99.0,
+        prevFast: 100.2,
+        prevSlow: 99.1,
+      });
+
+      expect(estFallback.state).toBe('stale');
+      expect(estFallback.proximity).toBe(0);
+      expect(estFallback.etaCandles).toBeNull();
+    });
   });
 
   describe('estimateExitSignal - Non-Dual Signal Estimators (Supertrend, MACD, Momentum)', () => {

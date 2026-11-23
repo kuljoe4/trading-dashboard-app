@@ -1349,7 +1349,7 @@ export class SignalEngineService {
           isOnSatisfiedSide = currFast < currSlow;
         } else {
           fired = (prevFast <= prevSlow && currFast > currSlow) || (prevFast >= prevSlow && currFast < currSlow);
-          isOnSatisfiedSide = true;
+          isOnSatisfiedSide = false;
         }
       } else {
         if (side === 'LONG') {
@@ -1452,6 +1452,10 @@ export class SignalEngineService {
           ? (side === 'SHORT' ? 'Green' : 'Red')
           : (side === 'SHORT' ? 'Red' : 'Green');
         description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod}), but rejected by MACD histogram (${this.formatAdaptiveNumber(macdHistValue, false)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
+      } else if (status === 'stale') {
+        description = `EMA(${fastPeriod}) already crossed EMA(${slowPeriod}) (Fast ${this.formatAdaptiveNumber(currFast)} vs Slow ${this.formatAdaptiveNumber(currSlow)}) — doesn't pass until cross resets`;
+      } else if (status === 'approaching') {
+        description = `Awaiting EMA(${fastPeriod}) cross EMA(${slowPeriod}) (Fast ${this.formatAdaptiveNumber(currFast)} vs Slow ${this.formatAdaptiveNumber(currSlow)})`;
       }
 
       return {

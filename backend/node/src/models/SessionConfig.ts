@@ -192,6 +192,10 @@ export class SessionConfig {
   @IsOptional()
   watchlist_last_rotated_ts?: number;
 
+  @IsEnum(['htf_ema_cross', 'score'])
+  @IsOptional()
+  watchlist_rotate_mode?: 'htf_ema_cross' | 'score' = 'score';
+
   @IsEnum(['volume', 'change_pct', 'loss_pct', 'abs_change_pct'])
   @IsOptional()
   discovery_mode?: 'volume' | 'change_pct' | 'loss_pct' | 'abs_change_pct' = 'volume';
@@ -456,6 +460,20 @@ export class SessionConfig {
   @Max(10)
   @IsOptional()
   htf_ema_cross_rr_weight?: number = 1.5;
+
+  @IsBoolean()
+  @IsOptional()
+  htf_ema_cross_prefer_fresh?: boolean = true;
+
+  @IsNumber()
+  @Min(2)
+  @Max(30)
+  @IsOptional()
+  htf_ema_cross_max_bars?: number = 6;
+
+  @IsBoolean()
+  @IsOptional()
+  htf_ema_cross_catalog_enabled?: boolean = false;
 
   @IsEnum(['fixed', 'exp_rr_seq', 'exp_rr_seq_switch'])
   @IsOptional()

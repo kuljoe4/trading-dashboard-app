@@ -172,4 +172,45 @@ describe('MarketFeedService TradFi / Overnight Futures & Symbol Catalog', () => 
     const withNonUsdt = await service.getAvailableSymbols({ includeNonUsdt: true });
     expect(withNonUsdt.some((s) => s.symbol === 'BTCUSDC')).toBe(true);
   });
+
+  test('getAvailableSymbols omits HTF cross by default for zero overhead and attaches it when enabled or requested on-demand', async () => {
+    const start = 1700000000000;
+    const candles = Array.from({ length: 65 }, (_, i) => {
+      const close = 100 + Math.sin((i - 47) * 0.32) * 8;
+      return {
+        time: start + i * 4 * 3600 * 1000,
+        open: close * 0.999,
+        high: close * 1.002,
+        low: close * 0.998,
+        close,
+        volume: 5000 + i * 10,
+      };
+    });
+
+    const peekMock = jest.fn((sym: string, interval: string) =>
+      sym === 'BTCUSDT' && interval === '4h' ? candles : undefined
+    );
+    (service as any).klineStore = { peekRawCandles: peekMock };
+
+    await service.fetchExchangeInfo();
+
+    // Default (htf_ema_cross_catalog_enabled false/unset): 0 HTF calls
+    const defaultCatalog = await service.getAvailableSymbols();
+    const btcDefault = defaultCatalog.find((s) => s.symbol === 'BTCUSDT') as any;
+    expect(peekMock).not.toHaveBeenCalled();
+    expect(btcDefault?.htf_ema_cross).toBeUndefined();
+
+    // On-demand includeHtfCross: evaluates via read-only peekRawCandles
+    const htfCatalog = await service.getAvailableSymbols({ includeHtfCross: true });
+    const btc = htfCatalog.find((s) => s.symbol === 'BTCUSDT') as any;
+    const xau = htfCatalog.find((s) => s.symbol === 'XAUUSDT') as any;
+
+    expect(peekMock).toHaveBeenCalledWith('BTCUSDT', '4h');
+    expect(btc?.htf_ema_cross).toBeDefined();
+    expect(btc.htf_ema_cross.interval).toBe('4h');
+    expect(typeof btc.htf_ema_cross.suitability_score).toBe('number');
+    expect(typeof btc.htf_ema_cross.freshness_score).toBe('number');
+    expect(['fresh', 'approaching', 'early', 'extended', 'stale']).toContain(btc.htf_ema_cross.freshness_state);
+    expect(xau?.htf_ema_cross).toBeUndefined();
+  });
 });

@@ -17,7 +17,9 @@ import {
   pickNicePercentBound,
   pickNiceRatioMax,
   buildRunwayRTicks,
+  isCrossoverEventSignal,
 } from '../utils/candidateConditions.js';
+import { getStrategyRulesDiagnostics, buildStrategyNarrative } from '../utils/strategyDiagnostics.js';
 
 test('CandidateConditionsGauge helper suite', async (t) => {
   await t.test('timeframeToMs handles m, h, d, w, M units', () => {
@@ -1237,6 +1239,210 @@ test('CandidateConditionsGauge helper suite', async (t) => {
     assert.ok(exitCond.proximity <= 98);
     assert.strictEqual(exitCond.closeConfirm.state, 'wait_close');
     assert.strictEqual(exitCond.closeConfirm.wantUpper, false);
+  });
+
+  await t.test('ema_dual_cross already on crossed side shows ALREADY CROSSED (crossed_stale, dialPct=0, bipolar needle past cross) and never WATCHING or PASS', () => {
+    assert.strictEqual(isCrossoverEventSignal('ema_dual_cross'), true);
+    assert.strictEqual(isCrossoverEventSignal('ema_dual_close'), false);
+    assert.strictEqual(isCrossoverEventSignal('ema_dual'), false);
+
+    // 1. Entry LONG: Fast 101.2 > Slow 100.0, fired: false (with explicit status='stale')
+    const longEntryModel = buildCandidateConditionsModel({
+      opp: {
+        symbol: 'HUMAUSDT',
+        dir: 'long',
+        pct: 3.4,
+        close: 102.0,
+        signalResult: {
+          allFired: false,
+          signals: {
+            ema_dual_cross: {
+              fired: false,
+              status: 'stale',
+              value: 101.2,
+              threshold: 100.0,
+              threshold_is_price: true,
+              description: "EMA(9) already crossed EMA(21) — doesn't pass until cross resets",
+            },
+          },
+        },
+      },
+      strategyConfig: {
+        scan_interval: '5m',
+        scan_pct_threshold: 2.0,
+        entry_side: 'long',
+        enabled_signals: ['ema_dual_cross'],
+        signal_logic: 'all',
+        sl_type: 'pct',
+        sl_distance_pct: 1.5,
+      },
+      closedTrades: [],
+    });
+
+    const longCond = longEntryModel.conditions.find(c => c.key === 'ema_dual_cross');
+    assert.ok(longCond);
+    assert.strictEqual(longCond.alreadyCrossed, true);
+    assert.strictEqual(longCond.stateLabel, 'ALREADY CROSSED');
+    assert.strictEqual(longCond.tone, 'warning');
+    assert.strictEqual(longCond.dialZone, 'crossed_stale');
+    assert.strictEqual(longCond.dialStatus, 'Already Crossed');
+    assert.strictEqual(longCond.dialPct, 0);
+    assert.strictEqual(longCond.proximity, 0);
+    assert.strictEqual(longCond.deltaLabel, 'Past cross (no pass)');
+    assert.ok(longCond.dialScale && longCond.dialScale.mode === 'bipolar_pct');
+    assert.ok(longCond.dialScale.valuePct > 0, 'Bipolar dial needle should stay physically on the crossed right half');
+    assert.strictEqual(longCond.dialScale.subText, 'No pass · needs reset');
+    assert.strictEqual(longEntryModel.compositeDial.dialZone, 'crossed_stale');
+    assert.strictEqual(longEntryModel.overallStatus, 'CROSSED · NEEDS RESET');
+    assert.strictEqual(longEntryModel.firedConditionsCount, 0);
+
+    // 2. Entry SHORT WITHOUT explicit status (fallback detection when Fast < Slow and fired=false)
+    const shortFallbackModel = buildCandidateConditionsModel({
+      opp: {
+        symbol: 'BTCUSDT',
+        dir: 'short',
+        pct: -2.8,
+        close: 98.5,
+        signalResult: {
+          allFired: false,
+          signals: {
+            ema_dual_cross: {
+              fired: false,
+              value: 99.1,
+              threshold: 100.0,
+              threshold_is_price: true,
+            },
+          },
+        },
+      },
+      strategyConfig: {
+        scan_interval: '5m',
+        scan_pct_threshold: 2.0,
+        entry_side: 'short',
+        enabled_signals: ['ema_dual_cross'],
+        signal_logic: 'all',
+        sl_type: 'pct',
+        sl_distance_pct: 1.5,
+      },
+      closedTrades: [],
+    });
+    const shortCond = shortFallbackModel.conditions.find(c => c.key === 'ema_dual_cross');
+    assert.strictEqual(shortCond.alreadyCrossed, true);
+    assert.strictEqual(shortCond.stateLabel, 'ALREADY CROSSED');
+    assert.strictEqual(shortCond.dialZone, 'crossed_stale');
+    assert.strictEqual(shortFallbackModel.overallStatus, 'CROSSED · NEEDS RESET');
+
+    // 3. Exit LONG: Fast 98.5 < Slow 100.0, fired: false -> ALREADY CROSSED (not TRIGGERED, not WATCHING, firedConditionsCount=0)
+    const exitStaleModel = buildCandidateConditionsModel({
+      opp: { symbol: 'ETHUSDT', dir: 'long', pct: 1.0, close: 98.2 },
+      activeTrade: {
+        symbol: 'ETHUSDT',
+        direction: 'LONG',
+        entry_price: 100,
+        current_price: 98.2,
+        current_sl: 95,
+        qty: 1,
+        initial_risk_usdt: 5,
+        pnl: -1.8,
+        exit_signals_status: {
+          ema_dual_cross: {
+            fired: false,
+            active: true,
+            value: 98.5,
+            threshold: 100.0,
+            threshold_is_price: true,
+          },
+        },
+      },
+      strategyConfig: {
+        scan_interval: '5m',
+        exit_signals: ['ema_dual_cross'],
+        exit_signal_logic: 'any',
+      },
+    });
+    const exitCrossCond = exitStaleModel.conditions[0];
+    assert.strictEqual(exitCrossCond.alreadyCrossed, true);
+    assert.strictEqual(exitCrossCond.stateLabel, 'ALREADY CROSSED');
+    assert.strictEqual(exitCrossCond.dialZone, 'crossed_stale');
+    assert.strictEqual(exitCrossCond.dialPct, 0);
+    assert.strictEqual(exitStaleModel.firedConditionsCount, 0);
+    assert.strictEqual(exitStaleModel.compositeDial.dialZone, 'crossed_stale');
+
+    // 4. Strategy Diagnostics surfaces warning status & narrative headline
+    const diag = getStrategyRulesDiagnostics({
+      strategyConfig: {
+        scan_interval: '5m',
+        scan_pct_threshold: 2.0,
+        entry_side: 'long',
+        enabled_signals: ['ema_dual_cross'],
+        signal_logic: 'all',
+        exit_signals: ['ema_dual_cross'],
+      },
+      focusedOpp: {
+        symbol: 'HUMAUSDT',
+        dir: 'long',
+        pct: 3.4,
+        signalResult: {
+          allFired: false,
+          signals: {
+            ema_dual_cross: {
+              fired: false,
+              status: 'stale',
+              value: 101.2,
+              threshold: 100.0,
+              threshold_is_price: true,
+              description: "EMA(9) already crossed EMA(21) — doesn't pass until cross resets",
+            },
+          },
+        },
+      },
+      activeTrade: {
+        symbol: 'ETHUSDT',
+        direction: 'LONG',
+        exit_signals_status: {
+          ema_dual_cross: {
+            fired: false,
+            value: 98.5,
+            threshold: 100.0,
+            threshold_is_price: true,
+          },
+        },
+      },
+    });
+    const entryDiagRule = diag.entryRules.find(r => r.key === 'ema_dual_cross');
+    const exitDiagRule = diag.exitRules.find(r => r.key === 'ema_dual_cross');
+    assert.ok(entryDiagRule);
+    assert.ok(exitDiagRule);
+    assert.strictEqual(entryDiagRule.status, 'warning');
+    assert.ok(entryDiagRule.reasonText.includes('already crossed'));
+    assert.strictEqual(exitDiagRule.status, 'warning');
+    assert.ok(exitDiagRule.reasonText.toLowerCase().includes('already crossed'));
+
+    const narrative = buildStrategyNarrative({
+      bestOpp: {
+        symbol: 'HUMAUSDT',
+        dir: 'long',
+        pct: 3.4,
+        signalResult: {
+          signals: {
+            ema_dual_cross: {
+              fired: false,
+              status: 'stale',
+              value: 101.2,
+              threshold: 100.0,
+              description: "EMA(9) already crossed EMA(21) — doesn't pass until cross resets",
+            },
+          },
+        },
+      },
+      firedCount: 0,
+      signalsCount: 1,
+      strategyConfig: { signal_logic: 'all' },
+      formatTimeAgo: () => '1s ago',
+      formatClockTime: () => '12:00:00',
+    });
+    assert.strictEqual(narrative.tone, 'warning');
+    assert.ok(narrative.headline.includes('already crossed'));
   });
 });
 

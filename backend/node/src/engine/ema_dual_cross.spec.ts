@@ -55,24 +55,51 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
     expect(result.details?.ema_dual_cross.fired).toBe(true);
   });
 
-  it('should reset to FALSE on the subsequent candle if fast EMA remains above slow EMA without a new crossover', () => {
-    // Candle 1: 100 (flat)
-    // Candle 31 (closed): 110 (crossover occurred here)
-    // Candle 32 (live): 110 (fast EMA is still above slow EMA, but NO NEW CROSSOVER occurred)
-    const prices = [...Array(60).fill(100), 110, 110];
-    const candles = mockCandles(prices);
-    (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
+  it('should reset to FALSE with status=stale on subsequent candle when fast EMA remains on crossed side without a new crossover (Entry & Exit)', () => {
+    // Entry LONG: Fast already above Slow from candle 31, still above on candle 32 -> no cross -> stale
+    const longEntryPrices = [...Array(60).fill(100), 110, 110];
+    (klineStore.getRawCandles as jest.Mock).mockReturnValue(mockCandles(longEntryPrices));
 
-    const config = new SessionConfig();
-    config.enabled_signals = ['ema_dual_cross'];
-    config.signal_params = {
+    const entryConfig = new SessionConfig();
+    entryConfig.enabled_signals = ['ema_dual_cross'];
+    entryConfig.signal_params = {
       entry_ema_fast: 5,
       entry_ema_slow: 10,
     };
 
-    const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'entry');
-    expect(result.allFired).toBe(false);
-    expect(result.details?.ema_dual_cross.fired).toBe(false);
+    const longEntryResult = service.checkEntry('BTCUSDT', entryConfig, '1m', 'LONG', 'entry');
+    expect(longEntryResult.allFired).toBe(false);
+    expect(longEntryResult.details?.ema_dual_cross.fired).toBe(false);
+    expect(longEntryResult.details?.ema_dual_cross.status).toBe('stale');
+    expect(longEntryResult.details?.ema_dual_cross.description).toContain('already crossed');
+
+    // Entry SHORT: Fast already below Slow on prior candle -> stale (doesn't pass until cross resets)
+    const shortEntryPrices = [...Array(60).fill(100), 90, 90];
+    (klineStore.getRawCandles as jest.Mock).mockReturnValue(mockCandles(shortEntryPrices));
+    const shortEntryResult = service.checkEntry('BTCUSDT', entryConfig, '1m', 'SHORT', 'entry');
+    expect(shortEntryResult.allFired).toBe(false);
+    expect(shortEntryResult.details?.ema_dual_cross.fired).toBe(false);
+    expect(shortEntryResult.details?.ema_dual_cross.status).toBe('stale');
+
+    // Exit LONG (triggers on bear cross Fast < Slow): Fast already below Slow -> stale
+    const exitConfig = new SessionConfig();
+    exitConfig.exit_signals = ['ema_dual_cross'];
+    exitConfig.signal_params = {
+      exit_ema_fast: 5,
+      exit_ema_slow: 10,
+    };
+    const longExitResult = service.checkEntry('BTCUSDT', exitConfig, '1m', 'LONG', 'exit');
+    expect(longExitResult.allFired).toBe(false);
+    expect(longExitResult.details?.ema_dual_cross.fired).toBe(false);
+    expect(longExitResult.details?.ema_dual_cross.status).toBe('stale');
+    expect(longExitResult.details?.ema_dual_cross.description).toContain("doesn't pass until cross resets");
+
+    // Exit SHORT (triggers on bull cross Fast > Slow): Fast already above Slow -> stale
+    (klineStore.getRawCandles as jest.Mock).mockReturnValue(mockCandles(longEntryPrices));
+    const shortExitResult = service.checkEntry('BTCUSDT', exitConfig, '1m', 'SHORT', 'exit');
+    expect(shortExitResult.allFired).toBe(false);
+    expect(shortExitResult.details?.ema_dual_cross.fired).toBe(false);
+    expect(shortExitResult.details?.ema_dual_cross.status).toBe('stale');
   });
 
   it('should re-trigger LONG entry if fast EMA dips below slow EMA and crosses above again (Whipsaw scenario)', () => {

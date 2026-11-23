@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import crypto from 'crypto';
 import fs from 'fs';
+import { evaluateHtfEmaCrossFromCandles, pickBestRotationCandidate } from './frontend/src/utils/htfEmaCross.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,26 +76,37 @@ interface PriceInfo {
     close: number;
     volume: number;
   }>;
+  htf_history?: Array<{
+    time: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  }>;
 }
 
 const SYMBOLS = [
-  { symbol: 'BTCUSDT', basePrice: 65420.0, vol: 1540000000 },
-  { symbol: 'ETHUSDT', basePrice: 3480.0, vol: 820000000 },
-  { symbol: 'SOLUSDT', basePrice: 152.4, vol: 450000000 },
-  { symbol: 'BNBUSDT', basePrice: 588.5, vol: 190000000 },
-  { symbol: 'DOGEUSDT', basePrice: 0.128, vol: 210000000 },
-  { symbol: 'ADAUSDT', basePrice: 0.385, vol: 120000000 },
-  { symbol: 'XRPUSDT', basePrice: 0.584, vol: 310000000 },
-  { symbol: 'AVAXUSDT', basePrice: 28.9, vol: 140000000 },
-  { symbol: 'LINKUSDT', basePrice: 13.2, vol: 95000000 },
-  { symbol: 'NEARUSDT', basePrice: 5.12, vol: 88000000 },
+  { symbol: 'BTCUSDT', basePrice: 65420.0, vol: 1540000000, assetClass: 'crypto', underlyingType: 'COIN', phaseOffset: 0.4 },
+  { symbol: 'ETHUSDT', basePrice: 3480.0, vol: 820000000, assetClass: 'crypto', underlyingType: 'COIN', phaseOffset: 1.5 },
+  { symbol: 'SOLUSDT', basePrice: 152.4, vol: 450000000, assetClass: 'crypto', underlyingType: 'COIN', phaseOffset: 0.15 },
+  { symbol: 'BNBUSDT', basePrice: 588.5, vol: 190000000, assetClass: 'crypto', underlyingType: 'COIN', phaseOffset: 2.3 },
+  { symbol: 'DOGEUSDT', basePrice: 0.128, vol: 210000000, assetClass: 'crypto', underlyingType: 'COIN', phaseOffset: 0.9 },
+  { symbol: 'ADAUSDT', basePrice: 0.385, vol: 120000000, assetClass: 'crypto', underlyingType: 'COIN', phaseOffset: 2.9 },
+  { symbol: 'XRPUSDT', basePrice: 0.584, vol: 310000000, assetClass: 'crypto', underlyingType: 'COIN', phaseOffset: 0.05 },
+  { symbol: 'AVAXUSDT', basePrice: 28.9, vol: 140000000, assetClass: 'crypto', underlyingType: 'COIN', phaseOffset: 1.85 },
+  { symbol: 'LINKUSDT', basePrice: 13.2, vol: 95000000, assetClass: 'crypto', underlyingType: 'COIN', phaseOffset: 0.65 },
+  { symbol: 'NEARUSDT', basePrice: 5.12, vol: 88000000, assetClass: 'crypto', underlyingType: 'COIN', phaseOffset: 2.6 },
+  { symbol: 'XAUUSDT', basePrice: 2740.0, vol: 185000000, assetClass: 'tradfi', underlyingType: 'COMMODITY', phaseOffset: 0.25 },
 ];
 
 const prices: Map<string, PriceInfo> = new Map();
+const serverHtfCrossCache = new Map<string, { key: string; summary: any }>();
 
 // Initialize prices with full 120-candle warmup history (true timestamps at 5m intervals)
 const now = Date.now();
 const candleIntervalMs = 5 * 60 * 1000;
+const htfIntervalMs = 4 * 60 * 60 * 1000;
 for (const s of SYMBOLS) {
   const ohlc: PriceInfo['ohlc_history'] = [];
   let cur = s.basePrice;
@@ -116,6 +128,28 @@ for (const s of SYMBOLS) {
     });
   }
 
+  // Lightweight 60-bar 4H history for HTF EMA cross evaluation
+  const htfOhlc: NonNullable<PriceInfo['htf_history']> = [];
+  let htfCur = s.basePrice * 0.94;
+  for (let i = 59; i >= 0; i--) {
+    const t = now - i * htfIntervalMs;
+    const wave = Math.sin((59 - i) * 0.34 + (s.phaseOffset || 0));
+    const step = wave * 0.011 + (Math.random() - 0.49) * 0.003;
+    const o = htfCur;
+    const c = i === 0 ? ohlc[ohlc.length - 1].close : htfCur * (1 + step);
+    const h = Math.max(o, c) * 1.004;
+    const l = Math.min(o, c) * 0.996;
+    htfCur = c;
+    htfOhlc.push({
+      time: t,
+      open: parseFloat(o.toFixed(4)),
+      high: parseFloat(h.toFixed(4)),
+      low: parseFloat(l.toFixed(4)),
+      close: parseFloat(c.toFixed(4)),
+      volume: Math.floor(Math.random() * 40000 + 8000),
+    });
+  }
+
   const p = ohlc[ohlc.length - 1].close;
   const hist = ohlc.map(c => c.close);
   const mom = parseFloat((((p - ohlc[0].open) / ohlc[0].open) * 100).toFixed(2));
@@ -132,7 +166,39 @@ for (const s of SYMBOLS) {
     score: parseFloat((Math.abs(mom) * 15 + Math.random() * 20 + 40).toFixed(1)),
     history: hist,
     ohlc_history: ohlc,
+    htf_history: htfOhlc,
   });
+}
+
+function getCachedServerHtfCross(symbol: string, cfg?: any) {
+  const info = prices.get(symbol);
+  const candles = info?.htf_history;
+  if (!candles || candles.length < 24) return undefined;
+  const interval = cfg?.htf_ema_cross_interval || '4h';
+  const fastPeriod = Number(cfg?.htf_ema_fast_period) || 9;
+  const slowPeriod = Number(cfg?.htf_ema_slow_period) || 21;
+  const targetCrossCount = Number(cfg?.htf_ema_cross_count) || 4;
+  const slDistPct = Number(cfg?.sl_distance_pct ?? 0.8) || 0.8;
+  const preferFresh = cfg?.htf_ema_cross_prefer_fresh !== false;
+  const maxFreshBars = Math.min(30, Math.max(2, Math.round(Number(cfg?.htf_ema_cross_max_bars ?? 6))));
+  const last = candles[candles.length - 1];
+  const cacheKey = `${interval}_${fastPeriod}_${slowPeriod}_${targetCrossCount}_${preferFresh ? 1 : 0}_${maxFreshBars}_${last.time}_${Number(last.close).toPrecision(6)}`;
+  const cached = serverHtfCrossCache.get(symbol);
+  if (cached && cached.key === cacheKey) return cached.summary;
+  const summary = evaluateHtfEmaCrossFromCandles(candles, {
+    interval,
+    fastPeriod,
+    slowPeriod,
+    targetCrossCount,
+    slDistPct,
+    allowPreCrossOnly: true,
+    preferFresh,
+    maxFreshBars,
+  });
+  if (summary) {
+    serverHtfCrossCache.set(symbol, { key: cacheKey, summary });
+  }
+  return summary || undefined;
 }
 
 const state = {
@@ -239,6 +305,7 @@ const state = {
     watchlist_locked: false,
     watchlist_min_score: 75,
     watchlist_last_rotated_ts: 0,
+    watchlist_rotate_mode: 'score',
     watchlist_size: 25,
     watchlist_offset: 0,
     discovery_mode: 'volume',
@@ -719,10 +786,21 @@ function getScannerOpportunities(cfg?: any) {
         const closes = ohlc.map((c: any) => c.close);
         const fastSlice = closes.slice(-Math.max(2, Math.min(fastPeriod, closes.length)));
         const slowSlice = closes.slice(-Math.max(3, Math.min(slowPeriod, closes.length)));
+        const prevCloses = closes.length > 1 ? closes.slice(0, -1) : closes;
+        const prevFastSlice = prevCloses.slice(-Math.max(2, Math.min(fastPeriod, prevCloses.length)));
+        const prevSlowSlice = prevCloses.slice(-Math.max(3, Math.min(slowPeriod, prevCloses.length)));
         const emaDec = Math.max(decimals, 4);
         const fastVal = fastSlice.length > 0 ? parseFloat((fastSlice.reduce((a: number, b: number) => a + b, 0) / fastSlice.length).toFixed(emaDec)) : item.price;
         const slowVal = slowSlice.length > 0 ? parseFloat((slowSlice.reduce((a: number, b: number) => a + b, 0) / slowSlice.length).toFixed(emaDec)) : item.price;
-        let sigFired = sideUpper === 'LONG' ? fastVal > slowVal : fastVal < slowVal;
+        const prevFastVal = prevFastSlice.length > 0 ? parseFloat((prevFastSlice.reduce((a: number, b: number) => a + b, 0) / prevFastSlice.length).toFixed(emaDec)) : fastVal;
+        const prevSlowVal = prevSlowSlice.length > 0 ? parseFloat((prevSlowSlice.reduce((a: number, b: number) => a + b, 0) / prevSlowSlice.length).toFixed(emaDec)) : slowVal;
+
+        const isCrossSignal = baseType === 'ema_dual_cross';
+        const isOnSatisfiedSide = sideUpper === 'LONG' ? fastVal > slowVal : fastVal < slowVal;
+        const isCrossEvent = sideUpper === 'LONG'
+          ? (prevFastVal <= prevSlowVal && fastVal > slowVal)
+          : (prevFastVal >= prevSlowVal && fastVal < slowVal);
+        let sigFired = isCrossSignal ? isCrossEvent : isOnSatisfiedSide;
         let sigRejected = false;
         let macdFilterMeta: any = undefined;
 
@@ -762,15 +840,28 @@ function getScannerOpportunities(cfg?: any) {
           };
         }
 
+        const sigStatus = isCrossSignal
+          ? (sigFired ? 'fired' : sigRejected ? 'blocked' : (isOnSatisfiedSide ? 'stale' : 'approaching'))
+          : (sigFired ? 'fired' : sigRejected ? 'blocked' : 'approaching');
+
+        const sigDescription = isCrossSignal && sigStatus === 'stale'
+          ? `EMA(${fastPeriod}) already crossed EMA(${slowPeriod}) (Fast ${fastVal.toFixed(decimals)} vs Slow ${slowVal.toFixed(decimals)}) — doesn't pass until cross resets`
+          : isCrossSignal && sigStatus === 'approaching'
+            ? `Awaiting EMA(${fastPeriod}) cross EMA(${slowPeriod}) (Fast ${fastVal.toFixed(decimals)} vs Slow ${slowVal.toFixed(decimals)})`
+            : `Fast (${fastPeriod}): ${fastVal.toFixed(decimals)}, Slow (${slowPeriod}): ${slowVal.toFixed(decimals)}`;
+
         signalsMap[sigKey] = {
-          label: baseType === 'ema_dual_cross' ? 'EMA Crossover' : 'EMA Dual',
+          label: isCrossSignal ? 'EMA Crossover' : 'EMA Dual',
           fired: sigFired,
           rejected: sigRejected,
+          status: sigStatus,
           value: fastVal,
           threshold: slowVal,
+          prevFast: prevFastVal,
+          prevSlow: prevSlowVal,
           unit: 'price',
           threshold_is_price: true,
-          description: `Fast (${fastPeriod}): ${fastVal.toFixed(decimals)}, Slow (${slowPeriod}): ${slowVal.toFixed(decimals)}`,
+          description: sigDescription,
           ...(macdFilterMeta ? { macd_filter: macdFilterMeta } : {}),
         };
       } else if (!signalsMap[sigKey]) {
@@ -806,6 +897,11 @@ function getScannerOpportunities(cfg?: any) {
     const slCalc = computeSlForCandidate(item.price, isLong, targetConfig, ohlc, decimals);
     const tpRatio = Number(targetConfig.tp_ratio ?? 2.0) || 2.0;
 
+    const htfPerf = getCachedServerHtfCross(item.symbol, targetConfig);
+    const htfBoost = htfPerf
+      ? Number(Math.min(25, Math.max(0, (htfPerf.suitability_score || 0) * 0.25)).toFixed(1))
+      : 0;
+
     opps.push({
       symbol: item.symbol,
       pct: item.momentum,
@@ -826,8 +922,9 @@ function getScannerOpportunities(cfg?: any) {
         momentum: parseFloat((Math.abs(item.momentum) * 10).toFixed(1)),
         volatility: item.volatility,
         trend: item.trend * 10,
-        htf_ema_cross: 12.5,
+        htf_ema_cross: htfBoost,
       },
+      htf_ema_cross_perf: htfPerf,
       lastUpdate: Date.now(),
       signalResult: {
         allFired: signalsLogicPassed,
@@ -982,29 +1079,28 @@ function executeWatchlistAutoRotate() {
   const currentSymbols = new Set(Array.isArray(cfg.symbols) ? cfg.symbols : []);
   const activeSymbols = new Set((state.activeTrades || []).map(t => t.symbol));
   const minScore = Number(cfg.watchlist_min_score) || 70;
+  const rotateMode = cfg.watchlist_rotate_mode || 'score';
+  const preferFresh = cfg.htf_ema_cross_prefer_fresh !== false;
 
-  // Filter for favorable candidates not already in watchlist or in active position
-  const favorableCandidates = opps.filter(o =>
-    o.symbol &&
-    !currentSymbols.has(o.symbol) &&
-    !activeSymbols.has(o.symbol) &&
-    (o.score >= minScore || o.signalResult?.allFired || Math.abs(o.momentum || 0) >= 1.5)
-  );
+  const picked = pickBestRotationCandidate(opps, {
+    rotateMode,
+    preferFresh,
+    currentSymbols,
+    activeSymbols,
+    minScore,
+  });
 
-  if (favorableCandidates.length === 0) {
+  if (!picked) {
     return;
   }
 
-  // Sort favorable candidates by score descending
-  favorableCandidates.sort((a, b) => (b.score || 0) - (a.score || 0));
-  const picked = favorableCandidates[0];
-
   cfg.watchlist_last_rotated_ts = now;
-  const max = Number(cfg.watchlist_max_symbols) || 0;
   const res = enforceWatchlistLimit(cfg, picked.symbol);
+  const htfSuit = picked.htf_ema_cross_perf?.suitability_score;
+  const htfState = picked.htf_ema_cross_perf?.freshness_state;
 
   addLog(
-    `[Watchlist Scheduler] Auto-promoted favorable opportunity ${picked.symbol} (Score: ${Number(picked.score).toFixed(0)}, Move: ${picked.momentum >= 0 ? '+' : ''}${picked.momentum}%). Watchlist: [${(cfg.symbols || []).join(', ')}]`,
+    `[Watchlist Scheduler] Auto-promoted ${picked.symbol} (${rotateMode === 'htf_ema_cross' && htfSuit !== undefined ? `HTF Cross: ${htfState} ${htfSuit.toFixed(0)}/100, ` : ''}Score: ${Number(picked.score).toFixed(0)}, Move: ${picked.momentum >= 0 ? '+' : ''}${picked.momentum}%). Watchlist: [${(cfg.symbols || []).join(', ')}]`,
     'info'
   );
 
@@ -2166,6 +2262,43 @@ app.patch('/session/:id', async (req, res) => {
   res.json({ status: 'updated', success: true, config: state.config });
 });
 
+// Cached Exchange Symbols Catalog (HTF EMA Cross scoring is optional / on-demand)
+app.get('/session/symbols', (req, res) => {
+  const cfg = state.config || {};
+  const includeHtfCross =
+    req.query?.htfCross === '1' ||
+    req.query?.htfCross === 'true' ||
+    Boolean((cfg as any).htf_ema_cross_catalog_enabled);
+  const list = Array.from(prices.values()).map((info) => {
+    const meta = SYMBOLS.find((s) => s.symbol === info.symbol);
+    const htfCross = includeHtfCross ? getCachedServerHtfCross(info.symbol, cfg) : undefined;
+    return {
+      symbol: info.symbol,
+      baseAsset: info.symbol.replace(/USDT$/, ''),
+      quoteAsset: 'USDT',
+      contractType: 'PERPETUAL',
+      underlyingType: meta?.underlyingType || 'COIN',
+      underlyingSubType: [],
+      assetClass: meta?.assetClass || 'crypto',
+      status: 'TRADING',
+      price: info.price,
+      open_24h: info.open24h,
+      pct: info.momentum,
+      volume_24h: info.volume24h,
+      ...(htfCross ? { htf_ema_cross: htfCross } : {}),
+    };
+  });
+  const tradFiCount = list.filter((s) => s.assetClass === 'tradfi').length;
+  res.json({
+    symbols: list,
+    total: list.length,
+    tradfi_count: tradFiCount,
+    crypto_count: list.length - tradFiCount,
+    htf_cross_included: includeHtfCross,
+    cached_at: Date.now(),
+  });
+});
+
 // Dedicated Watchlist & Scheduler Endpoints
 app.get('/session/watchlist', (req, res) => {
   const cfg = state.config;
@@ -2245,15 +2378,18 @@ app.post('/session/watchlist/rotate', (req, res) => {
   const currentSymbols = new Set(Array.isArray(state.config.symbols) ? state.config.symbols : []);
   const activeSymbols = new Set((state.activeTrades || []).map(t => t.symbol));
   const minScore = Number(state.config.watchlist_min_score) || 70;
+  const rotateMode = state.config.watchlist_rotate_mode || 'score';
+  const preferFresh = (state.config as any).htf_ema_cross_prefer_fresh !== false;
 
-  const favorableCandidates = opps.filter(o =>
-    o.symbol &&
-    !currentSymbols.has(o.symbol) &&
-    !activeSymbols.has(o.symbol) &&
-    (o.score >= minScore || o.signalResult?.allFired || Math.abs(o.momentum || 0) >= 1.5)
-  );
+  const picked = pickBestRotationCandidate(opps, {
+    rotateMode,
+    preferFresh,
+    currentSymbols,
+    activeSymbols,
+    minScore,
+  });
 
-  if (favorableCandidates.length === 0) {
+  if (!picked) {
     return res.status(200).json({
       success: false,
       message: 'No external favorable opportunities currently meet rotation criteria.',
@@ -2261,14 +2397,13 @@ app.post('/session/watchlist/rotate', (req, res) => {
     });
   }
 
-  favorableCandidates.sort((a, b) => (b.score || 0) - (a.score || 0));
-  const picked = favorableCandidates[0];
-
   state.config.watchlist_last_rotated_ts = Date.now();
   const result = enforceWatchlistLimit(state.config, picked.symbol);
+  const htfSuit = picked.htf_ema_cross_perf?.suitability_score;
+  const htfState = picked.htf_ema_cross_perf?.freshness_state;
 
   addLog(
-    `[Watchlist Scheduler] Manually rotated favorable opportunity: ${picked.symbol} (Score: ${Number(picked.score).toFixed(0)}, Move: ${picked.momentum >= 0 ? '+' : ''}${picked.momentum}%). Watchlist: [${(state.config.symbols || []).join(', ')}]`,
+    `[Watchlist Scheduler] Manually rotated opportunity: ${picked.symbol} (${rotateMode === 'htf_ema_cross' && htfSuit !== undefined ? `HTF Cross: ${htfState} ${htfSuit.toFixed(0)}/100, ` : ''}Score: ${Number(picked.score).toFixed(0)}, Move: ${picked.momentum >= 0 ? '+' : ''}${picked.momentum}%). Watchlist: [${(state.config.symbols || []).join(', ')}]`,
     'info'
   );
 
@@ -2277,13 +2412,14 @@ app.post('/session/watchlist/rotate', (req, res) => {
     success: true,
     promoted: picked.symbol,
     score: picked.score,
+    htf_ema_cross: picked.htf_ema_cross_perf,
     replaced: result.replaced,
     symbols: state.config.symbols,
   });
 });
 
 app.post('/session/watchlist/settings', (req, res) => {
-  const { max_symbols, auto_rotate, rotate_interval_min, locked, min_score } = req.body || {};
+  const { max_symbols, auto_rotate, rotate_interval_min, locked, min_score, rotate_mode } = req.body || {};
 
   if (max_symbols !== undefined) {
     state.config.watchlist_max_symbols = Math.max(0, parseInt(max_symbols, 10) || 0);
@@ -2301,9 +2437,12 @@ app.post('/session/watchlist/settings', (req, res) => {
   if (min_score !== undefined) {
     state.config.watchlist_min_score = Math.max(0, Math.min(100, parseFloat(min_score) || 75));
   }
+  if (rotate_mode === 'htf_ema_cross' || rotate_mode === 'score') {
+    state.config.watchlist_rotate_mode = rotate_mode;
+  }
 
   addLog(
-    `[Watchlist Settings] Updated: Limit=${state.config.watchlist_max_symbols || 'Unlimited'}, AutoRotate=${state.config.watchlist_auto_rotate ? `${state.config.watchlist_rotate_interval_min}m` : 'Off'}, Locked=${state.config.watchlist_locked ? 'Yes' : 'No'}`,
+    `[Watchlist Settings] Updated: Limit=${state.config.watchlist_max_symbols || 'Unlimited'}, AutoRotate=${state.config.watchlist_auto_rotate ? `${state.config.watchlist_rotate_interval_min}m` : 'Off'}, Priority=${state.config.watchlist_rotate_mode}, Locked=${state.config.watchlist_locked ? 'Yes' : 'No'}`,
     'info'
   );
 
@@ -2317,6 +2456,7 @@ app.post('/session/watchlist/settings', (req, res) => {
       watchlist_rotate_interval_min: state.config.watchlist_rotate_interval_min,
       watchlist_locked: state.config.watchlist_locked,
       watchlist_min_score: state.config.watchlist_min_score,
+      watchlist_rotate_mode: state.config.watchlist_rotate_mode,
     },
   });
 });

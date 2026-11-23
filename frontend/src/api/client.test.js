@@ -298,6 +298,10 @@ describe('sanitizeSessionConfig', () => {
       htf_ema_slow_period: 26,
       htf_ema_cross_max_boost: 30.0,
       htf_ema_cross_rr_weight: 2.0,
+      htf_ema_cross_prefer_fresh: false,
+      htf_ema_cross_max_bars: 8,
+      htf_ema_cross_catalog_enabled: true,
+      watchlist_rotate_mode: 'htf_ema_cross',
       force_risk_release: false,
       release_risk_on_est_pnl_be: true,
       release_risk_est_pnl_mode: 'rr',
@@ -309,6 +313,7 @@ describe('sanitizeSessionConfig', () => {
       },
       strategy_variants: [{
         strategy_label: 'MACD Variant',
+        watchlist_rotate_mode: 'score',
         macd_impulse_max_entry_candle: 2,
         signal_params: {
           macd_impulse_max_entry_candle: 2,
@@ -324,6 +329,10 @@ describe('sanitizeSessionConfig', () => {
     assert.strictEqual(sanitized.htf_ema_slow_period, 26)
     assert.strictEqual(sanitized.htf_ema_cross_max_boost, 30.0)
     assert.strictEqual(sanitized.htf_ema_cross_rr_weight, 2.0)
+    assert.strictEqual(sanitized.htf_ema_cross_prefer_fresh, false)
+    assert.strictEqual(sanitized.htf_ema_cross_max_bars, 8)
+    assert.strictEqual(sanitized.htf_ema_cross_catalog_enabled, true)
+    assert.strictEqual(sanitized.watchlist_rotate_mode, 'htf_ema_cross')
     assert.strictEqual(sanitized.force_risk_release, false)
     assert.strictEqual(sanitized.release_risk_on_est_pnl_be, true)
     assert.strictEqual(sanitized.release_risk_est_pnl_mode, 'rr')
@@ -331,6 +340,7 @@ describe('sanitizeSessionConfig', () => {
     assert.strictEqual(sanitized.release_risk_est_pnl_min_rr, 0.5)
     assert.strictEqual(sanitized.macd_impulse_max_entry_candle, undefined)
     assert.strictEqual(sanitized.signal_params.macd_impulse_max_entry_candle, 1)
+    assert.strictEqual(sanitized.strategy_variants[0].watchlist_rotate_mode, 'score')
     assert.strictEqual(sanitized.strategy_variants[0].macd_impulse_max_entry_candle, undefined)
     assert.strictEqual(sanitized.strategy_variants[0].signal_params.macd_impulse_max_entry_candle, 2)
   })

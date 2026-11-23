@@ -265,6 +265,18 @@ export function getStrategyRulesDiagnostics({
         ? formatSignalValue(detail.threshold, detail.unit, detail.threshold_is_price)
         : (detail.mode || 'Rule Match');
 
+      const baseType = getBaseSignalType(sigKey);
+      const isCrossSignal = baseType === 'ema_dual_cross' || baseType === 'ema_cross' || baseType === 'ema_price_cross';
+      const candDir = String(focusedOpp?.dir || focusedOpp?.direction || (Number(focusedOpp?.pct || 0) >= 0 ? 'LONG' : 'SHORT')).toUpperCase();
+      const vNum = Number(detail.value);
+      const tNum = Number(detail.threshold);
+      const isCrossAlreadyPassed = Boolean(
+        !detail.insufficientData &&
+        !detail.fired &&
+        !(detail.rejected || detail.status === 'blocked') &&
+        (detail.status === 'stale' || (isCrossSignal && Number.isFinite(vNum) && Number.isFinite(tNum) && (candDir === 'SHORT' ? vNum < tNum : vNum > tNum)))
+      );
+
       if (detail.insufficientData) {
         status = 'warming';
         reasonText = detail.description || `Insufficient candles (${detail.value ?? '?'}/${detail.threshold ?? '?'})`;
@@ -274,6 +286,11 @@ export function getStrategyRulesDiagnostics({
       } else if (detail.fired && detail.active !== false) {
         status = 'allowed';
         reasonText = detail.description || 'Signal condition satisfied';
+      } else if (isCrossAlreadyPassed) {
+        status = 'warning';
+        reasonText = (detail.description && detail.description.toLowerCase().includes('already crossed'))
+          ? detail.description
+          : 'Already crossed on prior bar — doesn\'t pass until cross resets';
       } else {
         status = 'waiting';
         reasonText = detail.description || 'Condition not yet crossed';
@@ -323,12 +340,29 @@ export function getStrategyRulesDiagnostics({
         ? formatSignalValue(liveSig.threshold, liveSig.unit, liveSig.threshold_is_price)
         : 'Signal';
 
+      const baseExitType = getBaseSignalType(sigKey);
+      const isCrossExit = baseExitType === 'ema_dual_cross' || baseExitType === 'ema_cross' || baseExitType === 'ema_price_cross';
+      const tradeDir = String(activeTrade?.direction || 'LONG').toUpperCase();
+      const evNum = Number(liveSig.value);
+      const etNum = Number(liveSig.threshold);
+      const isExitAlreadyCrossed = Boolean(
+        !liveSig.insufficientData &&
+        !liveSig.fired &&
+        !(liveSig.rejected || liveSig.status === 'blocked') &&
+        (liveSig.status === 'stale' || (isCrossExit && Number.isFinite(evNum) && Number.isFinite(etNum) && (tradeDir === 'SHORT' ? evNum > etNum : evNum < etNum)))
+      );
+
       if (liveSig.fired && liveSig.active !== false) {
         status = 'allowed';
         reasonText = liveSig.description || 'Exit signal triggered';
       } else if (liveSig.rejected || liveSig.status === 'blocked') {
         status = 'rejected';
         reasonText = liveSig.description || 'Exit blocked by filter';
+      } else if (isExitAlreadyCrossed) {
+        status = 'warning';
+        reasonText = (liveSig.description && liveSig.description.toLowerCase().includes('already crossed'))
+          ? liveSig.description
+          : 'Already crossed on prior bar — doesn\'t pass until cross resets';
       } else if (Number(liveSig.remaining_delay) > 0) {
         status = 'warning';
         reasonText = `Delay timer active (${liveSig.remaining_delay}s remaining)`;
@@ -633,6 +667,29 @@ export function buildStrategyNarrative({
         tone: 'warning',
         headline: `${bestOpp.symbol} signal rejected (${formatSignalLabel(rejectedEntry[0])})`,
         detail: rejectedEntry[1]?.description || 'Candidate crossed technical trigger but failed secondary filter.',
+        when: lastScanTs ? `Last scan ${formatTimeAgo(lastScanTs)}` : `Live ${streamAgeSec}s`,
+      };
+    }
+
+    const staleEntry = Object.entries(sigRes.signals || {}).find(([k, d]) => {
+      if (!d || d.fired || d.rejected || d.status === 'blocked' || d.insufficientData) return false;
+      if (d.status === 'stale') return true;
+      const base = getBaseSignalType(k);
+      if (base === 'ema_dual_cross' || base === 'ema_cross' || base === 'ema_price_cross') {
+        const v = Number(d.value);
+        const t = Number(d.threshold);
+        const dir = String(bestOpp.dir || bestOpp.direction || 'LONG').toUpperCase();
+        if (Number.isFinite(v) && Number.isFinite(t)) {
+          return dir === 'SHORT' ? v < t : v > t;
+        }
+      }
+      return false;
+    });
+    if (staleEntry && (firedCount === 0 || (strategyConfig.signal_logic || 'all').toLowerCase() === 'all')) {
+      return {
+        tone: 'warning',
+        headline: `${bestOpp.symbol} ${formatSignalLabel(staleEntry[0])} already crossed (needs reset)`,
+        detail: staleEntry[1]?.description || 'Fast/Slow already on target side from a prior candle — does not pass until cross resets.',
         when: lastScanTs ? `Last scan ${formatTimeAgo(lastScanTs)}` : `Live ${streamAgeSec}s`,
       };
     }

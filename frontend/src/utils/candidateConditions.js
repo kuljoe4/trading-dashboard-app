@@ -283,6 +283,18 @@ function asText(val, fallback = '') {
   return fallback;
 }
 
+export function isCrossoverEventSignal(signalKey = '', signalDetail = null) {
+  const baseType = getBaseSignalType(signalKey);
+  if (baseType === 'ema_dual_cross' || baseType === 'ema_cross' || baseType === 'ema_price_cross') {
+    return true;
+  }
+  const metric = String(signalDetail?.metric || signalDetail?.label || '').toLowerCase();
+  if (metric.includes('dual cross') || metric.includes('ema crossover')) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Maps a 0..150 dial percentage to its semantic zone and label:
  * - <80:     Watching
@@ -1048,6 +1060,7 @@ export function computeConditionMeter({
   fired = false,
   active = true,
   rejected = false,
+  alreadyCrossed = false,
   insufficientData = false,
   signalKey = '',
   proximity = 0,
@@ -1078,6 +1091,25 @@ export function computeConditionMeter({
   const hasNumeric = Number.isFinite(val) && Number.isFinite(thr);
 
   if (!hasNumeric) {
+    if (alreadyCrossed) {
+      return {
+        meterFillPct: 50,
+        targetTickPct: 75,
+        meterState: 'stale_crossed',
+        deltaValueText: '',
+        deltaPctText: '0%',
+        meterReadout: 'Already crossed · needs reset',
+        dialPct: 0,
+        rawDialPct: 0,
+        dialScale: null,
+        dialZone: 'crossed_stale',
+        dialStatus: 'Already Crossed',
+        dialOverText: 'Crossed · needs reset',
+        deltaLabel: 'Past cross (no pass)',
+        isOffScale: false,
+        alreadyCrossed: true,
+      };
+    }
     const isMet = Boolean(fired && active);
     const fill = isMet ? 82 : Math.min(74, Math.round((safeProx / 100) * 75));
     const dialPct = isMet ? 103 : Math.min(99, safeProx);
@@ -1169,7 +1201,22 @@ export function computeConditionMeter({
     // Linear meter fill centered at 50% (0..50 approaching, 50..100 past)
     meterFillPct = Math.max(0, Math.min(100, Math.round(50 + (clampedPct / boundPct) * 50)));
 
-    if (pctDelta >= 0 && (fired || safeProx >= 95 || pctDelta > 0)) {
+    if (alreadyCrossed) {
+      const pctFormatted = formatAbsPct(pctDelta);
+      const sign = pctDelta >= 0 ? '+' : '-';
+      dialPct = 0;
+      rawDialPct = 0;
+      dialScale = {
+        ...dialScale,
+        subText: 'No pass · needs reset',
+      };
+      zoneInfo = {
+        dialZone: 'crossed_stale',
+        dialStatus: 'Already Crossed',
+        dialOverText: `${sign}${pctFormatted}% · crossed`,
+        isOffScale,
+      };
+    } else if (pctDelta >= 0 && (fired || safeProx >= 95 || pctDelta > 0)) {
       rawDialPct = 100 + Math.max(fired && pctDelta > 0 ? 1 : 0, Math.round((pctDelta / boundPct) * 50));
       dialPct = Math.min(150, rawDialPct);
       const pctFormatted = formatAbsPct(pctDelta);
@@ -1215,61 +1262,80 @@ export function computeConditionMeter({
       }
     }
   } else {
-    if (signedDelta >= 0 && (fired || safeProx >= 95 || signalKey === '__velocity__')) {
-      const overshoot = Number.isFinite(pctDelta)
-        ? Math.min(1, Math.max(0, pctDelta / 100))
-        : 0.25;
-      meterFillPct = Math.min(100, Math.max(fired ? 78 : 75, Math.round(75 + overshoot * 25)));
-
-      let rawOvershoot = 3;
-      if (Number.isFinite(pctDelta)) {
-        rawOvershoot = Math.max(fired && pctDelta > 0 ? 1 : 0, Math.floor(pctDelta + 1e-9));
-      }
-      rawDialPct = 100 + rawOvershoot;
-      dialPct = Math.min(150, rawDialPct);
-    } else if (signedDelta < 0) {
-      const clampedRatio = Math.max(0, Math.min(0.99, rawRatio));
-      meterFillPct = Math.min(74, Math.max(0, Math.round(clampedRatio * 75)));
-      dialPct = Math.min(99, Math.max(0, Math.round(clampedRatio * 100)));
-      rawDialPct = dialPct;
+    if (alreadyCrossed) {
+      meterFillPct = 50;
+      dialPct = 0;
+      rawDialPct = 0;
+      zoneInfo = {
+        dialZone: 'crossed_stale',
+        dialStatus: 'Already Crossed',
+        dialOverText: 'Crossed · needs reset',
+        isOffScale: false,
+      };
+      dialScale = null;
     } else {
-      meterFillPct = Math.min(74, Math.max(0, Math.round((safeProx / 100) * 75)));
-      dialPct = Math.min(99, Math.max(0, safeProx));
-      rawDialPct = dialPct;
+      if (signedDelta >= 0 && (fired || safeProx >= 95 || signalKey === '__velocity__')) {
+        const overshoot = Number.isFinite(pctDelta)
+          ? Math.min(1, Math.max(0, pctDelta / 100))
+          : 0.25;
+        meterFillPct = Math.min(100, Math.max(fired ? 78 : 75, Math.round(75 + overshoot * 25)));
+
+        let rawOvershoot = 3;
+        if (Number.isFinite(pctDelta)) {
+          rawOvershoot = Math.max(fired && pctDelta > 0 ? 1 : 0, Math.floor(pctDelta + 1e-9));
+        }
+        rawDialPct = 100 + rawOvershoot;
+        dialPct = Math.min(150, rawDialPct);
+      } else if (signedDelta < 0) {
+        const clampedRatio = Math.max(0, Math.min(0.99, rawRatio));
+        meterFillPct = Math.min(74, Math.max(0, Math.round(clampedRatio * 75)));
+        dialPct = Math.min(99, Math.max(0, Math.round(clampedRatio * 100)));
+        rawDialPct = dialPct;
+      } else {
+        meterFillPct = Math.min(74, Math.max(0, Math.round((safeProx / 100) * 75)));
+        dialPct = Math.min(99, Math.max(0, safeProx));
+        rawDialPct = dialPct;
+      }
+
+      zoneInfo = resolveDialZone(dialPct, { rejected, rawDialPct });
+
+      const scaleMax = pickNiceRatioMax(rawDialPct);
+      dialScale = {
+        mode: 'linear_ratio',
+        minPct: 0,
+        targetPct: 100,
+        maxPct: scaleMax,
+        valuePct: rawDialPct,
+        minLabel: '0%',
+        targetLabel: 'target',
+        maxLabel: `+${scaleMax - 100}%`,
+        subText: rawDialPct >= 100
+          ? `${(rawDialPct / 100).toFixed(2)}× target`
+          : `${Math.round(rawDialPct)}% of target`,
+        isOffScale: rawDialPct > scaleMax,
+      };
     }
-
-    zoneInfo = resolveDialZone(dialPct, { rejected, rawDialPct });
-
-    const scaleMax = pickNiceRatioMax(rawDialPct);
-    dialScale = {
-      mode: 'linear_ratio',
-      minPct: 0,
-      targetPct: 100,
-      maxPct: scaleMax,
-      valuePct: rawDialPct,
-      minLabel: '0%',
-      targetLabel: 'target',
-      maxLabel: `+${scaleMax - 100}%`,
-      subText: rawDialPct >= 100
-        ? `${(rawDialPct / 100).toFixed(2)}× target`
-        : `${Math.round(rawDialPct)}% of target`,
-      isOffScale: rawDialPct > scaleMax,
-    };
   }
 
-  const meterState = rejected
-    ? 'blocked'
-    : (signedDelta >= 0 && meterFillPct >= (thresholdIsPrice ? 50 : 75))
-      ? 'exceeded'
-      : safeProx <= 0 && signedDelta < 0
-        ? 'diverging'
-        : 'approaching';
+  const meterState = alreadyCrossed
+    ? 'stale_crossed'
+    : rejected
+      ? 'blocked'
+      : (signedDelta >= 0 && meterFillPct >= (thresholdIsPrice ? 50 : 75))
+        ? 'exceeded'
+        : safeProx <= 0 && signedDelta < 0
+          ? 'diverging'
+          : 'approaching';
 
   const deltaValueText = formatSignedDeltaValue(signedDelta, unit, thresholdIsPrice);
   const deltaPctText = Number.isFinite(pctDelta) ? formatSignedPct(pctDelta) : '';
 
   let meterReadout = '';
-  if (deltaValueText && deltaPctText) {
+  if (alreadyCrossed) {
+    meterReadout = deltaValueText && deltaPctText
+      ? `${deltaValueText} (${deltaPctText}) crossed · no pass`
+      : 'Already crossed · needs reset';
+  } else if (deltaValueText && deltaPctText) {
     meterReadout = signedDelta >= 0
       ? `${deltaValueText} (${deltaPctText}) past`
       : `${deltaValueText} (${deltaPctText}) to target`;
@@ -1292,6 +1358,7 @@ export function computeConditionMeter({
     dialPct,
     rawDialPct,
     dialScale,
+    ...(alreadyCrossed ? { deltaLabel: 'Past cross (no pass)', alreadyCrossed: true } : {}),
     ...zoneInfo,
   };
 }
@@ -1669,7 +1736,7 @@ export function computeConditionValueDelta(prevItem, currItem) {
     direction = 'over';
     toneClass = 'text-red';
     flashBgClass = 'bg-red/15 ring-1 ring-red/40';
-  } else if (zone === 'stale' && dialDelta > 0) {
+  } else if (zone === 'crossed_stale' || (zone === 'stale' && dialDelta > 0)) {
     direction = 'over';
     toneClass = 'text-amber';
     flashBgClass = 'bg-amber/15 ring-1 ring-amber/40';
@@ -1819,11 +1886,34 @@ export function buildCandidateConditionsModel({
         : Math.round(calculateProximity({ ...s, value: effectiveExitValue, threshold: effectiveExitThreshold, key: sigKey }, markPrice, entryPrice, isLong, true));
 
       const isTriggered = Boolean((s.fired && s.active) || est?.state === 'fired');
+      const isBlockedExit = Boolean(s.rejected || s.status === 'blocked' || est?.state === 'blocked');
       const isDelayed = Number(s.remaining_delay || 0) > 0 && !isTriggered;
       const isCloseWaitPending = Boolean(
         closeConfirm && !s.insufficientData && !isTriggered && !s.fired && !closeConfirm.rejected && closeConfirm.state === 'wait_close'
       );
-      if (isCloseWaitPending) {
+      const exitValNum = Number(effectiveExitValue);
+      const exitThrNum = Number(effectiveExitThreshold);
+      const isCrossoverOnPassedSide = Boolean(
+        isCrossoverEventSignal(sigKey, s) &&
+        !s.fired &&
+        !isBlockedExit &&
+        !s.insufficientData &&
+        !isCloseWaitPending &&
+        Number.isFinite(exitValNum) &&
+        Number.isFinite(exitThrNum) &&
+        (isLong ? exitValNum < exitThrNum : exitValNum > exitThrNum)
+      );
+      const isAlreadyCrossed = Boolean(
+        !s.insufficientData &&
+        !isTriggered &&
+        !s.fired &&
+        !isBlockedExit &&
+        !isCloseWaitPending &&
+        (s.status === 'stale' || est?.state === 'stale' || isCrossoverOnPassedSide)
+      );
+      if (isAlreadyCrossed) {
+        proximity = 0;
+      } else if (isCloseWaitPending) {
         proximity = Math.min(98, Math.max(88, proximity));
       }
 
@@ -1835,9 +1925,12 @@ export function buildCandidateConditionsModel({
       } else if (isTriggered) {
         stateLabel = 'TRIGGERED';
         tone = 'danger';
-      } else if (est?.state === 'blocked') {
+      } else if (isBlockedExit) {
         stateLabel = 'BLOCKED';
         tone = 'danger';
+      } else if (isAlreadyCrossed) {
+        stateLabel = 'ALREADY CROSSED';
+        tone = 'warning';
       } else if (isCloseWaitPending) {
         stateLabel = 'WAIT CLOSE';
         tone = 'accent';
@@ -1867,7 +1960,8 @@ export function buildCandidateConditionsModel({
         isExit: true,
         fired: Boolean(s.fired),
         active: s.active !== false,
-        rejected: Boolean(s.rejected || est?.state === 'blocked'),
+        rejected: isBlockedExit,
+        alreadyCrossed: isAlreadyCrossed,
         insufficientData: Boolean(s.insufficientData),
         signalKey: sigKey,
         proximity,
@@ -1929,6 +2023,7 @@ export function buildCandidateConditionsModel({
         liveText: s.insufficientData ? '---' : formatCompactValue(effectiveExitValue, s.unit, s.threshold_is_price),
         targetText: formatCompactValue(effectiveExitThreshold, s.unit, s.threshold_is_price),
         proximity,
+        alreadyCrossed: isAlreadyCrossed,
         ...meter,
         etaCandles: est?.etaCandles ?? null,
         estimatedPnl: est?.estimatedPnl ?? est?.est_pnl ?? null,
@@ -1965,8 +2060,23 @@ export function buildCandidateConditionsModel({
               return Math.min(reqMin, optMax);
             })()
           : Math.max(...exitConditions.map(c => Number(c.dialPct) || 0));
-    const firedConditionsCount = exitConditions.filter(c => (Number(c.dialPct) || 0) >= 100 && c.stateLabel !== 'BLOCKED').length;
-    const compositeDial = resolveDialZone(compositeDialPct);
+    const firedConditionsCount = exitConditions.filter(c => !c.alreadyCrossed && (Number(c.dialPct) || 0) >= 100 && c.stateLabel !== 'BLOCKED').length;
+    const exitBlockedByAlreadyCrossed = exitConditions.length > 0 && (
+      exitLogic === 'all'
+        ? exitConditions.some(c => c.alreadyCrossed)
+        : exitLogic === 'combo'
+          ? (() => {
+              const reqItems = exitConditions.filter(c => c.connector === 'REQ' || requiredExit.includes(c.key));
+              const optItems = exitConditions.filter(c => !reqItems.includes(c));
+              return reqItems.some(c => c.alreadyCrossed) || (optItems.length > 0 && !optItems.some(c => !c.alreadyCrossed && (Number(c.dialPct) || 0) >= 100) && optItems.every(c => c.alreadyCrossed));
+            })()
+          : exitConditions.every(c => c.alreadyCrossed)
+    );
+    const hasWarmingExit = exitConditions.some(c => c.stateLabel === 'WARMING');
+    const hasBlockedExit = exitConditions.some(c => c.stateLabel === 'BLOCKED');
+    const compositeDial = (exitBlockedByAlreadyCrossed && firedConditionsCount === 0 && !hasWarmingExit && !hasBlockedExit)
+      ? { dialZone: 'crossed_stale', dialStatus: 'Already Crossed', dialOverText: 'Crossed · needs reset', isOffScale: false }
+      : resolveDialZone(compositeDialPct, { insufficientData: hasWarmingExit, rejected: hasBlockedExit });
 
     const isProtected = isLong
       ? (slPrice >= entryPrice && entryPrice > 0)
@@ -2157,8 +2267,30 @@ export function buildCandidateConditionsModel({
     const isCloseWaitPending = Boolean(
       closeConfirm && !isWarming && !isRejected && !isPassed && closeConfirm.state === 'wait_close'
     );
+    const entryValNum = Number(effectiveValue);
+    const entryThrNum = Number(effectiveThreshold);
+    const isCrossoverOnPassedSide = Boolean(
+      isCrossoverEventSignal(sigKey, s) &&
+      !isPassed &&
+      !isRejected &&
+      !isWarming &&
+      !ladder &&
+      !isCloseWaitPending &&
+      Number.isFinite(entryValNum) &&
+      Number.isFinite(entryThrNum) &&
+      (isLong ? entryValNum > entryThrNum : entryValNum < entryThrNum)
+    );
+    const isAlreadyCrossed = Boolean(
+      symbol !== '---' &&
+      !isWarming &&
+      !isRejected &&
+      !isPassed &&
+      !ladder &&
+      !isCloseWaitPending &&
+      (s.status === 'stale' || isCrossoverOnPassedSide)
+    );
 
-    if (!isPassed && !isWarming && !isRejected && !isIndicatorPair && effectiveThresholdIsPrice) {
+    if (!isAlreadyCrossed && !isPassed && !isWarming && !isRejected && !isIndicatorPair && effectiveThresholdIsPrice) {
       const vNum = Number(effectiveValue ?? markPrice);
       const tNum = Number(effectiveThreshold);
       if (Number.isFinite(vNum) && Number.isFinite(tNum) && tNum > 0) {
@@ -2167,7 +2299,9 @@ export function buildCandidateConditionsModel({
         prox = Math.max(0, Math.min(99, scaledProx));
       }
     }
-    if (isCloseWaitPending) {
+    if (isAlreadyCrossed) {
+      prox = 0;
+    } else if (isCloseWaitPending) {
       prox = Math.min(98, Math.max(88, prox));
     }
 
@@ -2184,6 +2318,9 @@ export function buildCandidateConditionsModel({
     } else if (isPassed) {
       stateLabel = 'PASS';
       tone = 'positive';
+    } else if (isAlreadyCrossed) {
+      stateLabel = 'ALREADY CROSSED';
+      tone = 'warning';
     } else if (isCloseWaitPending) {
       stateLabel = 'WAIT CLOSE';
       tone = 'accent';
@@ -2202,6 +2339,7 @@ export function buildCandidateConditionsModel({
       fired: isPassed,
       active: s.active !== false,
       rejected: isRejected,
+      alreadyCrossed: isAlreadyCrossed,
       insufficientData: isWarming,
       signalKey: sigKey,
       proximity: prox,
@@ -2285,6 +2423,7 @@ export function buildCandidateConditionsModel({
       liveText: isWarming ? '---' : formatCompactValue(effectiveValue, s.unit, effectiveThresholdIsPrice),
       targetText: formatCompactValue(effectiveThreshold, s.unit, effectiveThresholdIsPrice),
       proximity: prox,
+      alreadyCrossed: isAlreadyCrossed,
       ...meter,
       stateLabel,
       tone,
@@ -2452,10 +2591,25 @@ export function buildCandidateConditionsModel({
 
   const anySignalRejected = signalConditionItems.some(c => c.stateLabel === 'REJECTED' || c.stateLabel === 'BLOCKED');
   const blockedBySignals = signalLogic === 'all' && anySignalRejected;
-  const compositeDial = resolveDialZone(compositeDialPct, {
-    insufficientData: entryConditions.some(c => c.stateLabel === 'WARMING'),
-    rejected: !sideMatched || slCheck.slRejected || blockedBySignals,
-  });
+  const blockedByAlreadyCrossed = symbol !== '---' && signalConditionItems.length > 0 && !signalsLogicSatisfied && (
+    signalLogic === 'any'
+      ? signalConditionItems.every(c => c.alreadyCrossed)
+      : signalLogic === 'combo'
+        ? (() => {
+            const reqItems = signalConditionItems.filter(c => c.connector === 'REQ' || requiredSignals.includes(c.key));
+            const optItems = signalConditionItems.filter(c => !reqItems.includes(c));
+            return reqItems.some(c => c.alreadyCrossed) || (optItems.length > 0 && !optItems.some(c => c.stateLabel === 'PASS') && optItems.every(c => c.alreadyCrossed));
+          })()
+        : signalConditionItems.some(c => c.alreadyCrossed)
+  );
+  const hasWarmingEntry = entryConditions.some(c => c.stateLabel === 'WARMING');
+  const entryCompositeRejected = !sideMatched || slCheck.slRejected || blockedBySignals;
+  const compositeDial = (!entryCompositeRejected && !hasWarmingEntry && blockedByAlreadyCrossed)
+    ? { dialZone: 'crossed_stale', dialStatus: 'Already Crossed', dialOverText: 'Crossed · needs reset', isOffScale: false }
+    : resolveDialZone(compositeDialPct, {
+        insufficientData: hasWarmingEntry,
+        rejected: entryCompositeRejected,
+      });
 
   const normalizedGate = String(gateState || 'ACTIVE').toUpperCase();
   const isGateBlocked = isPaused || (normalizedGate !== 'ACTIVE' && normalizedGate !== 'OK');
@@ -2480,7 +2634,7 @@ export function buildCandidateConditionsModel({
   } else if (antiWhipsaw.locked) {
     overallStatus = `WHIPSAW WAIT · ${formatDuration(antiWhipsaw.remainingMs)}`;
     overallTone = 'warning';
-  } else if (entryConditions.some(c => c.stateLabel === 'WARMING')) {
+  } else if (hasWarmingEntry) {
     overallStatus = 'WARMING';
     overallTone = 'warning';
   } else if (slCheck.slRejected) {
@@ -2492,6 +2646,9 @@ export function buildCandidateConditionsModel({
   } else if (signalsLogicSatisfied) {
     overallStatus = 'ENTRY READY';
     overallTone = 'positive';
+  } else if (blockedByAlreadyCrossed) {
+    overallStatus = 'CROSSED · NEEDS RESET';
+    overallTone = 'warning';
   }
 
   const slPct = isFixedSl

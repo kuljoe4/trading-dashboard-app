@@ -2,6 +2,7 @@ import { createWithEqualityFn } from 'zustand/traditional'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { sessionAPI, normalizeUrl } from '../api/client.js'
 import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits.js'
+import { pickBestRotationCandidate, extractHtfEmaCross, formatHtfCrossCompact } from '../utils/htfEmaCross.js'
 import {
   applyTheme,
   DEFAULT_APPEARANCE,
@@ -342,11 +343,19 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
       htf_ema_cross: toNumber(source.score_breakdown.htf_ema_cross)
     } : undefined,
     htf_ema_cross_perf: source.htf_ema_cross_perf && typeof source.htf_ema_cross_perf === 'object' ? {
+      interval: source.htf_ema_cross_perf.interval,
       avg_profit_pct: toNumber(source.htf_ema_cross_perf.avg_profit_pct),
       avg_peak_rr: toNumber(source.htf_ema_cross_perf.avg_peak_rr),
       win_rate: toNumber(source.htf_ema_cross_perf.win_rate),
       cross_count: toNumber(source.htf_ema_cross_perf.cross_count),
-      last_cross_direction: source.htf_ema_cross_perf.last_cross_direction
+      last_cross_direction: source.htf_ema_cross_perf.last_cross_direction,
+      bars_since_cross: source.htf_ema_cross_perf.bars_since_cross != null ? toNumber(source.htf_ema_cross_perf.bars_since_cross) : undefined,
+      ema_spread_pct: source.htf_ema_cross_perf.ema_spread_pct != null ? toNumber(source.htf_ema_cross_perf.ema_spread_pct) : undefined,
+      move_since_cross_pct: source.htf_ema_cross_perf.move_since_cross_pct != null ? toNumber(source.htf_ema_cross_perf.move_since_cross_pct) : undefined,
+      is_converging: source.htf_ema_cross_perf.is_converging,
+      freshness_state: source.htf_ema_cross_perf.freshness_state,
+      freshness_score: source.htf_ema_cross_perf.freshness_score != null ? toNumber(source.htf_ema_cross_perf.freshness_score) : undefined,
+      suitability_score: source.htf_ema_cross_perf.suitability_score != null ? toNumber(source.htf_ema_cross_perf.suitability_score) : undefined,
     } : undefined,
     lastUpdate: effectiveLastUpdate,
     sl_dist_pct: source.sl_dist_pct !== undefined && source.sl_dist_pct !== null ? toNumber(source.sl_dist_pct) : undefined,
@@ -418,7 +427,9 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   const sigDigest = sig ? `${sig.allFired ? 1 : 0}|${(sig.firedSignals || []).join(',')}|${sig.reason}|${sigDetailsDigest}` : '';
   const sb = res.score_breakdown;
   const sbDigest = sb ? `${sb.momentum}:${sb.volatility}:${sb.trend}:${sb.htf_ema_cross || 0}` : '';
-  const f = `${res.symbol}:${res.pct}:${res.momentum}:${res.dir}:${res.vol}:${res.score}:${res.price}:${res.volume_rank}:${res.sl_dist_pct ?? ''}:${res.raw_sl_dist_pct ?? ''}:${res.prospect_rr ?? ''}:${sbDigest}:${sigDigest}`;
+  const hp = res.htf_ema_cross_perf;
+  const hpDigest = hp ? `${hp.freshness_state || ''}:${hp.suitability_score ?? ''}:${hp.bars_since_cross ?? ''}` : '';
+  const f = `${res.symbol}:${res.pct}:${res.momentum}:${res.dir}:${res.vol}:${res.score}:${res.price}:${res.volume_rank}:${res.sl_dist_pct ?? ''}:${res.raw_sl_dist_pct ?? ''}:${res.prospect_rr ?? ''}:${sbDigest}:${hpDigest}:${sigDigest}`;
   if (prev && prev._fingerprint === f && !o._delta && !o._thin) {
     return prev;
   }
@@ -704,6 +715,10 @@ const defaultConfig = {
   watchlist_locked: false,
   watchlist_min_score: 75,
   watchlist_last_rotated_ts: 0,
+  watchlist_rotate_mode: 'score',
+  htf_ema_cross_prefer_fresh: true,
+  htf_ema_cross_max_bars: 6,
+  htf_ema_cross_catalog_enabled: false,
   watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
   watchlist_offset: 0,
   discovery_mode: 'abs_change_pct',
@@ -1734,25 +1749,29 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   availableSymbols: [],
   availableSymbolsLoading: false,
   availableSymbolsFetchedAt: 0,
+  availableSymbolsHtfIncluded: false,
   availableSymbolsMeta: { total: 0, tradfi_count: 0, crypto_count: 0 },
 
-  fetchAvailableSymbols: async (force = false) => {
+  fetchAvailableSymbols: async (force = false, options = {}) => {
     const st = get();
     const now = Date.now();
+    const wantsHtf = Boolean(options?.includeHtfCross || st.config?.htf_ema_cross_catalog_enabled);
+    const needsUpgradeToHtf = wantsHtf && !st.availableSymbolsHtfIncluded;
     // 2-minute client TTL to avoid redundant fetches while keeping live prices fresh
-    if (!force && st.availableSymbols.length > 0 && now - (st.availableSymbolsFetchedAt || 0) < 120000) {
+    if (!force && !needsUpgradeToHtf && st.availableSymbols.length > 0 && now - (st.availableSymbolsFetchedAt || 0) < 120000) {
       return st.availableSymbols;
     }
     if (st.availableSymbolsLoading) return st.availableSymbols;
 
     set({ availableSymbolsLoading: true });
     try {
-      const res = await sessionAPI.getSymbols(false);
+      const res = await sessionAPI.getSymbols(Boolean(options?.includeNonUsdt), wantsHtf);
       const data = res?.data || {};
       const list = Array.isArray(data.symbols) ? data.symbols : [];
       set({
         availableSymbols: list,
         availableSymbolsFetchedAt: Date.now(),
+        availableSymbolsHtfIncluded: Boolean(data.htf_cross_included ?? wantsHtf),
         availableSymbolsMeta: {
           total: Number(data.total ?? list.length),
           tradfi_count: Number(data.tradfi_count ?? list.filter((s) => s.assetClass === 'tradfi').length),
@@ -1854,19 +1873,31 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
     const labelKey = variantIdx >= 0 ? targetStrategyLabel : (st.config?.strategy_label || 'Base Strategy');
     const variantOpps = st.variantScannerResults?.[labelKey];
-    const scannerOpps = Array.isArray(variantOpps) && variantOpps.length > 0
+    const catalogBySym = new Map((st.availableSymbols || []).map(item => [item.symbol, item]));
+    const rawPool = Array.isArray(variantOpps) && variantOpps.length > 0
       ? variantOpps
       : (Array.isArray(st.scannerResults) && st.scannerResults.length > 0 ? st.scannerResults : (st.availableSymbols || []));
+    const scannerOpps = rawPool.map(o => {
+      if (!o?.symbol) return o;
+      const cat = catalogBySym.get(o.symbol);
+      if (cat?.htf_ema_cross && !o.htf_ema_cross_perf && !o.htf_ema_cross) {
+        return { ...o, htf_ema_cross: cat.htf_ema_cross };
+      }
+      return o;
+    });
     const currentSymbols = new Set(Array.isArray(targetConfig?.symbols) ? targetConfig.symbols : []);
     const activeSymbols = new Set((st.activeTrades || []).map(t => t.symbol));
     const minScore = targetConfig?.watchlist_min_score || 70;
+    const rotateMode = targetConfig?.watchlist_rotate_mode || 'score';
+    const preferFresh = (targetConfig?.htf_ema_cross_prefer_fresh ?? st.config?.htf_ema_cross_prefer_fresh) !== false;
 
-    const candidate = scannerOpps.find(o =>
-      o.symbol &&
-      !currentSymbols.has(o.symbol) &&
-      !activeSymbols.has(o.symbol) &&
-      ((o.score !== undefined && o.score >= minScore) || o.signalResult?.allFired || Math.abs(o.pct || 0) >= 1.5 || Number(o.volume_24h || 0) > 0)
-    );
+    const candidate = pickBestRotationCandidate(scannerOpps, {
+      rotateMode,
+      preferFresh,
+      currentSymbols,
+      activeSymbols,
+      minScore,
+    });
 
     if (!candidate) {
       get().addAlert({
@@ -1878,6 +1909,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
 
     await st.addToWatchlist(candidate.symbol, variantIdx >= 0 ? targetStrategyLabel : null);
+    const htfInfo = formatHtfCrossCompact(extractHtfEmaCross(candidate));
+    if (htfInfo && rotateMode === 'htf_ema_cross') {
+      get().addAlert({
+        level: 'success',
+        title: 'Rotated via HTF EMA Cross',
+        message: `Promoted ${candidate.symbol} (${htfInfo.label}) into ${labelKey}.`
+      });
+    }
     return true;
   },
   

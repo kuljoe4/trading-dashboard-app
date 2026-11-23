@@ -277,6 +277,14 @@ export class KlineStoreService {
   }
 
   /**
+   * Read-only cache peek that does NOT trigger 1m synthesis or reset pruning TTLs.
+   * Used by catalog HTF EMA ranking to stay strictly zero-footprint.
+   */
+  peekRawCandles(symbol: string, interval: string): Candle[] | undefined {
+    return this.klines.get(`${symbol}_${interval}`);
+  }
+
+  /**
    * BOLT OPTIMIZATION: Provides direct access to the internal candle array.
    * Synthesizes higher intervals lazily on demand only when native candles are absent.
    */

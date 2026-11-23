@@ -4,6 +4,7 @@ import { ENGINE_CONSTANTS } from '../models/constants';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { TickerCacheService } from './ticker_cache.service';
 import { MarketFeedService } from './market_feed.service';
+import { evaluateHtfEmaCross, HtfEmaCrossSummary } from './htfEmaCross';
 
 export interface Opportunity {
   symbol: string;
@@ -28,11 +29,19 @@ export interface Opportunity {
     htf_ema_cross?: number;
   };
   htf_ema_cross_perf?: {
+    interval?: string;
     avg_profit_pct: number;
     avg_peak_rr: number;
     win_rate: number;
     cross_count: number;
     last_cross_direction?: 'LONG' | 'SHORT';
+    bars_since_cross?: number;
+    ema_spread_pct?: number;
+    move_since_cross_pct?: number;
+    is_converging?: boolean;
+    freshness_state?: 'fresh' | 'approaching' | 'early' | 'extended' | 'stale';
+    freshness_score?: number;
+    suitability_score?: number;
   };
 }
 
@@ -53,13 +62,7 @@ export class MomentumScannerService {
   // BOLT OPTIMIZATION: O(1) Cache for HTF EMA Dual Cross historical performance calculations keyed by symbol & latest candle timestamp
   private readonly htfCrossPerfCache = new Map<string, {
     key: string;
-    perf: {
-      avg_profit_pct: number;
-      avg_peak_rr: number;
-      win_rate: number;
-      cross_count: number;
-      last_cross_direction?: 'LONG' | 'SHORT';
-    };
+    perf: HtfEmaCrossSummary;
     scoreBoost: number;
   }>();
 
@@ -691,143 +694,44 @@ export class MomentumScannerService {
       ? candidateSlDistPct
       : (config.sl_distance_pct ?? 0.8);
 
+    const preferFresh = config.htf_ema_cross_prefer_fresh !== false;
+    const maxFreshBars = Math.min(30, Math.max(2, Math.round(config.htf_ema_cross_max_bars ?? 6)));
+
     const latestTs = candles[candles.length - 1].time;
-    const cacheKey = `${symbol}_${interval}_${fastPeriod}_${slowPeriod}_${targetCrossCount}_${slDistPct.toFixed(2)}_${latestTs}`;
+    const cacheKey = `${symbol}_${interval}_${fastPeriod}_${slowPeriod}_${targetCrossCount}_${slDistPct.toFixed(2)}_${preferFresh ? 1 : 0}_${maxFreshBars}_${latestTs}`;
 
     const cached = this.htfCrossPerfCache.get(symbol);
     if (cached && cached.key === cacheKey) {
       return { perf: cached.perf, scoreBoost: cached.scoreBoost };
     }
 
-    // 1. Compute EMA series over 4H candles in a single fused pass
-    // BOLT OPTIMIZATION: Replaced dual computeEmaArray calls with single-pass computeDualEmaArrays.
-    // Eliminates 50% of array iterations and property accesses (~1.8x execution speedup).
-    const { fastEma, slowEma } = this.computeDualEmaArrays(candles, fastPeriod, slowPeriod);
+    const summary = evaluateHtfEmaCross(candles, {
+      interval,
+      fastPeriod,
+      slowPeriod,
+      targetCrossCount,
+      slDistPct,
+      allowPreCrossOnly: false,
+      preferFresh,
+      maxFreshBars,
+    });
 
-    if (fastEma.length !== candles.length || slowEma.length !== candles.length) {
+    if (!summary || summary.cross_count === 0) {
       return null;
     }
-
-    // 2. Identify cross points and measure post-cross actual profit percentages & R:R
-    let profitSum = 0;
-    let rrSum = 0;
-    let crossCount = 0;
-    let wins = 0;
-    let lastCrossDirection: 'LONG' | 'SHORT' | undefined;
-
-    // Scan backwards from second-to-last candle to find crossovers
-    for (let i = candles.length - 2; i >= slowPeriod; i--) {
-      const prevFast = fastEma[i - 1];
-      const prevSlow = slowEma[i - 1];
-      const currFast = fastEma[i];
-      const currSlow = slowEma[i];
-
-      const isBullCross = prevFast <= prevSlow && currFast > currSlow;
-      const isBearCross = prevFast >= prevSlow && currFast < currSlow;
-
-      if (isBullCross || isBearCross) {
-        const crossDir = isBullCross ? 'LONG' : 'SHORT';
-        if (!lastCrossDirection) {
-          lastCrossDirection = crossDir;
-        }
-
-        const entryPrice = candles[i].close;
-        const slPriceLong = entryPrice * (1 - slDistPct / 100);
-        const slPriceShort = entryPrice * (1 + slDistPct / 100);
-        let actualExitPrice = entryPrice;
-        let hitSl = false;
-
-        // Forward scan until exit cross, SL hit, or end of candles
-        const forwardWindow = candles.length - 1;
-        for (let j = i + 1; j <= forwardWindow; j++) {
-          const fPrevFast = fastEma[j - 1];
-          const fPrevSlow = slowEma[j - 1];
-          const fCurrFast = fastEma[j];
-          const fCurrSlow = slowEma[j];
-
-          const fBullCross = fPrevFast <= fPrevSlow && fCurrFast > fCurrSlow;
-          const fBearCross = fPrevFast >= fPrevSlow && fCurrFast < fCurrSlow;
-
-          // Check if SL is hit in this candle
-          if (crossDir === 'LONG' && candles[j].low <= slPriceLong) {
-            actualExitPrice = slPriceLong;
-            hitSl = true;
-            break;
-          } else if (crossDir === 'SHORT' && candles[j].high >= slPriceShort) {
-            actualExitPrice = slPriceShort;
-            hitSl = true;
-            break;
-          }
-
-          // Check if exit cross happened
-          if (crossDir === 'LONG' && fBearCross) {
-            actualExitPrice = candles[j].close;
-            break;
-          } else if (crossDir === 'SHORT' && fBullCross) {
-            actualExitPrice = candles[j].close;
-            break;
-          }
-
-          // If it's the last candle and no exit yet
-          if (j === forwardWindow) {
-            actualExitPrice = candles[j].close;
-          }
-        }
-
-        let profitPct = 0;
-        if (hitSl) {
-          profitPct = -slDistPct;
-        } else {
-          profitPct = crossDir === 'LONG'
-            ? ((actualExitPrice - entryPrice) / entryPrice) * 100
-            : ((entryPrice - actualExitPrice) / entryPrice) * 100;
-        }
-
-        const actualRr = slDistPct > 0 ? profitPct / slDistPct : profitPct;
-
-        profitSum += profitPct;
-        rrSum += actualRr;
-        crossCount++;
-
-        // Strict evaluation: only >0 returns are wins (breakevens and below are not)
-        if (profitPct > 0) {
-          wins++;
-        }
-
-        if (crossCount >= targetCrossCount) {
-          break;
-        }
-      }
-    }
-
-    if (crossCount === 0) {
-      return null;
-    }
-
-    const avgProfitPct = profitSum / crossCount;
-    const avgPeakRr = rrSum / crossCount;
-    const winRate = (wins / crossCount) * 100;
 
     const maxBoost = config.htf_ema_cross_max_boost ?? 25.0;
     const rrWeight = config.htf_ema_cross_rr_weight ?? 1.5;
 
     // Score boost up to maxBoost points based on average profit %, avg peak RR, and win rate
-    const profitScore = Math.max(0, Math.min(maxBoost * 0.5, avgProfitPct * 2.0));
-    const rrScore = Math.max(0, Math.min(maxBoost * 0.3, avgPeakRr * rrWeight));
-    const winRateScore = Math.max(0, Math.min(maxBoost * 0.2, (winRate / 100) * (maxBoost * 0.2)));
+    const profitScore = Math.max(0, Math.min(maxBoost * 0.5, summary.avg_profit_pct * 2.0));
+    const rrScore = Math.max(0, Math.min(maxBoost * 0.3, summary.avg_peak_rr * rrWeight));
+    const winRateScore = Math.max(0, Math.min(maxBoost * 0.2, (summary.win_rate / 100) * (maxBoost * 0.2)));
     const scoreBoost = Math.min(maxBoost, profitScore + rrScore + winRateScore);
 
-    const perf = {
-      avg_profit_pct: Number(avgProfitPct.toFixed(2)),
-      avg_peak_rr: Number(avgPeakRr.toFixed(2)),
-      win_rate: Number(winRate.toFixed(1)),
-      cross_count: crossCount,
-      last_cross_direction: lastCrossDirection,
-    };
+    this.htfCrossPerfCache.set(symbol, { key: cacheKey, perf: summary, scoreBoost });
 
-    this.htfCrossPerfCache.set(symbol, { key: cacheKey, perf, scoreBoost });
-
-    return { perf, scoreBoost };
+    return { perf: summary, scoreBoost };
   }
 
   /**

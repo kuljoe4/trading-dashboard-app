@@ -203,7 +203,7 @@ export class ExitEstimationService {
         estimatedPnl: null,
         estimatedR: null,
         method: 'event_state',
-        description: 'Exit condition already passed'
+        description: signalDetail?.description || "EMA already crossed — doesn't pass until cross resets"
       };
     }
 
@@ -376,7 +376,23 @@ export class ExitEstimationService {
             }
           };
         } else if (currentSpread <= 0) {
-          // Cross already satisfied
+          if (baseType === 'ema_dual_cross' && !isFired) {
+            return {
+              signalType,
+              state: 'stale' as const,
+              proximity: 0,
+              etaCandles: null,
+              etaSeconds: null,
+              confidence: 0,
+              estimatedExitPrice: null,
+              estimatedPnl: null,
+              estimatedR: null,
+              method: 'event_state',
+              description: signalDetail?.description || "EMA already crossed — doesn't pass until cross resets",
+              components: { fastValue: val, slowValue: thresh, spread: roundTo(currentSpread, 8), distancePct: roundTo(Math.abs((val - thresh) / thresh) * 100, 4) }
+            };
+          }
+          // Cross already satisfied (level/close signal)
           const { estPnl, estR } = computePnLAndR(currentPrice);
           return {
             signalType,

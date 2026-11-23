@@ -298,6 +298,60 @@ export function extractHtfEmaCross(item) {
 }
 
 /**
+ * Evaluates whether a symbol item satisfies HTF EMA Cross UI & Scheduler filters.
+ */
+export function matchesHtfCrossFilters(item, filters = {}) {
+  const {
+    freshness = 'all', // 'all' | 'non_stale' | 'actionable' | 'fresh' | 'fresh_only' | 'fresh_or_near' | 'approaching' | 'early' | 'extended_or_stale' | 'scored'
+    direction = 'all', // 'all' | 'LONG' | 'SHORT'
+    minScore = 0,
+  } = filters || {};
+
+  const htf = extractHtfEmaCross(item);
+  const needsHtf =
+    freshness !== 'all' ||
+    direction !== 'all' ||
+    Number(minScore) > 0;
+
+  if (!htf) {
+    return !needsHtf;
+  }
+
+  if (Number(minScore) > 0 && htf.suitability_score < Number(minScore)) {
+    return false;
+  }
+
+  if (direction === 'LONG' || direction === 'SHORT') {
+    if (htf.last_cross_direction !== direction) return false;
+  }
+
+  switch (freshness) {
+    case 'fresh':
+    case 'fresh_only':
+      return htf.freshness_state === 'fresh';
+    case 'fresh_or_near':
+      return htf.freshness_state === 'fresh' || htf.freshness_state === 'approaching';
+    case 'approaching':
+      return htf.freshness_state === 'approaching';
+    case 'early':
+      return htf.freshness_state === 'early';
+    case 'actionable':
+    case 'non_stale':
+      return (
+        htf.freshness_state === 'fresh' ||
+        htf.freshness_state === 'approaching' ||
+        htf.freshness_state === 'early'
+      );
+    case 'extended_or_stale':
+      return htf.freshness_state === 'extended' || htf.freshness_state === 'stale';
+    case 'scored':
+    case 'all':
+    default:
+      return true;
+  }
+}
+
+/**
  * Deterministic comparator placing fresh + profitable HTF EMA cross pairs first,
  * pushing stale/extended pairs down, and falling back to liquidity/score for un-warmed pairs.
  */
@@ -330,27 +384,58 @@ export function compareByHtfEmaCross(a, b) {
 }
 
 /**
- * Selects the best rotation candidate for Watchlist Scheduler according to rotateMode:
- * - 'htf_ema_cross' (default): prefers fresh/approaching/early & profitable HTF EMA crosses; avoids stale/extended ones.
- * - 'score': classic composite scanner score / momentum fallback.
+ * Ranks eligible external candidates for the Watchlist Scheduler using the same rules
+ * as pickBestRotationCandidate so the Scheduler UI can preview exact live ranks & scores.
  */
-export function pickBestRotationCandidate(candidates, options = {}) {
+export function rankHtfRotationCandidates(candidates, options = {}) {
   const {
     rotateMode = 'score',
     preferFresh = true,
+    freshnessFilter = null, // 'non_stale' | 'fresh_only' | 'fresh_or_near' | 'all'
+    directionFilter = 'all', // 'all' | 'LONG' | 'SHORT'
+    minHtfScore = null,
     currentSymbols = new Set(),
     activeSymbols = new Set(),
     minScore = 70,
+    limit = 0,
   } = options;
+
+  const resolvedFreshness =
+    freshnessFilter || (preferFresh ? 'non_stale' : 'all');
+  const resolvedMinHtf =
+    minHtfScore !== null && minHtfScore !== undefined
+      ? Number(minHtfScore)
+      : 55;
 
   const eligible = (Array.isArray(candidates) ? candidates : []).filter((o) => {
     if (!o?.symbol) return false;
     if (currentSymbols.has(o.symbol) || activeSymbols.has(o.symbol)) return false;
+
     const htf = extractHtfEmaCross(o);
+
+    if (rotateMode === 'htf_ema_cross') {
+      const explicitFiltersActive =
+        Boolean(freshnessFilter && freshnessFilter !== 'all') ||
+        (directionFilter && directionFilter !== 'all') ||
+        (minHtfScore !== null && minHtfScore !== undefined && Number(minHtfScore) > 0);
+
+      if (htf) {
+        return matchesHtfCrossFilters(o, {
+          freshness: resolvedFreshness,
+          direction: directionFilter,
+          minScore: resolvedMinHtf,
+        });
+      }
+
+      if (explicitFiltersActive) {
+        return false;
+      }
+    }
+
     const hasFreshHtfSetup = Boolean(
       htf &&
       (!preferFresh || htf.freshness_state === 'fresh' || htf.freshness_state === 'approaching' || htf.freshness_state === 'early') &&
-      htf.suitability_score >= 55
+      htf.suitability_score >= resolvedMinHtf
     );
     const meetsBaseScore =
       (o.score !== undefined && Number(o.score) >= minScore) ||
@@ -360,31 +445,41 @@ export function pickBestRotationCandidate(candidates, options = {}) {
     return rotateMode === 'htf_ema_cross' ? (hasFreshHtfSetup || meetsBaseScore) : meetsBaseScore;
   });
 
-  if (eligible.length === 0) return null;
+  if (eligible.length === 0) return [];
 
+  let sorted;
   if (rotateMode !== 'htf_ema_cross') {
-    const sorted = [...eligible].sort((a, b) => {
+    sorted = [...eligible].sort((a, b) => {
       const scoreDiff = Number(b?.score ?? 0) - Number(a?.score ?? 0);
       if (scoreDiff !== 0) return scoreDiff;
       return Number(b?.volume_24h ?? b?.vol ?? 0) - Number(a?.volume_24h ?? a?.vol ?? 0);
     });
-    return sorted[0];
+  } else {
+    const nonStale = preferFresh && resolvedFreshness !== 'all'
+      ? eligible.filter((o) => {
+          const htf = extractHtfEmaCross(o);
+          return !htf || htf.freshness_state !== 'stale';
+        })
+      : eligible;
+    const pool = nonStale.length > 0 ? nonStale : eligible;
+    sorted = [...pool].sort(compareByHtfEmaCross);
   }
 
-  // When preferFresh is active, prefer non-stale candidates first when any exist
-  const nonStale = preferFresh
-    ? eligible.filter((o) => {
-        const htf = extractHtfEmaCross(o);
-        return !htf || htf.freshness_state !== 'stale';
-      })
-    : eligible;
-  const pool = nonStale.length > 0 ? nonStale : eligible;
-  const sorted = [...pool].sort(compareByHtfEmaCross);
-  return sorted[0];
+  return limit > 0 ? sorted.slice(0, limit) : sorted;
 }
 
 /**
- * Formats compact, unboxed UI readout for Static Catalog items.
+ * Selects the best rotation candidate for Watchlist Scheduler according to rotateMode:
+ * - 'htf_ema_cross': prefers fresh/approaching/early & profitable HTF EMA crosses; avoids stale/extended ones.
+ * - 'score': classic composite scanner score / momentum fallback.
+ */
+export function pickBestRotationCandidate(candidates, options = {}) {
+  const ranked = rankHtfRotationCandidates(candidates, { ...options, limit: 1 });
+  return ranked[0] || null;
+}
+
+/**
+ * Formats compact, unboxed UI readout for Static Catalog & Scheduler items.
  */
 export function formatHtfCrossCompact(raw) {
   const htf = raw?.freshness_state ? raw : extractHtfEmaCross({ htf_ema_cross: raw });
@@ -394,37 +489,57 @@ export function formatHtfCrossCompact(raw) {
   const bars = Number.isFinite(htf.bars_since_cross) ? `${htf.bars_since_cross}b` : '';
   const dirLabel = htf.last_cross_direction === 'SHORT' ? 'S' : 'L';
   const wr = htf.cross_count > 0 ? `${Math.round(htf.win_rate)}%` : '';
+  const score = Math.round(Number(htf.suitability_score || 0));
+  const freshnessScore = Math.round(Number(htf.freshness_score || 0));
+  const sharedMeta = {
+    interval: tf,
+    direction: htf.last_cross_direction === 'SHORT' ? 'SHORT' : 'LONG',
+    dirShort: dirLabel,
+    barsSince: Number.isFinite(htf.bars_since_cross) ? htf.bars_since_cross : null,
+    winRate: htf.cross_count > 0 ? Math.round(htf.win_rate) : null,
+    avgProfitPct: htf.cross_count > 0 ? Number(htf.avg_profit_pct || 0) : null,
+    avgPeakRr: htf.cross_count > 0 ? Number(htf.avg_peak_rr || 0) : null,
+    emaSpreadPct: Number.isFinite(htf.ema_spread_pct) ? htf.ema_spread_pct : null,
+    suitability: htf.suitability_score,
+    score,
+    freshnessScore,
+  };
 
   switch (htf.freshness_state) {
     case 'fresh':
       return {
+        ...sharedMeta,
+        stateLabel: 'Fresh',
         label: `${tf} Fresh ${dirLabel}${bars ? ` · ${bars}` : ''}${wr ? ` · ${wr}` : ''}`,
         tone: 'fresh',
-        suitability: htf.suitability_score,
       };
     case 'approaching':
       return {
+        ...sharedMeta,
+        stateLabel: 'Near',
         label: `${tf} Near ${htf.ema_spread_pct >= 0 ? '+' : ''}${Number(htf.ema_spread_pct ?? 0).toFixed(2)}%${wr ? ` · ${wr}` : ''}`,
         tone: 'approaching',
-        suitability: htf.suitability_score,
       };
     case 'early':
       return {
+        ...sharedMeta,
+        stateLabel: 'Early',
         label: `${tf} Early ${dirLabel}${bars ? ` · ${bars}` : ''}${wr ? ` · ${wr}` : ''}`,
         tone: 'early',
-        suitability: htf.suitability_score,
       };
     case 'extended':
       return {
+        ...sharedMeta,
+        stateLabel: 'Ext',
         label: `${tf} Ext${bars ? ` · ${bars}` : ''}`,
         tone: 'extended',
-        suitability: htf.suitability_score,
       };
     default:
       return {
+        ...sharedMeta,
+        stateLabel: 'Stale',
         label: `${tf} Stale${bars ? ` · ${bars}` : ''}`,
         tone: 'stale',
-        suitability: htf.suitability_score,
       };
   }
 }

@@ -716,6 +716,9 @@ const defaultConfig = {
   watchlist_min_score: 75,
   watchlist_last_rotated_ts: 0,
   watchlist_rotate_mode: 'score',
+  watchlist_htf_freshness_filter: 'non_stale',
+  watchlist_htf_direction_filter: 'all',
+  watchlist_htf_min_score: 55,
   htf_ema_cross_prefer_fresh: true,
   htf_ema_cross_max_bars: 6,
   htf_ema_cross_catalog_enabled: false,
@@ -1890,10 +1893,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     const minScore = targetConfig?.watchlist_min_score || 70;
     const rotateMode = targetConfig?.watchlist_rotate_mode || 'score';
     const preferFresh = (targetConfig?.htf_ema_cross_prefer_fresh ?? st.config?.htf_ema_cross_prefer_fresh) !== false;
+    const freshnessFilter = targetConfig?.watchlist_htf_freshness_filter ?? st.config?.watchlist_htf_freshness_filter ?? (preferFresh ? 'non_stale' : 'all');
+    const directionFilter = targetConfig?.watchlist_htf_direction_filter ?? st.config?.watchlist_htf_direction_filter ?? 'all';
+    const minHtfScore = Number(targetConfig?.watchlist_htf_min_score ?? st.config?.watchlist_htf_min_score ?? 55);
 
     const candidate = pickBestRotationCandidate(scannerOpps, {
       rotateMode,
       preferFresh,
+      freshnessFilter,
+      directionFilter,
+      minHtfScore,
       currentSymbols,
       activeSymbols,
       minScore,

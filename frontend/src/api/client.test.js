@@ -302,6 +302,9 @@ describe('sanitizeSessionConfig', () => {
       htf_ema_cross_max_bars: 8,
       htf_ema_cross_catalog_enabled: true,
       watchlist_rotate_mode: 'htf_ema_cross',
+      watchlist_htf_freshness_filter: 'fresh_or_near',
+      watchlist_htf_direction_filter: 'LONG',
+      watchlist_htf_min_score: 70,
       force_risk_release: false,
       release_risk_on_est_pnl_be: true,
       release_risk_est_pnl_mode: 'rr',
@@ -314,6 +317,9 @@ describe('sanitizeSessionConfig', () => {
       strategy_variants: [{
         strategy_label: 'MACD Variant',
         watchlist_rotate_mode: 'score',
+        watchlist_htf_freshness_filter: 'fresh_only',
+        watchlist_htf_direction_filter: 'SHORT',
+        watchlist_htf_min_score: 80,
         macd_impulse_max_entry_candle: 2,
         signal_params: {
           macd_impulse_max_entry_candle: 2,
@@ -333,6 +339,9 @@ describe('sanitizeSessionConfig', () => {
     assert.strictEqual(sanitized.htf_ema_cross_max_bars, 8)
     assert.strictEqual(sanitized.htf_ema_cross_catalog_enabled, true)
     assert.strictEqual(sanitized.watchlist_rotate_mode, 'htf_ema_cross')
+    assert.strictEqual(sanitized.watchlist_htf_freshness_filter, 'fresh_or_near')
+    assert.strictEqual(sanitized.watchlist_htf_direction_filter, 'LONG')
+    assert.strictEqual(sanitized.watchlist_htf_min_score, 70)
     assert.strictEqual(sanitized.force_risk_release, false)
     assert.strictEqual(sanitized.release_risk_on_est_pnl_be, true)
     assert.strictEqual(sanitized.release_risk_est_pnl_mode, 'rr')
@@ -341,6 +350,9 @@ describe('sanitizeSessionConfig', () => {
     assert.strictEqual(sanitized.macd_impulse_max_entry_candle, undefined)
     assert.strictEqual(sanitized.signal_params.macd_impulse_max_entry_candle, 1)
     assert.strictEqual(sanitized.strategy_variants[0].watchlist_rotate_mode, 'score')
+    assert.strictEqual(sanitized.strategy_variants[0].watchlist_htf_freshness_filter, 'fresh_only')
+    assert.strictEqual(sanitized.strategy_variants[0].watchlist_htf_direction_filter, 'SHORT')
+    assert.strictEqual(sanitized.strategy_variants[0].watchlist_htf_min_score, 80)
     assert.strictEqual(sanitized.strategy_variants[0].macd_impulse_max_entry_candle, undefined)
     assert.strictEqual(sanitized.strategy_variants[0].signal_params.macd_impulse_max_entry_candle, 2)
   })

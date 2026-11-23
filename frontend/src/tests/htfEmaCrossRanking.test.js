@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 import {
   evaluateHtfEmaCrossFromCandles,
   extractHtfEmaCross,
+  matchesHtfCrossFilters,
   compareByHtfEmaCross,
+  rankHtfRotationCandidates,
   pickBestRotationCandidate,
   formatHtfCrossCompact,
 } from '../utils/htfEmaCross.js';
@@ -158,6 +160,83 @@ describe('HTF EMA Cross Freshness & Suitability Ranking', () => {
     assert.equal(scorePick?.symbol, 'STALEPUMPUSDT');
   });
 
+  it('matchesHtfCrossFilters and rankHtfRotationCandidates respect freshness, direction, and minScore filter types', () => {
+    const pool = [
+      {
+        symbol: 'FRESHLONGUSDT',
+        score: 78,
+        volume_24h: 250_000_000,
+        htf_ema_cross: {
+          freshness_state: 'fresh',
+          freshness_score: 93,
+          suitability_score: 88,
+          win_rate: 82,
+          last_cross_direction: 'LONG',
+        },
+      },
+      {
+        symbol: 'NEARSHORTUSDT',
+        score: 82,
+        volume_24h: 300_000_000,
+        htf_ema_cross: {
+          freshness_state: 'approaching',
+          freshness_score: 84,
+          suitability_score: 79,
+          win_rate: 76,
+          last_cross_direction: 'SHORT',
+        },
+      },
+      {
+        symbol: 'EARLYLONGUSDT',
+        score: 74,
+        volume_24h: 190_000_000,
+        htf_ema_cross: {
+          freshness_state: 'early',
+          freshness_score: 62,
+          suitability_score: 64,
+          win_rate: 67,
+          last_cross_direction: 'LONG',
+        },
+      },
+      {
+        symbol: 'STALEHIGHUSDT',
+        score: 95,
+        volume_24h: 700_000_000,
+        htf_ema_cross: {
+          freshness_state: 'stale',
+          freshness_score: 12,
+          suitability_score: 31,
+          win_rate: 80,
+          last_cross_direction: 'LONG',
+        },
+      },
+      { symbol: 'NOHTFUSDT', score: 90, volume_24h: 600_000_000 },
+    ];
+
+    assert.equal(matchesHtfCrossFilters(pool[0], { freshness: 'fresh_only', direction: 'LONG', minScore: 80 }), true);
+    assert.equal(matchesHtfCrossFilters(pool[1], { freshness: 'fresh_only', direction: 'all', minScore: 0 }), false);
+    assert.equal(matchesHtfCrossFilters(pool[1], { freshness: 'fresh_or_near', direction: 'SHORT', minScore: 70 }), true);
+    assert.equal(matchesHtfCrossFilters(pool[3], { freshness: 'extended_or_stale', direction: 'all', minScore: 0 }), true);
+    assert.equal(matchesHtfCrossFilters(pool[4], { freshness: 'non_stale', direction: 'all', minScore: 55 }), false);
+
+    const shortRanked = rankHtfRotationCandidates(pool, {
+      rotateMode: 'htf_ema_cross',
+      freshnessFilter: 'fresh_or_near',
+      directionFilter: 'SHORT',
+      minHtfScore: 70,
+    });
+    assert.deepEqual(shortRanked.map((c) => c.symbol), ['NEARSHORTUSDT']);
+
+    const nonStaleRanked = rankHtfRotationCandidates(pool, {
+      rotateMode: 'htf_ema_cross',
+      freshnessFilter: 'non_stale',
+      directionFilter: 'all',
+      minHtfScore: 55,
+      limit: 5,
+    });
+    assert.deepEqual(nonStaleRanked.map((c) => c.symbol), ['FRESHLONGUSDT', 'NEARSHORTUSDT', 'EARLYLONGUSDT']);
+  });
+
   it('extractHtfEmaCross and formatHtfCrossCompact normalize both catalog and scanner payloads', () => {
     const fromScanner = extractHtfEmaCross({
       symbol: 'BTCUSDT',
@@ -180,6 +259,10 @@ describe('HTF EMA Cross Freshness & Suitability Ranking', () => {
 
     const compact = formatHtfCrossCompact(fromScanner);
     assert.equal(compact?.tone, 'fresh');
+    assert.equal(compact?.score, 82);
+    assert.equal(compact?.stateLabel, 'Fresh');
+    assert.equal(compact?.avgProfitPct, 3.4);
+    assert.equal(compact?.avgPeakRr, 2.1);
     assert.match(compact?.label || '', /^4h Fresh L · 2b · 75%$/);
   });
 
@@ -214,34 +297,62 @@ describe('HTF EMA Cross Freshness & Suitability Ranking', () => {
     );
   });
 
-  it('verifies end-to-end zero-overhead optional wiring across UI, store, server.ts, and NestJS backend', () => {
+  it('verifies end-to-end zero-overhead optional wiring, mobile-first scores/ranks, and filter types across UI & backend', () => {
     const picker = fs.readFileSync(path.join(ROOT, 'frontend/src/components/SymbolCatalogPicker.jsx'), 'utf8');
     const watchlistMgr = fs.readFileSync(path.join(ROOT, 'frontend/src/components/WatchlistManager.jsx'), 'utf8');
     const configModal = fs.readFileSync(path.join(ROOT, 'frontend/src/components/ConfigModal.jsx'), 'utf8');
     const store = fs.readFileSync(path.join(ROOT, 'frontend/src/store/trading.js'), 'utf8');
+    const clientJs = fs.readFileSync(path.join(ROOT, 'frontend/src/api/client.js'), 'utf8');
     const serverTs = fs.readFileSync(path.join(ROOT, 'server.ts'), 'utf8');
+    const sessionConfigTs = fs.readFileSync(path.join(ROOT, 'backend/node/src/models/SessionConfig.ts'), 'utf8');
     const marketFeed = fs.readFileSync(path.join(ROOT, 'backend/node/src/engine/market_feed.service.ts'), 'utf8');
     const klineStore = fs.readFileSync(path.join(ROOT, 'backend/node/src/engine/kline_store.service.ts'), 'utf8');
 
     assert.match(picker, /ema_cross/);
     assert.match(picker, /compareByHtfEmaCross/);
+    assert.match(picker, /matchesHtfCrossFilters/);
     assert.match(picker, /formatHtfCrossCompact/);
     assert.match(picker, /includeHtfCross:\s*sortBy === 'ema_cross' \|\| htfCatalogEnabled/);
+    assert.match(picker, /grid-cols-1 sm:grid-cols-2 lg:grid-cols-3/);
+    assert.match(picker, /\{htfScore\}\/100/);
+    assert.match(picker, /#\{htfRank\}/);
+    assert.match(picker, /EMA Filters/);
 
     assert.match(watchlistMgr, /watchlist_rotate_mode/);
     assert.match(watchlistMgr, /Fresh HTF Cross/);
+    assert.match(watchlistMgr, /Scheduler EMA Cross Filters/);
+    assert.match(watchlistMgr, /watchlist_htf_freshness_filter/);
+    assert.match(watchlistMgr, /watchlist_htf_direction_filter/);
+    assert.match(watchlistMgr, /watchlist_htf_min_score/);
+    assert.match(watchlistMgr, /rankHtfRotationCandidates/);
+    assert.match(watchlistMgr, /grid-cols-1 sm:flex sm:flex-wrap/);
 
     assert.match(configModal, /watchlist_rotate_mode/);
+    assert.match(configModal, /Scheduler EMA Cross Filters/);
+    assert.match(configModal, /watchlist_htf_freshness_filter/);
+    assert.match(configModal, /watchlist_htf_direction_filter/);
+    assert.match(configModal, /watchlist_htf_min_score/);
+    assert.match(configModal, /rankHtfRotationCandidates/);
     assert.match(configModal, /htf_ema_cross_prefer_fresh/);
     assert.match(configModal, /htf_ema_cross_max_bars/);
     assert.match(configModal, /htf_ema_cross_catalog_enabled/);
 
     assert.match(store, /pickBestRotationCandidate/);
     assert.match(store, /watchlist_rotate_mode/);
+    assert.match(store, /watchlist_htf_freshness_filter/);
+
+    assert.match(clientJs, /watchlist_htf_freshness_filter/);
+    assert.match(clientJs, /watchlist_htf_direction_filter/);
+    assert.match(clientJs, /watchlist_htf_min_score/);
+
+    assert.match(sessionConfigTs, /watchlist_htf_freshness_filter/);
+    assert.match(sessionConfigTs, /watchlist_htf_direction_filter/);
+    assert.match(sessionConfigTs, /watchlist_htf_min_score/);
 
     assert.match(serverTs, /\/session\/symbols/);
     assert.match(serverTs, /pickBestRotationCandidate/);
     assert.match(serverTs, /htf_ema_cross_catalog_enabled/);
+    assert.match(serverTs, /watchlist_htf_freshness_filter/);
 
     // Resource footprint guard: MarketFeedService uses zero-mutation peekRawCandles + bounded cache + opt-in gate
     assert.match(klineStore, /peekRawCandles\(/);

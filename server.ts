@@ -306,6 +306,9 @@ const state = {
     watchlist_min_score: 75,
     watchlist_last_rotated_ts: 0,
     watchlist_rotate_mode: 'score',
+    watchlist_htf_freshness_filter: 'non_stale',
+    watchlist_htf_direction_filter: 'all',
+    watchlist_htf_min_score: 55,
     watchlist_size: 25,
     watchlist_offset: 0,
     discovery_mode: 'volume',
@@ -1081,10 +1084,16 @@ function executeWatchlistAutoRotate() {
   const minScore = Number(cfg.watchlist_min_score) || 70;
   const rotateMode = cfg.watchlist_rotate_mode || 'score';
   const preferFresh = cfg.htf_ema_cross_prefer_fresh !== false;
+  const freshnessFilter = (cfg as any).watchlist_htf_freshness_filter || (preferFresh ? 'non_stale' : 'all');
+  const directionFilter = (cfg as any).watchlist_htf_direction_filter || 'all';
+  const minHtfScore = Number((cfg as any).watchlist_htf_min_score ?? 55);
 
   const picked = pickBestRotationCandidate(opps, {
     rotateMode,
     preferFresh,
+    freshnessFilter,
+    directionFilter,
+    minHtfScore,
     currentSymbols,
     activeSymbols,
     minScore,
@@ -2380,10 +2389,16 @@ app.post('/session/watchlist/rotate', (req, res) => {
   const minScore = Number(state.config.watchlist_min_score) || 70;
   const rotateMode = state.config.watchlist_rotate_mode || 'score';
   const preferFresh = (state.config as any).htf_ema_cross_prefer_fresh !== false;
+  const freshnessFilter = (state.config as any).watchlist_htf_freshness_filter || (preferFresh ? 'non_stale' : 'all');
+  const directionFilter = (state.config as any).watchlist_htf_direction_filter || 'all';
+  const minHtfScore = Number((state.config as any).watchlist_htf_min_score ?? 55);
 
   const picked = pickBestRotationCandidate(opps, {
     rotateMode,
     preferFresh,
+    freshnessFilter,
+    directionFilter,
+    minHtfScore,
     currentSymbols,
     activeSymbols,
     minScore,
@@ -2419,7 +2434,20 @@ app.post('/session/watchlist/rotate', (req, res) => {
 });
 
 app.post('/session/watchlist/settings', (req, res) => {
-  const { max_symbols, auto_rotate, rotate_interval_min, locked, min_score, rotate_mode } = req.body || {};
+  const {
+    max_symbols,
+    auto_rotate,
+    rotate_interval_min,
+    locked,
+    min_score,
+    rotate_mode,
+    htf_freshness_filter,
+    htf_direction_filter,
+    htf_min_score,
+    watchlist_htf_freshness_filter,
+    watchlist_htf_direction_filter,
+    watchlist_htf_min_score,
+  } = req.body || {};
 
   if (max_symbols !== undefined) {
     state.config.watchlist_max_symbols = Math.max(0, parseInt(max_symbols, 10) || 0);
@@ -2440,6 +2468,18 @@ app.post('/session/watchlist/settings', (req, res) => {
   if (rotate_mode === 'htf_ema_cross' || rotate_mode === 'score') {
     state.config.watchlist_rotate_mode = rotate_mode;
   }
+  const nextFreshness = watchlist_htf_freshness_filter ?? htf_freshness_filter;
+  if (['non_stale', 'fresh_only', 'fresh_or_near', 'all'].includes(nextFreshness)) {
+    (state.config as any).watchlist_htf_freshness_filter = nextFreshness;
+  }
+  const nextDirection = watchlist_htf_direction_filter ?? htf_direction_filter;
+  if (['all', 'LONG', 'SHORT'].includes(nextDirection)) {
+    (state.config as any).watchlist_htf_direction_filter = nextDirection;
+  }
+  const nextMinHtf = watchlist_htf_min_score ?? htf_min_score;
+  if (nextMinHtf !== undefined && Number.isFinite(Number(nextMinHtf))) {
+    (state.config as any).watchlist_htf_min_score = Math.max(0, Math.min(100, Number(nextMinHtf)));
+  }
 
   addLog(
     `[Watchlist Settings] Updated: Limit=${state.config.watchlist_max_symbols || 'Unlimited'}, AutoRotate=${state.config.watchlist_auto_rotate ? `${state.config.watchlist_rotate_interval_min}m` : 'Off'}, Priority=${state.config.watchlist_rotate_mode}, Locked=${state.config.watchlist_locked ? 'Yes' : 'No'}`,
@@ -2457,6 +2497,9 @@ app.post('/session/watchlist/settings', (req, res) => {
       watchlist_locked: state.config.watchlist_locked,
       watchlist_min_score: state.config.watchlist_min_score,
       watchlist_rotate_mode: state.config.watchlist_rotate_mode,
+      watchlist_htf_freshness_filter: (state.config as any).watchlist_htf_freshness_filter,
+      watchlist_htf_direction_filter: (state.config as any).watchlist_htf_direction_filter,
+      watchlist_htf_min_score: (state.config as any).watchlist_htf_min_score,
     },
   });
 });

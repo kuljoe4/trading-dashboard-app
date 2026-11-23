@@ -10,11 +10,13 @@ import {
   Sparkles,
   Globe,
   TrendingUp,
+  Filter,
 } from 'lucide-react';
 import { useTradingStore } from '../store/trading';
 import { cn, Tooltip } from './ui/primitives';
 import {
   extractHtfEmaCross,
+  matchesHtfCrossFilters,
   compareByHtfEmaCross,
   formatHtfCrossCompact,
 } from '../utils/htfEmaCross';
@@ -78,17 +80,31 @@ export const SymbolCatalogPicker = React.memo(({
   const [activeTab, setActiveTab] = useState('catalog'); // 'catalog' | 'strategies'
   const [category, setCategory] = useState('all'); // 'all' | 'crypto' | 'tradfi' | 'movers'
   const [sortBy, setSortBy] = useState('volume'); // 'volume' | 'ema_cross' | 'change' | 'alpha'
+  const [showHtfFilters, setShowHtfFilters] = useState(false);
+  const [htfFreshnessFilter, setHtfFreshnessFilter] = useState('all'); // 'all' | 'actionable' | 'fresh' | 'approaching' | 'early' | 'extended_or_stale'
+  const [htfDirectionFilter, setHtfDirectionFilter] = useState('all'); // 'all' | 'LONG' | 'SHORT'
+  const [htfMinScoreFilter, setHtfMinScoreFilter] = useState(0); // 0 | 55 | 70 | 80
   const [isOpen, setIsOpen] = useState(defaultExpanded);
   const [copiedSourceKey, setCopiedSourceKey] = useState(null);
+
+  const hasActiveHtfFilter =
+    htfFreshnessFilter !== 'all' || htfDirectionFilter !== 'all' || htfMinScoreFilter > 0;
+  const activeHtfFilterCount =
+    (htfFreshnessFilter !== 'all' ? 1 : 0) +
+    (htfDirectionFilter !== 'all' ? 1 : 0) +
+    (htfMinScoreFilter > 0 ? 1 : 0);
+  const isHtfMode = sortBy === 'ema_cross' || showHtfFilters || hasActiveHtfFilter;
 
   const internalInputRef = useRef(null);
   const resolvedInputRef = externalInputRef || internalInputRef;
 
   useEffect(() => {
     if (typeof fetchAvailableSymbols === 'function') {
-      fetchAvailableSymbols(false, { includeHtfCross: sortBy === 'ema_cross' || htfCatalogEnabled });
+      fetchAvailableSymbols(false, {
+        includeHtfCross: sortBy === 'ema_cross' || htfCatalogEnabled || showHtfFilters || hasActiveHtfFilter,
+      });
     }
-  }, [fetchAvailableSymbols, sortBy, htfCatalogEnabled]);
+  }, [fetchAvailableSymbols, sortBy, htfCatalogEnabled, showHtfFilters, hasActiveHtfFilter]);
 
   const selectedSet = useMemo(() => {
     return new Set((Array.isArray(selectedSymbols) ? selectedSymbols : []).map((s) => String(s || '').toUpperCase()));
@@ -167,17 +183,34 @@ export const SymbolCatalogPicker = React.memo(({
   const cryptoCount = universe.length - tradFiCount;
   const htfEvaluatedCount = useMemo(() => universe.filter((u) => Boolean(u.htf_ema_cross)).length, [universe]);
 
+  const htfRankMap = useMemo(() => {
+    const scored = universe.filter((u) => Boolean(u.htf_ema_cross));
+    scored.sort(compareByHtfEmaCross);
+    const rankMap = new Map();
+    scored.forEach((item, idx) => {
+      rankMap.set(item.symbol, idx + 1);
+    });
+    return rankMap;
+  }, [universe]);
+
   const filteredCatalog = useMemo(() => {
     const q = query.trim().toUpperCase();
     let list = universe.filter((item) => {
       if (category === 'crypto' && item.assetClass !== 'crypto') return false;
       if (category === 'tradfi' && item.assetClass !== 'tradfi') return false;
       if (category === 'movers' && Math.abs(item.pct || 0) < 2.0) return false;
+      if (hasActiveHtfFilter && !matchesHtfCrossFilters(item, {
+        freshness: htfFreshnessFilter,
+        direction: htfDirectionFilter,
+        minScore: htfMinScoreFilter,
+      })) {
+        return false;
+      }
       if (q && !item.symbol.includes(q) && !(item.underlyingType || '').includes(q)) return false;
       return true;
     });
 
-    if (sortBy === 'ema_cross') {
+    if (sortBy === 'ema_cross' || (hasActiveHtfFilter && sortBy === 'volume')) {
       list = [...list].sort(compareByHtfEmaCross);
     } else if (sortBy === 'change') {
       list = [...list].sort((a, b) => Math.abs(b.pct || 0) - Math.abs(a.pct || 0));
@@ -192,7 +225,7 @@ export const SymbolCatalogPicker = React.memo(({
     }
 
     return list.slice(0, q ? 60 : 48);
-  }, [universe, query, category, sortBy]);
+  }, [universe, query, category, sortBy, hasActiveHtfFilter, htfFreshnessFilter, htfDirectionFilter, htfMinScoreFilter]);
 
   // Build other strategies' symbol lists (both their Static Watchlist & Live Scanned symbols)
   const otherStrategies = useMemo(() => {
@@ -370,7 +403,9 @@ export const SymbolCatalogPicker = React.memo(({
           <Tooltip content="Refresh Binance Futures symbol catalog">
             <button
               type="button"
-              onClick={() => fetchAvailableSymbols?.(true, { includeHtfCross: sortBy === 'ema_cross' || htfCatalogEnabled })}
+              onClick={() => fetchAvailableSymbols?.(true, {
+                includeHtfCross: sortBy === 'ema_cross' || htfCatalogEnabled || showHtfFilters || hasActiveHtfFilter,
+              })}
               disabled={availableSymbolsLoading}
               aria-label="Refresh symbol catalog"
               className="p-1.5 rounded-lg border border-border/70 bg-background/50 text-muted hover:text-text hover:border-border transition-colors cursor-pointer disabled:opacity-50"
@@ -427,7 +462,7 @@ export const SymbolCatalogPicker = React.memo(({
                         aria-pressed={sortBy === s.id}
                         onClick={() => setSortBy(s.id)}
                         className={cn(
-                          'min-h-[34px] sm:min-h-[24px] px-2 py-0.5 rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center',
+                          'min-h-[38px] sm:min-h-[24px] px-2 py-0.5 rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center',
                           sortBy === s.id ? 'text-text font-semibold bg-surface border border-border/60 shadow-xs' : 'text-muted hover:text-text'
                         )}
                       >
@@ -435,12 +470,30 @@ export const SymbolCatalogPicker = React.memo(({
                       </button>
                     ))}
                   </div>
+                  <button
+                    type="button"
+                    aria-expanded={showHtfFilters || sortBy === 'ema_cross' || hasActiveHtfFilter}
+                    onClick={() => setShowHtfFilters((prev) => !prev)}
+                    className={cn(
+                      'min-h-[38px] sm:min-h-[26px] px-2.5 py-1 rounded-lg border text-[11px] font-medium flex items-center gap-1 cursor-pointer shrink-0 transition-colors',
+                      showHtfFilters || hasActiveHtfFilter
+                        ? 'bg-accent/15 border-accent/40 text-accent'
+                        : 'bg-background/50 border-border/60 text-muted hover:text-text'
+                    )}
+                    title="Filter symbols by EMA Cross state, direction & score"
+                  >
+                    <Filter size={12} />
+                    <span className="hidden xs:inline sm:inline">EMA Filters</span>
+                    {activeHtfFilterCount > 0 && (
+                      <span className="font-mono text-[10px] font-bold tabular-nums">{activeHtfFilterCount}</span>
+                    )}
+                  </button>
                   {!defaultExpanded && (
                     <button
                       type="button"
                       onClick={() => setIsOpen(false)}
                       aria-label="Close symbol browser"
-                      className="min-w-[34px] min-h-[34px] sm:min-w-[26px] sm:min-h-[26px] flex items-center justify-center rounded-lg text-muted hover:text-text hover:bg-white/5 cursor-pointer shrink-0"
+                      className="min-w-[38px] min-h-[38px] sm:min-w-[26px] sm:min-h-[26px] flex items-center justify-center rounded-lg text-muted hover:text-text hover:bg-white/5 cursor-pointer shrink-0"
                     >
                       <X size={14} />
                     </button>
@@ -448,49 +501,161 @@ export const SymbolCatalogPicker = React.memo(({
                 </div>
               </div>
 
-              {sortBy === 'ema_cross' && (
-                <div className="px-3 py-1.5 border-b border-border/40 bg-background/30 text-[11px] text-muted flex items-center justify-between gap-2">
-                  <span className="truncate">
-                    {preferFresh
-                      ? 'Ranked by fresh, profitable HTF EMA crossovers — stale & overextended runs are demoted.'
-                      : 'Ranked by historical HTF EMA crossover profitability across cached bars.'}
-                  </span>
-                  {htfEvaluatedCount > 0 ? (
-                    <span className="font-mono text-[10px] tabular-nums text-accent shrink-0 whitespace-nowrap">
-                      {htfEvaluatedCount} scored
+              {isHtfMode && (
+                <div className="px-3 py-2.5 border-b border-border/40 bg-background/30 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
+                    <span className="leading-snug">
+                      {preferFresh
+                        ? 'Ranked by fresh, profitable HTF EMA crossovers — stale & extended runs are demoted.'
+                        : 'Ranked by historical HTF EMA crossover profitability across cached bars.'}
                     </span>
-                  ) : !availableSymbolsHtfIncluded && availableSymbolsLoading ? (
-                    <span className="font-mono text-[10px] text-muted shrink-0 whitespace-nowrap">
-                      Scoring…
-                    </span>
-                  ) : null}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {htfEvaluatedCount > 0 ? (
+                        <span className="font-mono text-[10px] tabular-nums text-accent whitespace-nowrap">
+                          {htfEvaluatedCount} scored · {filteredCatalog.length} shown
+                        </span>
+                      ) : !availableSymbolsHtfIncluded && availableSymbolsLoading ? (
+                        <span className="font-mono text-[10px] text-muted whitespace-nowrap">
+                          Scoring…
+                        </span>
+                      ) : null}
+                      {hasActiveHtfFilter && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHtfFreshnessFilter('all');
+                            setHtfDirectionFilter('all');
+                            setHtfMinScoreFilter(0);
+                          }}
+                          className="text-[10px] font-semibold text-accent hover:underline cursor-pointer"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Mobile-First EMA Cross Filter Types */}
+                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-1.5" role="group" aria-label="EMA Cross freshness filter">
+                    {[
+                      { id: 'all', label: 'All States' },
+                      { id: 'actionable', label: 'Non-Stale' },
+                      { id: 'fresh', label: 'Fresh' },
+                      { id: 'approaching', label: 'Near Cross' },
+                      { id: 'early', label: 'Early' },
+                      { id: 'extended_or_stale', label: 'Ext / Stale' },
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        aria-pressed={htfFreshnessFilter === f.id}
+                        onClick={() => setHtfFreshnessFilter(f.id)}
+                        className={cn(
+                          'min-h-[38px] sm:min-h-[26px] px-2 py-1 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center',
+                          htfFreshnessFilter === f.id
+                            ? 'bg-accent/15 border-accent/40 text-accent font-semibold'
+                            : 'bg-surface/40 border-border/50 text-muted hover:text-text'
+                        )}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <div className="grid grid-cols-3 gap-1" role="group" aria-label="EMA Cross direction filter">
+                      {[
+                        { id: 'all', label: 'Any Side' },
+                        { id: 'LONG', label: 'Long' },
+                        { id: 'SHORT', label: 'Short' },
+                      ].map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          aria-pressed={htfDirectionFilter === d.id}
+                          onClick={() => setHtfDirectionFilter(d.id)}
+                          className={cn(
+                            'min-h-[38px] sm:min-h-[26px] px-2 py-1 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center',
+                            htfDirectionFilter === d.id
+                              ? d.id === 'SHORT'
+                                ? 'bg-red/15 border-red/40 text-red font-semibold'
+                                : d.id === 'LONG'
+                                ? 'bg-green/15 border-green/40 text-green font-semibold'
+                                : 'bg-surface border-border text-text font-semibold'
+                              : 'bg-surface/40 border-border/50 text-muted hover:text-text'
+                          )}
+                        >
+                          {d.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-1" role="group" aria-label="Minimum EMA Cross score filter">
+                      {[
+                        { id: 0, label: 'Score: Any' },
+                        { id: 55, label: '55+' },
+                        { id: 70, label: '70+' },
+                        { id: 80, label: '80+' },
+                      ].map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          aria-pressed={htfMinScoreFilter === m.id}
+                          onClick={() => setHtfMinScoreFilter(m.id)}
+                          className={cn(
+                            'min-h-[38px] sm:min-h-[26px] px-2 py-1 rounded-lg border text-[11px] font-mono tabular-nums transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center',
+                            htfMinScoreFilter === m.id
+                              ? 'bg-accent/15 border-accent/40 text-accent font-semibold'
+                              : 'bg-surface/40 border-border/50 text-muted hover:text-text'
+                          )}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
 
               {/* Symbol Grid (Fixed height eliminates CLS during async catalog load and category switches) */}
               <div className={cn('p-2 overflow-y-auto no-scrollbar', compact ? 'h-52' : 'h-64')}>
                 {availableSymbolsLoading && universe.length === 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5" aria-busy="true" aria-label="Loading Binance Futures symbol catalog">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5" aria-busy="true" aria-label="Loading Binance Futures symbol catalog">
                     {Array.from({ length: 8 }).map((_, idx) => (
                       <div
                         key={idx}
-                        className="h-[46px] rounded-lg border border-border/40 bg-surface/50 px-2.5 py-2 flex items-center justify-between gap-2 animate-pulse"
+                        className="h-[54px] rounded-lg border border-border/40 bg-surface/50 px-2.5 py-2 flex items-center justify-between gap-2 animate-pulse"
                       >
                         <div className="flex flex-col gap-1.5 flex-1">
-                          <div className="h-3 w-12 rounded bg-border/60" />
-                          <div className="h-2.5 w-16 rounded bg-border/40" />
+                          <div className="h-3 w-16 rounded bg-border/60" />
+                          <div className="h-2.5 w-28 rounded bg-border/40" />
                         </div>
-                        <div className="h-3 w-8 rounded bg-border/50" />
+                        <div className="h-3 w-10 rounded bg-border/50" />
                       </div>
                     ))}
                   </div>
                 ) : filteredCatalog.length === 0 ? (
                   <div className="py-6 text-center space-y-2">
                     <p className="text-xs text-muted">
-                      {category === 'tradfi'
+                      {hasActiveHtfFilter
+                        ? 'No pairs match the selected EMA Cross filters.'
+                        : category === 'tradfi'
                         ? 'No TradFi / Overnight contracts loaded yet. Refresh catalog or type a symbol (e.g. XAUUSDT, TSLAUSDT) to pin directly.'
                         : 'No matching pairs found.'}
                     </p>
+                    {hasActiveHtfFilter && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHtfFreshnessFilter('all');
+                          setHtfDirectionFilter('all');
+                          setHtfMinScoreFilter(0);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/30 text-accent text-xs font-medium hover:bg-accent/25 cursor-pointer"
+                      >
+                        Clear EMA filters
+                      </button>
+                    )}
                     {directTypedSymbol && (
                       <button
                         type="button"
@@ -505,7 +670,12 @@ export const SymbolCatalogPicker = React.memo(({
                     )}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">
+                  <div className={cn(
+                    'grid gap-1.5',
+                    isHtfMode || htfCatalogEnabled || htfEvaluatedCount > 0
+                      ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+                      : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
+                  )}>
                     {filteredCatalog.map((item) => {
                       const isAdded = selectedSet.has(item.symbol);
                       const isPos = (item.pct || 0) >= 0;
@@ -513,6 +683,8 @@ export const SymbolCatalogPicker = React.memo(({
                       const priceStr = formatPrice(item.price);
                       const base = item.symbol.replace(/USDT$/, '');
                       const htfCompact = formatHtfCrossCompact(item.htf_ema_cross);
+                      const htfRank = htfRankMap.get(item.symbol);
+                      const htfScore = htfCompact ? htfCompact.score : null;
                       const htfToneClass = htfCompact?.tone === 'fresh'
                         ? 'text-green font-medium'
                         : htfCompact?.tone === 'approaching'
@@ -522,6 +694,13 @@ export const SymbolCatalogPicker = React.memo(({
                         : htfCompact?.tone === 'extended' || htfCompact?.tone === 'stale'
                         ? 'text-amber/80'
                         : 'text-muted';
+                      const scoreToneClass = htfScore === null
+                        ? 'text-muted'
+                        : htfScore >= 70
+                        ? 'text-green'
+                        : htfScore >= 55
+                        ? 'text-accent'
+                        : 'text-amber';
 
                       return (
                         <button
@@ -529,14 +708,19 @@ export const SymbolCatalogPicker = React.memo(({
                           type="button"
                           onClick={() => handleToggleSymbol(item.symbol)}
                           className={cn(
-                            'flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-lg border text-left transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                            'min-h-[54px] flex flex-col justify-between gap-1 px-2.5 py-2 rounded-lg border text-left transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                             isAdded
                               ? 'bg-accent/12 border-accent/45 text-text'
                               : 'bg-surface/60 border-border/50 hover:border-accent/40 hover:bg-surface text-text'
                           )}
                         >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1.5 w-full min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {htfRank && (
+                                <span className="text-[10.5px] font-mono font-bold text-accent tabular-nums shrink-0">
+                                  #{htfRank}
+                                </span>
+                              )}
                               <span className="font-mono text-xs font-semibold truncate">{base}</span>
                               {item.assetClass === 'tradfi' && (
                                 <span className="text-[9px] font-mono font-medium text-amber shrink-0">
@@ -550,29 +734,47 @@ export const SymbolCatalogPicker = React.memo(({
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono tabular-nums text-muted truncate">
-                              {(sortBy === 'ema_cross' || htfCatalogEnabled) && htfCompact ? (
-                                <span className={cn('truncate', htfToneClass)} title={`Suitability ${Math.round(htfCompact.suitability || 0)}/100`}>
-                                  {htfCompact.label}
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {htfScore !== null && (
+                                <span
+                                  className={cn('text-[11px] font-mono font-bold tabular-nums', scoreToneClass)}
+                                  aria-label={`EMA Cross score ${htfScore} out of 100`}
+                                >
+                                  {htfScore}/100
                                 </span>
-                              ) : (
-                                <>
-                                  {priceStr ? <span>{priceStr}</span> : <span>USDT Perp</span>}
-                                  {volStr && <span className="opacity-70">{volStr}</span>}
-                                </>
                               )}
+                              {item.price > 0 && (
+                                <span className={cn('text-[10.5px] font-mono font-medium tabular-nums', isPos ? 'text-green' : 'text-red')}>
+                                  {isPos ? '+' : ''}{Number(item.pct || 0).toFixed(1)}%
+                                </span>
+                              )}
+                              <span className={cn('text-muted', isAdded && 'text-accent')}>
+                                {isAdded ? <Check size={13} /> : <Plus size={13} />}
+                              </span>
                             </div>
                           </div>
 
-                          <div className="flex flex-col items-end shrink-0 gap-0.5">
-                            {item.price > 0 && (
-                              <span className={cn('text-[10px] font-mono font-medium tabular-nums', isPos ? 'text-green' : 'text-red')}>
-                                {isPos ? '+' : ''}{Number(item.pct || 0).toFixed(1)}%
-                              </span>
+                          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 w-full text-[10.5px] font-mono tabular-nums text-muted">
+                            {htfCompact ? (
+                              <>
+                                <span className={htfToneClass}>
+                                  {htfCompact.label}
+                                  {htfCompact.avgProfitPct !== null ? ` · ${htfCompact.avgProfitPct >= 0 ? '+' : ''}${htfCompact.avgProfitPct.toFixed(1)}%` : ''}
+                                  {htfCompact.avgPeakRr !== null ? ` · ${htfCompact.avgPeakRr.toFixed(1)}R` : ''}
+                                </span>
+                                <span className="opacity-75">
+                                  {priceStr || ''}{priceStr && volStr ? ' · ' : ''}{volStr || ''}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span>{priceStr ? priceStr : 'USDT Perp'}</span>
+                                <span className="opacity-75">
+                                  {isHtfMode ? 'No HTF bars' : (volStr || '')}
+                                </span>
+                              </>
                             )}
-                            <span className={cn('text-muted', isAdded && 'text-accent')}>
-                              {isAdded ? <Check size={12} /> : <Plus size={12} />}
-                            </span>
                           </div>
                         </button>
                       );

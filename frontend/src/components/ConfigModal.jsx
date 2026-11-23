@@ -17,6 +17,12 @@ import { DraggableSectionList } from './config/DraggableSectionList'
 import { SmartStrategyNameControl, WatchlistScopeSelector } from './config/SmartNamingAndScope'
 import { SymbolCatalogPicker } from './SymbolCatalogPicker'
 import {
+  extractHtfEmaCross,
+  compareByHtfEmaCross,
+  rankHtfRotationCandidates,
+  formatHtfCrossCompact,
+} from '../utils/htfEmaCross.js'
+import {
   TAB_SECTION_DEFAULTS,
   loadPersistedSectionOrders,
   savePersistedSectionOrders,
@@ -1006,15 +1012,237 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
 })
 SavePresetInput.displayName = 'SavePresetInput'
 
+const SchedulerHtfQueue = React.memo(({
+  symbols = [],
+  locked = false,
+  preferFresh = true,
+  freshnessFilter = 'non_stale',
+  directionFilter = 'all',
+  minHtfScore = 55,
+  minScore = 75,
+  htfCatalogEnabled = false,
+  onSetFreshness,
+  onSetDirection,
+  onSetMinScore,
+  onPinSymbol,
+}) => {
+  const availableSymbols = useTradingStore(state => state.availableSymbols || []);
+  const scannerResults = useTradingStore(state => state.scannerResults || []);
+  const variantScannerResults = useTradingStore(state => state.variantScannerResults || {});
+  const activeTrades = useTradingStore(state => state.activeTrades || []);
+  const fetchAvailableSymbols = useTradingStore(state => state.fetchAvailableSymbols);
+
+  useEffect(() => {
+    if (typeof fetchAvailableSymbols === 'function') {
+      fetchAvailableSymbols(false, { includeHtfCross: true });
+    }
+  }, [fetchAvailableSymbols, htfCatalogEnabled]);
+
+  const rankedCandidates = useMemo(() => {
+    const map = new Map();
+    for (const s of availableSymbols) {
+      if (s?.symbol) map.set(s.symbol, s);
+    }
+    for (const r of scannerResults) {
+      if (r?.symbol) {
+        const prev = map.get(r.symbol) || {};
+        map.set(r.symbol, {
+          ...prev,
+          ...r,
+          pct: r.pct ?? r.momentum ?? prev.pct,
+          htf_ema_cross: extractHtfEmaCross(r) || extractHtfEmaCross(prev) || prev.htf_ema_cross,
+        });
+      }
+    }
+    Object.values(variantScannerResults || {}).forEach((arr) => {
+      if (Array.isArray(arr)) {
+        for (const r of arr) {
+          if (r?.symbol) {
+            const prev = map.get(r.symbol) || {};
+            map.set(r.symbol, {
+              ...prev,
+              ...r,
+              pct: r.pct ?? r.momentum ?? prev.pct,
+              htf_ema_cross: extractHtfEmaCross(r) || extractHtfEmaCross(prev) || prev.htf_ema_cross,
+            });
+          }
+        }
+      }
+    });
+
+    const activeTradeSyms = new Set(activeTrades.map((t) => t.symbol).filter(Boolean));
+    return rankHtfRotationCandidates(Array.from(map.values()), {
+      rotateMode: 'htf_ema_cross',
+      preferFresh,
+      freshnessFilter,
+      directionFilter,
+      minHtfScore,
+      currentSymbols: new Set(Array.isArray(symbols) ? symbols : []),
+      activeSymbols: activeTradeSyms,
+      minScore,
+      limit: 5,
+    });
+  }, [availableSymbols, scannerResults, variantScannerResults, activeTrades, symbols, preferFresh, freshnessFilter, directionFilter, minHtfScore, minScore]);
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/40 p-2.5 sm:p-3 space-y-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-1.5">
+        <span className="text-[11px] font-semibold text-text">Scheduler EMA Cross Filters</span>
+        <span className="text-[10px] font-mono text-muted tabular-nums">
+          Top {rankedCandidates.length} eligible
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5" role="group" aria-label="Scheduler freshness filter type">
+        {[
+          { id: 'non_stale', label: 'Non-Stale' },
+          { id: 'fresh_only', label: 'Fresh Only' },
+          { id: 'fresh_or_near', label: 'Fresh + Near' },
+          { id: 'all', label: 'Any State' },
+        ].map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            disabled={locked}
+            aria-pressed={freshnessFilter === opt.id}
+            onClick={() => onSetFreshness(opt.id)}
+            className={cn(
+              'min-h-[38px] sm:min-h-[28px] px-2 py-1 rounded-md border text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-45 flex items-center justify-center',
+              freshnessFilter === opt.id
+                ? 'bg-accent/15 border-accent/40 text-accent font-semibold'
+                : 'bg-surface/40 border-border/50 text-muted hover:text-text'
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-3 gap-1" role="group" aria-label="Scheduler direction filter">
+          {[
+            { id: 'all', label: 'Any Side' },
+            { id: 'LONG', label: 'Long' },
+            { id: 'SHORT', label: 'Short' },
+          ].map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              disabled={locked}
+              aria-pressed={directionFilter === d.id}
+              onClick={() => onSetDirection(d.id)}
+              className={cn(
+                'min-h-[38px] sm:min-h-[26px] px-2 py-1 rounded-md border text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-45 flex items-center justify-center',
+                directionFilter === d.id
+                  ? d.id === 'SHORT'
+                    ? 'bg-red/15 border-red/40 text-red font-semibold'
+                    : d.id === 'LONG'
+                    ? 'bg-green/15 border-green/40 text-green font-semibold'
+                    : 'bg-surface border-border text-text font-semibold'
+                  : 'bg-surface/40 border-border/50 text-muted hover:text-text'
+              )}
+            >
+              {d.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-4 gap-1" role="group" aria-label="Scheduler minimum HTF score">
+          {[
+            { id: 0, label: 'Min: Any' },
+            { id: 55, label: '55+' },
+            { id: 70, label: '70+' },
+            { id: 80, label: '80+' },
+          ].map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              disabled={locked}
+              aria-pressed={Number(minHtfScore) === m.id}
+              onClick={() => onSetMinScore(m.id)}
+              className={cn(
+                'min-h-[38px] sm:min-h-[26px] px-2 py-1 rounded-md border text-[11px] font-mono tabular-nums transition-colors cursor-pointer disabled:opacity-45 flex items-center justify-center',
+                Number(minHtfScore) === m.id
+                  ? 'bg-accent/15 border-accent/40 text-accent font-semibold'
+                  : 'bg-surface/40 border-border/50 text-muted hover:text-text'
+              )}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {rankedCandidates.length > 0 ? (
+        <div className="pt-1 space-y-1.5">
+          <div className="text-[10px] font-semibold text-muted uppercase tracking-wider">
+            Next Ranked Rotation Candidates
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {rankedCandidates.map((cand, idx) => {
+              const htf = formatHtfCrossCompact(cand.htf_ema_cross || cand.htf_ema_cross_perf);
+              const isPos = Number(cand.pct || 0) >= 0;
+              const scoreVal = htf ? htf.score : Math.round(Number(cand.score || 0));
+              const scoreTone = scoreVal >= 70 ? 'text-green' : scoreVal >= 55 ? 'text-accent' : 'text-amber';
+              return (
+                <div
+                  key={cand.symbol}
+                  className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg border border-border/50 bg-surface/50 min-w-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10.5px] font-mono font-bold text-accent tabular-nums">#{idx + 1}</span>
+                      <span className="text-xs font-mono font-semibold text-text truncate">{cand.symbol.replace(/USDT$/, '')}</span>
+                      <span className={cn('text-[11px] font-mono font-bold tabular-nums', scoreTone)}>
+                        {scoreVal}/100
+                      </span>
+                    </div>
+                    <div className="text-[10.5px] font-mono text-muted truncate mt-0.5">
+                      {htf ? htf.label : `Score ${scoreVal}`}
+                      {cand.price > 0 ? ` · ${isPos ? '+' : ''}${Number(cand.pct || 0).toFixed(1)}%` : ''}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={locked}
+                    onClick={() => onPinSymbol(cand.symbol)}
+                    className="min-h-[34px] sm:min-h-[26px] px-2.5 py-1 rounded-md border border-accent/35 bg-accent/12 text-accent text-[11px] font-medium hover:bg-accent/20 cursor-pointer shrink-0 disabled:opacity-45"
+                  >
+                    + Pin
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted pt-0.5">
+          No external symbols currently match the selected Scheduler filters.
+        </p>
+      )}
+    </div>
+  );
+});
+SchedulerHtfQueue.displayName = 'SchedulerHtfQueue';
+
 const WatchlistDropdownInput = React.memo(({
   value = [],
   onChange,
   currentStrategyLabel = null,
   strategiesOverride = null,
   maxLimit = 0,
+  rotateMode = 'score',
+  htfCatalogEnabled = false,
 }) => {
   const scannerResults = useTradingStore(state => state.scannerResults || []);
   const availableSymbols = useTradingStore(state => state.availableSymbols || []);
+  const fetchAvailableSymbols = useTradingStore(state => state.fetchAvailableSymbols);
+
+  useEffect(() => {
+    if ((rotateMode === 'htf_ema_cross' || htfCatalogEnabled) && typeof fetchAvailableSymbols === 'function') {
+      fetchAvailableSymbols(false, { includeHtfCross: true });
+    }
+  }, [fetchAvailableSymbols, rotateMode, htfCatalogEnabled]);
 
   const metaMap = useMemo(() => {
     const map = new Map();
@@ -1022,10 +1250,30 @@ const WatchlistDropdownInput = React.memo(({
       if (s?.symbol) map.set(s.symbol, s);
     }
     for (const r of scannerResults) {
-      if (r?.symbol) map.set(r.symbol, { ...(map.get(r.symbol) || {}), ...r });
+      if (r?.symbol) {
+        const prev = map.get(r.symbol) || {};
+        map.set(r.symbol, {
+          ...prev,
+          ...r,
+          htf_ema_cross: extractHtfEmaCross(r) || extractHtfEmaCross(prev) || prev.htf_ema_cross,
+        });
+      }
     }
     return map;
   }, [availableSymbols, scannerResults]);
+
+  const htfRankMap = useMemo(() => {
+    const scored = [];
+    for (const item of metaMap.values()) {
+      if (extractHtfEmaCross(item)) scored.push(item);
+    }
+    scored.sort(compareByHtfEmaCross);
+    const rankMap = new Map();
+    scored.forEach((item, idx) => {
+      rankMap.set(item.symbol, idx + 1);
+    });
+    return rankMap;
+  }, [metaMap]);
 
   const safeValue = Array.isArray(value) ? value : [];
 
@@ -1060,9 +1308,9 @@ const WatchlistDropdownInput = React.memo(({
   return (
     <div className="flex flex-col gap-3">
       {/* Pinned Symbols Strip */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="grid grid-cols-1 sm:flex sm:flex-wrap gap-1.5">
         {safeValue.length === 0 ? (
-          <div className="p-2.5 border border-dashed border-border/50 rounded-lg w-full flex items-center justify-center">
+          <div className="p-2.5 border border-dashed border-border/50 rounded-lg w-full flex items-center justify-center sm:col-span-full">
             <CollapsibleHelpTitle
               title="No static symbols pinned"
               titleClassName="text-xs text-muted font-medium"
@@ -1075,27 +1323,49 @@ const WatchlistDropdownInput = React.memo(({
             const pct = meta?.pct;
             const hasLivePct = meta?.price > 0 && pct !== undefined && Number.isFinite(Number(pct));
             const isPos = Number(pct || 0) >= 0;
+            const pinHtf = formatHtfCrossCompact(meta?.htf_ema_cross || meta?.htf_ema_cross_perf);
+            const pinRank = htfRankMap.get(sym);
+            const scoreTone = !pinHtf
+              ? 'text-muted'
+              : pinHtf.score >= 70
+              ? 'text-green'
+              : pinHtf.score >= 55
+              ? 'text-accent'
+              : 'text-amber';
+
             return (
               <div
                 key={sym}
-                className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg bg-accent/10 border border-accent/35 text-xs font-mono text-text"
+                className="min-h-[40px] sm:min-h-[30px] flex items-center justify-between sm:justify-start gap-2 pl-2.5 pr-1.5 py-1.5 sm:py-1 rounded-lg bg-accent/10 border border-accent/35 text-xs font-mono text-text"
               >
-                <span className="font-semibold text-accent">{sym.replace(/USDT$/, '')}</span>
-                {meta?.assetClass === 'tradfi' && (
-                  <span className="text-[9px] text-amber">TradFi</span>
-                )}
-                {hasLivePct && (
-                  <span className={cn('text-[10px] tabular-nums', isPos ? 'text-green' : 'text-red')}>
-                    {isPos ? '+' : ''}{Number(pct).toFixed(1)}%
-                  </span>
-                )}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    {pinRank && (
+                      <span className="text-[10.5px] font-bold text-accent tabular-nums">#{pinRank}</span>
+                    )}
+                    <span className="font-semibold text-accent">{sym.replace(/USDT$/, '')}</span>
+                    {meta?.assetClass === 'tradfi' && (
+                      <span className="text-[9px] text-amber">TradFi</span>
+                    )}
+                  </div>
+                  {hasLivePct && (
+                    <span className={cn('text-[10.5px] tabular-nums', isPos ? 'text-green' : 'text-red')}>
+                      {isPos ? '+' : ''}{Number(pct).toFixed(1)}%
+                    </span>
+                  )}
+                  {pinHtf && (
+                    <span className={cn('text-[10.5px] font-semibold tabular-nums', scoreTone)}>
+                      {pinHtf.stateLabel} {pinHtf.dirShort} · {pinHtf.score}/100
+                    </span>
+                  )}
+                </div>
                 <button
                   type="button"
                   aria-label={`Remove ${sym}`}
                   onClick={() => handleRemove(sym)}
-                  className="p-0.5 rounded text-muted hover:text-red transition-colors cursor-pointer"
+                  className="min-w-[32px] min-h-[32px] sm:min-w-[22px] sm:min-h-[22px] flex items-center justify-center rounded text-muted hover:text-red transition-colors cursor-pointer shrink-0"
                 >
-                  <X size={11} />
+                  <X size={12} />
                 </button>
               </div>
             );
@@ -2916,6 +3186,9 @@ const flattenConfig = (config) => {
       watchlist_locked: !!config.watchlist_locked,
       watchlist_min_score: config.watchlist_min_score !== undefined ? config.watchlist_min_score : 75,
       watchlist_rotate_mode: config.watchlist_rotate_mode || 'score',
+      watchlist_htf_freshness_filter: config.watchlist_htf_freshness_filter || 'non_stale',
+      watchlist_htf_direction_filter: config.watchlist_htf_direction_filter || 'all',
+      watchlist_htf_min_score: config.watchlist_htf_min_score !== undefined ? Number(config.watchlist_htf_min_score) : 55,
       trading_windows: Array.isArray(config.trading_windows) ? config.trading_windows : [],
       single_symbol_configs: Array.isArray(config.single_symbol_configs) ? config.single_symbol_configs : [],
       strategy_variants: Array.isArray(config.strategy_variants) ? config.strategy_variants : [],
@@ -3040,7 +3313,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
       'slippage_abort_threshold', 'max_fee_drag_pct', 'htf_ema_cross_count', 'htf_ema_fast_period',
       'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight',
-      'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score',
+      'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score', 'watchlist_htf_min_score',
       'switched_sl_distance_pct', 'peak_rr_switch_threshold', 'peak_rr_switch_count',
       'trailing_activation_rr', 'auto_scale_max_overshoot',
       'auto_adjust_max_trades_min', 'auto_adjust_max_trades_max', 'auto_adjust_max_trades_step',
@@ -6047,7 +6320,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                         {Number(cfg.watchlist_max_symbols) > 0 ? `Max ${cfg.watchlist_max_symbols}` : 'Unlimited'}
                       </span>
                     </div>
-                    <div className="flex flex-wrap gap-1">
+                    <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-1.5">
                       {[
                         { label: '1 (Solo)', val: 1 },
                         { label: '2', val: 2 },
@@ -6066,7 +6339,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                             }
                           }}
                           className={cn(
-                            "px-2.5 py-1 rounded-md text-[11px] font-mono border transition-colors cursor-pointer",
+                            "min-h-[38px] sm:min-h-[28px] px-2.5 py-1 rounded-md text-[11px] font-mono border transition-colors cursor-pointer flex items-center justify-center",
                             Number(cfg.watchlist_max_symbols || 0) === p.val
                               ? "bg-accent text-background font-semibold border-accent"
                               : "bg-background/50 border-border/60 text-muted hover:text-text"
@@ -6080,7 +6353,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
                   {/* Rotation Scheduler & Freeze Lock */}
                   <div className="flex flex-col gap-2 md:border-l md:border-border/40 md:pl-4">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <CollapsibleHelpTitle
                         title="Rotation Scheduler"
                         titleClassName="text-xs font-semibold text-text"
@@ -6091,7 +6364,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           type="button"
                           onClick={() => setField('watchlist_auto_rotate', !cfg.watchlist_auto_rotate)}
                           className={cn(
-                            "px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors cursor-pointer",
+                            "min-h-[34px] sm:min-h-[26px] px-2.5 py-0.5 rounded-md text-[11px] font-medium border transition-colors cursor-pointer",
                             cfg.watchlist_auto_rotate
                               ? "bg-green/15 border-green/35 text-green"
                               : "bg-background/50 border-border/60 text-muted hover:text-text"
@@ -6103,7 +6376,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           type="button"
                           onClick={() => setField('watchlist_locked', !cfg.watchlist_locked)}
                           className={cn(
-                            "px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors flex items-center gap-1 cursor-pointer",
+                            "min-h-[34px] sm:min-h-[26px] px-2.5 py-0.5 rounded-md text-[11px] font-medium border transition-colors flex items-center gap-1 cursor-pointer",
                             cfg.watchlist_locked
                               ? "bg-amber/15 border-amber/35 text-amber"
                               : "bg-background/50 border-border/60 text-muted hover:text-text"
@@ -6116,14 +6389,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </div>
 
                     {cfg.watchlist_auto_rotate && !cfg.watchlist_locked && (
-                      <div className="flex flex-wrap gap-1">
+                      <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-1.5">
                         {[5, 15, 30, 60, 240, 1440].map(mins => (
                           <button
                             key={mins}
                             type="button"
                             onClick={() => setField('watchlist_rotate_interval_min', mins)}
                             className={cn(
-                              "px-2 py-0.5 rounded-md text-[11px] font-mono border transition-colors cursor-pointer",
+                              "min-h-[38px] sm:min-h-[28px] px-2.5 py-1 rounded-md text-[11px] font-mono border transition-colors cursor-pointer flex items-center justify-center",
                               (Number(cfg.watchlist_rotate_interval_min) || 15) === mins
                                 ? "bg-green/15 border-green/40 text-green font-semibold"
                                 : "bg-background/50 border-border/60 text-muted hover:text-text"
@@ -6135,9 +6408,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between gap-2 pt-1">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
                       <span className="text-[11px] text-muted">Rotation Priority</span>
-                      <div className="inline-flex items-center gap-1 bg-background/50 border border-border/50 p-0.5 rounded-md">
+                      <div className="grid grid-cols-2 sm:inline-flex items-center gap-1 bg-background/50 border border-border/50 p-0.5 rounded-lg w-full sm:w-auto shrink-0">
                         {[
                           { id: 'score', label: 'Scanner Score' },
                           { id: 'htf_ema_cross', label: 'Fresh HTF Cross' },
@@ -6148,11 +6421,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                               key={opt.id}
                               type="button"
                               disabled={cfg.watchlist_locked}
+                              aria-pressed={activeMode === opt.id}
                               onClick={() => setField('watchlist_rotate_mode', opt.id)}
                               className={cn(
-                                "px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors cursor-pointer whitespace-nowrap disabled:opacity-45",
+                                "min-h-[38px] sm:min-h-[26px] px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap disabled:opacity-45 flex items-center justify-center",
                                 activeMode === opt.id
-                                  ? "bg-surface text-accent font-semibold border border-accent/35 shadow-xs"
+                                  ? "bg-accent text-background font-semibold"
                                   : "text-muted hover:text-text"
                               )}
                             >
@@ -6164,6 +6438,34 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </div>
                   </div>
                 </div>
+
+                {(cfg.watchlist_rotate_mode || 'score') === 'htf_ema_cross' && (
+                  <SchedulerHtfQueue
+                    symbols={cfg.symbols || []}
+                    locked={!!cfg.watchlist_locked}
+                    preferFresh={cfg.htf_ema_cross_prefer_fresh !== false}
+                    freshnessFilter={cfg.watchlist_htf_freshness_filter || 'non_stale'}
+                    directionFilter={cfg.watchlist_htf_direction_filter || 'all'}
+                    minHtfScore={cfg.watchlist_htf_min_score !== undefined ? Number(cfg.watchlist_htf_min_score) : 55}
+                    minScore={Number(cfg.watchlist_min_score ?? 75)}
+                    htfCatalogEnabled={!!cfg.htf_ema_cross_catalog_enabled}
+                    onSetFreshness={(val) => setField('watchlist_htf_freshness_filter', val)}
+                    onSetDirection={(val) => setField('watchlist_htf_direction_filter', val)}
+                    onSetMinScore={(val) => setField('watchlist_htf_min_score', val)}
+                    onPinSymbol={(sym) => {
+                      const clean = String(sym || '').trim().toUpperCase();
+                      if (!clean) return;
+                      const current = Array.isArray(cfg.symbols) ? cfg.symbols : [];
+                      if (current.includes(clean)) return;
+                      const limit = Number(cfg.watchlist_max_symbols || 0);
+                      if (limit > 0 && current.length >= limit) {
+                        setField('symbols', [...current.slice(0, Math.max(0, limit - 1)), clean]);
+                      } else {
+                        setField('symbols', [...current, clean]);
+                      }
+                    }}
+                  />
+                )}
 
                 {/* Unified Catalog + Copy-From-Strategy Picker */}
                 <WatchlistDropdownInput
@@ -6177,6 +6479,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       : (Array.isArray(baseConfig?.strategy_variants) ? baseConfig.strategy_variants : []),
                   }}
                   maxLimit={Number(cfg.watchlist_max_symbols || 0)}
+                  rotateMode={cfg.watchlist_rotate_mode || 'score'}
+                  htfCatalogEnabled={!!cfg.htf_ema_cross_catalog_enabled}
                 />
 
                 <div className="pt-3 border-t border-border/40 flex flex-col gap-1.5">

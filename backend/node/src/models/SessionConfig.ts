@@ -196,6 +196,20 @@ export class SessionConfig {
   @IsOptional()
   watchlist_rotate_mode?: 'htf_ema_cross' | 'score' = 'score';
 
+  @IsEnum(['non_stale', 'fresh_only', 'fresh_or_near', 'all'])
+  @IsOptional()
+  watchlist_htf_freshness_filter?: 'non_stale' | 'fresh_only' | 'fresh_or_near' | 'all' = 'non_stale';
+
+  @IsEnum(['all', 'LONG', 'SHORT'])
+  @IsOptional()
+  watchlist_htf_direction_filter?: 'all' | 'LONG' | 'SHORT' = 'all';
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  watchlist_htf_min_score?: number = 55;
+
   @IsEnum(['volume', 'change_pct', 'loss_pct', 'abs_change_pct'])
   @IsOptional()
   discovery_mode?: 'volume' | 'change_pct' | 'loss_pct' | 'abs_change_pct' = 'volume';

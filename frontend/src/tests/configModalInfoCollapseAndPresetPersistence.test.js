@@ -221,26 +221,44 @@ test('ActiveSummaryPanel, right-end More tab dropdown, section-level error indic
   assert.match(historyViewSource, /const aActive = a\.status === 'active' \|\| !a\.endTime;/);
 });
 
-test('ConfigModal per-tab CollapsibleSection bubbling prioritizes errored, active/open, and latest-used sections', () => {
-  assert.match(configModalSource, /const TAB_SECTION_DEFAULTS = \{/);
-  assert.match(configModalSource, /localStorage\.getItem\('recent_config_sections'\)/);
-  assert.match(configModalSource, /localStorage\.setItem\('recent_config_sections'/);
-  assert.match(configModalSource, /const computeTabSectionOrder = React\.useCallback\(/);
-  assert.match(configModalSource, /const handleSectionChange = React\.useCallback\(/);
-  assert.match(configModalSource, /const handleToggleSection = React\.useCallback\(/);
-  assert.match(configModalSource, /const orderSectionEntries = React\.useCallback\(/);
-  assert.match(configModalSource, /onInteract=\{\(\) => recordRecentSection\(id\)\}|onInteract: \(\) => recordRecentSection\(id\)/);
-  assert.match(configModalSource, /onFocusCapture=\{onInteract\}/);
+test('ConfigModal per-tab sections use draggable persistent ordering instead of dynamic latest-use sorting', () => {
+  const draggableListPath = path.resolve(__dirname, '../components/config/DraggableSectionList.jsx');
+  const draggableListSource = fs.readFileSync(draggableListPath, 'utf8');
+  const orderUtilsPath = path.resolve(__dirname, '../utils/configSectionOrder.js');
+  const orderUtilsSource = fs.readFileSync(orderUtilsPath, 'utf8');
+  const activeSummarySource = fs.readFileSync(path.resolve(__dirname, '../components/config/ActiveSummaryPanel.jsx'), 'utf8');
 
-  // All 4 section-based tabs are wrapped in orderSectionEntries(...)
+  // Dynamic latest-use section sorting is completely removed
+  assert.equal(configModalSource.includes('recent_config_sections'), false);
+  assert.equal(configModalSource.includes('computeTabSectionOrder'), false);
+  assert.equal(configModalSource.includes('recordRecentSection'), false);
+  assert.equal(configModalSource.includes('refreshSectionOrders'), false);
+
+  // Persistent order utility & DraggableSectionList are wired across all section-based tabs
+  assert.match(orderUtilsSource, /export const CONFIG_SECTION_ORDER_STORAGE_KEY = 'config_section_order_v1'/);
+  assert.match(orderUtilsSource, /export const TAB_SECTION_DEFAULTS = \{/);
+  assert.match(draggableListSource, /Reorder\.Group/);
+  assert.match(draggableListSource, /Reorder\.Item/);
+  assert.match(draggableListSource, /useDragControls/);
+  assert.match(draggableListSource, /GripVertical/);
+
+  assert.match(configModalSource, /loadPersistedSectionOrders/);
+  assert.match(configModalSource, /savePersistedSectionOrders/);
+  assert.match(configModalSource, /const handleReorderTabSections = React\.useCallback\(/);
+  assert.match(configModalSource, /const handleResetTabSections = React\.useCallback\(/);
+  assert.match(configModalSource, /const orderSectionEntries = React\.useCallback\(/);
+  assert.match(configModalSource, /<DraggableSectionList/);
+
+  // Summary + all 4 editor section tabs use DraggableSectionList
+  assert.match(activeSummarySource, /<DraggableSectionList/);
   assert.match(configModalSource, /\{orderSectionEntries\('scan',\s*\{/);
   assert.match(configModalSource, /\{orderSectionEntries\('strategy',\s*\{/);
   assert.match(configModalSource, /\{orderSectionEntries\('risk',\s*\{/);
   assert.match(configModalSource, /\{orderSectionEntries\('env',\s*\{/);
 
-  // SectionTabs, openFullSection, and error redirects route through handleSectionChange / refreshSectionOrders
+  // Navigation still updates lastEditedLocation and focuses/scrolls without reshuffling section order
   assert.match(configModalSource, /<SectionTabs section=\{section\} onSectionChange=\{handleSectionChange\} errors=\{errors\} \/>/);
-  assert.match(configModalSource, /useEffect\(\(\) => \{\s*if \(blockingErrorSignature\) \{\s*refreshSectionOrders\(recentSectionIdsRef\.current, errors, openSectionId\);/);
+  assert.match(configModalSource, /scrollIntoView/);
 });
 
 test('Uniform compact text-xs input typography across modals/views and edit actions navigate to last edited location (fallback Active)', () => {

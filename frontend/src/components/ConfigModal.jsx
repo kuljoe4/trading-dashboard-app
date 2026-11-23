@@ -13,8 +13,14 @@ import { isSignalLayer } from '../utils/signalIdentity.js'
 import { resolveStrategyConfig } from '../utils/strategyConfig.js'
 import { EntrySignalCard, ExitSignalCard } from './config/SignalCards'
 import { ActiveSummaryPanel } from './config/ActiveSummaryPanel'
+import { DraggableSectionList } from './config/DraggableSectionList'
 import { SmartStrategyNameControl, WatchlistScopeSelector } from './config/SmartNamingAndScope'
 import { SymbolCatalogPicker } from './SymbolCatalogPicker'
+import {
+  TAB_SECTION_DEFAULTS,
+  loadPersistedSectionOrders,
+  savePersistedSectionOrders,
+} from '../utils/configSectionOrder.js'
 import {
   STRATEGY_NAME_CHAR_LIMITS,
   generateSmartNameSuggestions,
@@ -74,7 +80,7 @@ const CollapsibleHelpTitle = React.memo(({ title, helpText, icon: ItemIcon, titl
 });
 CollapsibleHelpTitle.displayName = 'CollapsibleHelpTitle';
 
-const CollapsibleSection = ({ id, icon: Icon, title, subtitle, children, isOpen, onToggle, hasError = false, errorCount = 0, onInteract }) => {
+const CollapsibleSection = ({ id, icon: Icon, title, subtitle, children, isOpen, onToggle, hasError = false, errorCount = 0, onInteract, dragHandle = null, isDragging = false }) => {
   const [showInfo, setShowInfo] = useState(false);
   return (
     <section
@@ -83,12 +89,15 @@ const CollapsibleSection = ({ id, icon: Icon, title, subtitle, children, isOpen,
       onFocusCapture={onInteract}
       className={cn(
         "rounded-xl border shadow-sm overflow-hidden transition-all",
-        hasError
-          ? "border-red/60 bg-red/[0.03]"
-          : "bg-background/60 border-border/80"
+        isDragging
+          ? "border-accent/60 bg-surface shadow-lg"
+          : hasError
+            ? "border-red/60 bg-red/[0.03]"
+            : "bg-background/60 border-border/80"
       )}
     >
       <div className="w-full flex items-center justify-between gap-2 p-2.5 hover:bg-white/[0.02] transition-colors group">
+        {dragHandle}
         <button
           type="button"
           onClick={onToggle}
@@ -368,13 +377,6 @@ const SECTION_LABELS = {
   risk_temporal: 'Risk → Session & Cooldowns',
   adv_env: 'Environment → Execution Environment',
   adv_capital: 'Environment → Capital Allocation',
-};
-
-const TAB_SECTION_DEFAULTS = {
-  scan: ['scan_general', 'scan_htf_cross', 'scan_global', 'scan_watchlist', 'scan_exclusion'],
-  strategy: ['strategy_entry', 'strategy_params', 'strategy_exit', 'strategy_whipsaw', 'strategy_knife', 'strategy_timeframes'],
-  risk: ['risk_guards', 'risk_martingale', 'risk_sl', 'risk_tp', 'risk_temporal'],
-  env: ['adv_env', 'adv_capital'],
 };
 
 const findTabForSectionId = (sectionId) => {
@@ -3563,101 +3565,42 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     });
   }, []);
 
-  const [recentSectionIds, setRecentSectionIds] = useState(() => {
-    try {
-      const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('recent_config_sections') : null;
-      const parsed = stored ? JSON.parse(stored) : [];
-      return Array.isArray(parsed) ? parsed.filter(id => typeof id === 'string') : [];
-    } catch {
-      return [];
-    }
-  });
-  const recentSectionIdsRef = useRef(recentSectionIds);
-  useEffect(() => {
-    recentSectionIdsRef.current = recentSectionIds;
-  }, [recentSectionIds]);
+  const [sectionOrderMap, setSectionOrderMap] = useState(() => loadPersistedSectionOrders());
 
-  const recordRecentSection = React.useCallback((sectionId) => {
+  const handleReorderTabSections = React.useCallback((tabId, nextOrder) => {
+    setSectionOrderMap((prev) => {
+      const updated = { ...prev, [tabId]: nextOrder };
+      return savePersistedSectionOrders(updated);
+    });
+  }, []);
+
+  const handleResetTabSections = React.useCallback((tabId) => {
+    setSectionOrderMap((prev) => {
+      const updated = {
+        ...prev,
+        [tabId]: TAB_SECTION_DEFAULTS[tabId] || prev[tabId] || [],
+      };
+      return savePersistedSectionOrders(updated);
+    });
+  }, []);
+
+  const handleSectionInteract = React.useCallback((sectionId) => {
     if (!sectionId) return;
     const ownerTab = findTabForSectionId(sectionId);
     if (ownerTab) {
       recordLastEditedLocation(ownerTab, sectionId);
     }
-    setRecentSectionIds(prev => {
-      if (prev[0] === sectionId) return prev;
-      const updated = [sectionId, ...prev.filter(id => id !== sectionId)].slice(0, 24);
-      recentSectionIdsRef.current = updated;
-      try {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('recent_config_sections', JSON.stringify(updated));
-        }
-      } catch {}
-      return updated;
-    });
   }, [recordLastEditedLocation]);
-
-  const computeTabSectionOrder = React.useCallback((tabId, recentIds, errsObj, activeOpenId = null) => {
-    const defaults = TAB_SECTION_DEFAULTS[tabId] || [];
-    const errSections = new Set(
-      Object.keys(errsObj || {})
-        .filter(k => !k.endsWith('_warn'))
-        .map(k => SECTION_ERROR_MAP[k])
-        .filter(Boolean)
-    );
-    return [...defaults].sort((a, b) => {
-      const aErr = errSections.has(a);
-      const bErr = errSections.has(b);
-      if (aErr !== bErr) return aErr ? -1 : 1;
-
-      if (activeOpenId) {
-        if (a === activeOpenId && b !== activeOpenId) return -1;
-        if (b === activeOpenId && a !== activeOpenId) return 1;
-      }
-
-      const idxA = recentIds.indexOf(a);
-      const idxB = recentIds.indexOf(b);
-      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-      if (idxA !== -1) return -1;
-      if (idxB !== -1) return 1;
-
-      return defaults.indexOf(a) - defaults.indexOf(b);
-    });
-  }, []);
-
-  const [sectionOrderMap, setSectionOrderMap] = useState(() => ({
-    scan: computeTabSectionOrder('scan', recentSectionIds, {}),
-    strategy: computeTabSectionOrder('strategy', recentSectionIds, {}),
-    risk: computeTabSectionOrder('risk', recentSectionIds, {}),
-    env: computeTabSectionOrder('env', recentSectionIds, {}),
-  }));
-
-  const refreshSectionOrders = React.useCallback((nextRecentIds, errsObj, activeOpenId = null) => {
-    setSectionOrderMap({
-      scan: computeTabSectionOrder('scan', nextRecentIds, errsObj, activeOpenId),
-      strategy: computeTabSectionOrder('strategy', nextRecentIds, errsObj, activeOpenId),
-      risk: computeTabSectionOrder('risk', nextRecentIds, errsObj, activeOpenId),
-      env: computeTabSectionOrder('env', nextRecentIds, errsObj, activeOpenId),
-    });
-  }, [computeTabSectionOrder]);
-
-  const blockingErrorSignature = useMemo(
-    () => Object.keys(errors).filter(k => !k.endsWith('_warn')).sort().join('|'),
-    [errors]
-  );
-
-  useEffect(() => {
-    if (blockingErrorSignature) {
-      refreshSectionOrders(recentSectionIdsRef.current, errors, openSectionId);
-    }
-  }, [blockingErrorSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSectionChange = React.useCallback((nextTab, targetSectionId = null) => {
     setSection(nextTab);
-    let nextRecent = recentSectionIdsRef.current;
     if (targetSectionId) {
-      nextRecent = [targetSectionId, ...nextRecent.filter(id => id !== targetSectionId)].slice(0, 24);
-      recordRecentSection(targetSectionId);
       setOpenSectionId(targetSectionId);
+      if (typeof document !== 'undefined' && typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(() => {
+          document.getElementById(targetSectionId)?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+        });
+      }
     }
     if (EDITOR_TABS.has(nextTab)) {
       const activeForTab = targetSectionId || (
@@ -3665,8 +3608,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       );
       recordLastEditedLocation(nextTab, activeForTab);
     }
-    refreshSectionOrders(nextRecent, errors, targetSectionId || openSectionId);
-  }, [errors, openSectionId, recordRecentSection, recordLastEditedLocation, refreshSectionOrders]);
+  }, [recordLastEditedLocation]);
 
   const navigateToLastEdited = React.useCallback((fallbackTab = 'summary') => {
     const loc = lastEditedLocationRef.current;
@@ -3684,23 +3626,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleToggleSection = React.useCallback((sectionId) => {
     setOpenSectionId(prev => {
       const willOpen = prev !== sectionId;
-      if (willOpen) recordRecentSection(sectionId);
+      if (willOpen) {
+        const ownerTab = findTabForSectionId(sectionId);
+        if (ownerTab) recordLastEditedLocation(ownerTab, sectionId);
+      }
       return willOpen ? sectionId : null;
     });
-  }, [recordRecentSection]);
+  }, [recordLastEditedLocation]);
 
-  const orderSectionEntries = React.useCallback((tabId, sectionsMap) => {
-    const order = sectionOrderMap[tabId] || TAB_SECTION_DEFAULTS[tabId] || Object.keys(sectionsMap);
-    return order.map((id) => {
-      const el = sectionsMap[id];
-      if (!el) return null;
-      return React.cloneElement(el, {
-        key: id,
+  const orderSectionEntries = React.useCallback((tabId, sectionsMap, listClassName = 'flex flex-col gap-3') => (
+    <DraggableSectionList
+      tabId={tabId}
+      order={sectionOrderMap[tabId]}
+      sectionsMap={sectionsMap}
+      onReorder={handleReorderTabSections}
+      onReset={handleResetTabSections}
+      className={listClassName}
+      getSectionProps={(id) => ({
         onToggle: () => handleToggleSection(id),
-        onInteract: () => recordRecentSection(id),
-      });
-    }).filter(Boolean);
-  }, [sectionOrderMap, handleToggleSection, recordRecentSection]);
+        onInteract: () => handleSectionInteract(id),
+      })}
+    />
+  ), [sectionOrderMap, handleReorderTabSections, handleResetTabSections, handleToggleSection, handleSectionInteract]);
 
   const openFullSection = React.useCallback((tabId, collapsibleId = null) => {
     handleSectionChange(tabId, collapsibleId);
@@ -4830,7 +4777,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       if (targetTab) {
         handleSectionChange(targetTab, targetSection || null);
       } else if (targetSection) {
-        recordRecentSection(targetSection);
+        handleSectionInteract(targetSection);
         setOpenSectionId(targetSection);
       }
       return;
@@ -5812,6 +5759,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             onUpdateExitLayer={handleUpdateLayer}
             onToggleRequiredExit={handleToggleRequiredExit}
             onOpenFullSection={openFullSection}
+            sectionOrder={sectionOrderMap.summary}
+            onReorderSections={handleReorderTabSections}
+            onResetSectionOrder={handleResetTabSections}
             ConfigFieldComponent={ConfigField}
             ToggleComponent={Toggle}
             onInputFocus={handleInputFocus}
@@ -8293,9 +8243,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  if (targetTab && section !== 'summary') {
                    handleSectionChange(targetTab, targetSection || null);
                  } else if (targetSection && section === targetTab) {
-                   recordRecentSection(targetSection);
+                   handleSectionInteract(targetSection);
                    setOpenSectionId(targetSection);
-                   refreshSectionOrders([targetSection, ...recentSectionIdsRef.current.filter(id => id !== targetSection)].slice(0, 24), errs, targetSection);
+                   if (typeof document !== 'undefined' && typeof requestAnimationFrame !== 'undefined') {
+                     requestAnimationFrame(() => {
+                       document.getElementById(targetSection)?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+                     });
+                   }
                  } else if (section === 'summary') {
                    const el = document.getElementById(targetTab === 'env' ? 'summary_env' : targetTab === 'scan' ? 'summary_scan' : 'summary_risk');
                    el?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });

@@ -15,8 +15,10 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { cn } from '../ui/primitives';
+import { DraggableSectionList } from './DraggableSectionList';
 import { SmartStrategyNameControl, WatchlistScopeSelector } from './SmartNamingAndScope';
 import { getWatchlistScopeDescriptor } from '../../utils/smartStrategyNaming.js';
+import { loadPersistedSectionOrders, savePersistedSectionOrders } from '../../utils/configSectionOrder.js';
 
 const TIMEFRAME_OPTIONS = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d'];
 
@@ -83,6 +85,8 @@ const SummaryCollapsibleSection = React.memo(({
   isOpen,
   onToggle,
   headerActions,
+  dragHandle = null,
+  isDragging = false,
   children,
 }) => {
   const hasError = errorCount > 0;
@@ -92,10 +96,15 @@ const SummaryCollapsibleSection = React.memo(({
       aria-invalid={hasError}
       className={cn(
         'w-full min-w-0 max-w-full rounded-xl border overflow-hidden transition-colors',
-        hasError ? 'border-red/60 bg-red/[0.03]' : 'border-border/70 bg-background/50',
+        isDragging
+          ? 'border-accent/60 bg-surface shadow-lg'
+          : hasError
+            ? 'border-red/60 bg-red/[0.03]'
+            : 'border-border/70 bg-background/50',
       )}
     >
       <div className="w-full min-w-0 flex items-center justify-between gap-2 p-2.5 sm:px-3.5 hover:bg-white/[0.02] transition-colors group">
+        {dragHandle}
         <button
           type="button"
           onClick={onToggle}
@@ -193,14 +202,40 @@ export const ActiveSummaryPanel = React.memo(({
   onUpdateExitLayer,
   onToggleRequiredExit,
   onOpenFullSection,
+  sectionOrder,
+  onReorderSections,
+  onResetSectionOrder,
   ConfigFieldComponent: ConfigField,
   ToggleComponent: Toggle,
   onInputFocus,
 }) => {
   const [openSectionId, setOpenSectionId] = useState(null);
+  const [localOrder, setLocalOrder] = useState(() => loadPersistedSectionOrders().summary);
   const toggleSection = React.useCallback((id) => {
     setOpenSectionId((prev) => (prev === id ? null : id));
   }, []);
+
+  const resolvedOrder = sectionOrder || localOrder;
+  const handleReorder = React.useCallback((tabId, nextOrder) => {
+    if (onReorderSections) {
+      onReorderSections(tabId, nextOrder);
+      return;
+    }
+    setLocalOrder(nextOrder);
+    const current = loadPersistedSectionOrders();
+    savePersistedSectionOrders({ ...current, [tabId]: nextOrder });
+  }, [onReorderSections]);
+
+  const handleReset = React.useCallback((tabId) => {
+    if (onResetSectionOrder) {
+      onResetSectionOrder(tabId);
+      return;
+    }
+    const defaults = ['summary_env', 'summary_scan', 'summary_entry', 'summary_exit', 'summary_risk'];
+    setLocalOrder(defaults);
+    const current = loadPersistedSectionOrders();
+    savePersistedSectionOrders({ ...current, [tabId]: defaults });
+  }, [onResetSectionOrder]);
 
   const entrySignals = Array.isArray(cfg.enabled_signals) ? cfg.enabled_signals : [];
   const exitSignals = Array.isArray(cfg.exit_signals) ? cfg.exit_signals : [];
@@ -378,7 +413,14 @@ export const ActiveSummaryPanel = React.memo(({
       aria-labelledby="config-tab-summary"
       className="flex flex-col gap-2.5 w-full min-w-0 max-w-full overflow-x-hidden animate-in fade-in duration-200"
     >
-      {/* 1. Executive Strategy Snapshot + Identity */}
+      <DraggableSectionList
+        tabId="summary"
+        order={resolvedOrder}
+        onReorder={handleReorder}
+        onReset={handleReset}
+        className="flex flex-col gap-2.5"
+        sectionsMap={{
+      summary_env: (
       <SummaryCollapsibleSection
         id="summary_env"
         icon={SlidersHorizontal}
@@ -456,8 +498,9 @@ export const ActiveSummaryPanel = React.memo(({
           </div>
         )}
       </SummaryCollapsibleSection>
+      ),
 
-      {/* 2. Scanner & Market Scope */}
+      summary_scan: (
       <SummaryCollapsibleSection
         id="summary_scan"
         icon={Search}
@@ -589,8 +632,9 @@ export const ActiveSummaryPanel = React.memo(({
           </div>
         )}
       </SummaryCollapsibleSection>
+      ),
 
-      {/* 3. Entry Signals & Active Signal Parameters */}
+      summary_entry: (
       <SummaryCollapsibleSection
         id="summary_entry"
         icon={Zap}
@@ -711,8 +755,9 @@ export const ActiveSummaryPanel = React.memo(({
           </div>
         )}
       </SummaryCollapsibleSection>
+      ),
 
-      {/* 4. Exit Strategy, Trailing & Active Exit Signals */}
+      summary_exit: (
       <SummaryCollapsibleSection
         id="summary_exit"
         icon={Target}
@@ -916,8 +961,9 @@ export const ActiveSummaryPanel = React.memo(({
           )}
         </div>
       </SummaryCollapsibleSection>
+      ),
 
-      {/* 5. Stop Loss & Capital Guards */}
+      summary_risk: (
       <SummaryCollapsibleSection
         id="summary_risk"
         icon={ShieldCheck}
@@ -1075,6 +1121,9 @@ export const ActiveSummaryPanel = React.memo(({
           </div>
         )}
       </SummaryCollapsibleSection>
+      ),
+      }}
+      />
 
       {/* 6. Quiet Discoverability Bar for Inactive Optional Features */}
       {dormantModules.length > 0 && (

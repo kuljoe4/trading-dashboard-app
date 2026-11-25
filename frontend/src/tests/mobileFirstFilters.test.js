@@ -57,6 +57,9 @@ test('App-wide filter bars enforce mobile-first touch sizing and zero blind hori
 
   const config = readSrc('components/ConfigModal.jsx');
   assert.ok(config.includes('grid grid-cols-3 xs:grid-cols-5 sm:flex'), 'ConfigModal preset filter strip wraps cleanly on mobile');
+  assert.ok(config.includes('data-testid="presets-usage-filter"') && config.includes('grid grid-cols-4 sm:flex'), 'ConfigModal preset usage filter strip fits 4 tabs cleanly on mobile');
+  assert.ok(config.includes('min-h-[38px] sm:min-h-0 sm:h-8'), 'ConfigModal usage and mode filter tabs meet >=38px mobile touch height');
+  assert.ok(config.includes('min-h-[42px] sm:min-h-0 sm:h-9'), 'ConfigModal sticky preset search and action bar meets >=42px mobile touch height');
 
   const metrics = readSrc('components/SystemMetrics.jsx');
   assert.ok(metrics.includes('min-h-[32px] sm:min-h-[24px] px-2.5 py-1 rounded-lg text-[10px]'), 'SystemMetrics REST filter buttons upgrade away from 8px micro chips');

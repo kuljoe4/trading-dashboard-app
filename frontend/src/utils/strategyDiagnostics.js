@@ -1,4 +1,5 @@
 import { price as fmtPrice } from '../lib/formatters.js';
+import { formatStopLossDescriptor, formatTakeProfitDescriptor } from './strategySummary.js';
 
 export const SIGNAL_LABELS = {
   momentum_pct: 'Momentum',
@@ -391,22 +392,19 @@ export function getStrategyRulesDiagnostics({
   const liveSeq = strategyConfig.live_rr_sequence || [1.0, 2.0, 4.0];
   const exitSeq = strategyConfig.exit_rr_sequence || [0.0, 1.0, 2.0];
   const ladderText = liveSeq.map((t, idx) => `${t}R→${exitSeq[idx] ?? 0}R`).join(', ');
+  const tpDesc = formatTakeProfitDescriptor(strategyConfig);
 
   exitRules.push({
     key: '_tp_ladder',
     label: tpMode === 'fixed' ? 'Fixed Take Profit' : tpMode === 'exp_rr_seq_switch' ? 'Dynamic R:R Ladder' : 'Guard R:R Ladder',
     role: 'Target',
     timeframe: 'Live',
-    paramsText: tpMode === 'fixed'
-      ? `Target ${tpRatio}R`
-      : tpMode === 'exp_rr_seq_switch'
-      ? `${ladderText} (Switch @ ${strategyConfig.peak_rr_switch_threshold ?? 5.0}R ×${strategyConfig.peak_rr_switch_count ?? 1})`
-      : ladderText,
-    liveText: activeTrade ? `${Number(activeTrade.rr || 0).toFixed(2)}R (Peak ${Number(activeTrade.max_rr ?? activeTrade.max_rr_achieved ?? 0).toFixed(2)}R)` : `${tpRatio}R`,
+    paramsText: tpDesc.fullText,
+    liveText: activeTrade ? `${Number(activeTrade.rr || 0).toFixed(2)}R (Peak ${Number(activeTrade.max_rr ?? activeTrade.max_rr_achieved ?? 0).toFixed(2)}R)` : tpDesc.valueText,
     thresholdText: tpMode === 'fixed' ? `${tpRatio}R` : `${liveSeq[0] ?? 1}R+`,
     status: activeTrade ? 'waiting' : 'configured',
     reasonText: tpMode === 'fixed'
-      ? `Static TP placed at ${tpRatio}R`
+      ? `Static TP placed at ${tpRatio}R${strategyConfig.trailing_stop_enabled ? ' + dynamic trailing' : ''}`
       : 'SL ratchets automatically at each R milestone',
   });
 
@@ -415,18 +413,11 @@ export function getStrategyRulesDiagnostics({
 
   // SL Mode & Bounds
   const slType = strategyConfig.sl_type || 'pct';
-  const slDistPct = Number(strategyConfig.sl_distance_pct ?? 0.8);
   const slMinPct = Number(strategyConfig.sl_min_pct ?? 0.3);
   const slMaxPct = Number(strategyConfig.sl_max_pct ?? 3.0);
   const slOobAction = strategyConfig.sl_out_of_bounds_action || (strategyConfig.reject_entry_if_sl_exceeds_max === false ? 'clamp' : 'reject');
-  const slTf = strategyConfig.sl_lookback_timeframe || scanTf;
-  const slLookback = strategyConfig.sl_lookback_period ?? 5;
-
-  const slConfigDesc = slType === 'pct'
-    ? `Fixed ${slDistPct}%`
-    : slType === 'lookback_low/high'
-    ? `Lookback(${slLookback} on ${slTf}) · Min ${slMinPct}% / Max ${slMaxPct}%`
-    : `${slType} · Fallback ${slDistPct}% · Bounds ${slMinPct}%–${slMaxPct}%`;
+  const slDesc = formatStopLossDescriptor(strategyConfig);
+  const slConfigDesc = slDesc.fullText;
 
   const entryRefSl = activeTrade ? Number(activeTrade.initial_sl ?? activeTrade.sl_price ?? activeTrade.current_sl ?? 0) : 0;
   const rawCandSlDist = hasCandidate && focusedOpp.sl_dist_pct !== undefined && focusedOpp.sl_dist_pct !== null
@@ -437,7 +428,9 @@ export function getStrategyRulesDiagnostics({
   const candSlDist = (rawCandSlDist !== null && Number.isFinite(rawCandSlDist)) ? rawCandSlDist : null;
 
   let slStatus = 'allowed';
-  let slReason = `Out-of-bounds action: ${slOobAction.toUpperCase()}`;
+  let slReason = slType === 'pct'
+    ? `Fixed SL placed at ${Number(strategyConfig.sl_distance_pct ?? 0.8)}%`
+    : `Out-of-bounds action: ${slOobAction.toUpperCase()}`;
   if (candSlDist !== null) {
     const slTag = activeTrade && Number(activeTrade.initial_sl) > 0 ? 'Initial SL' : 'Prospective SL';
     if (candSlDist > slMaxPct) {
@@ -455,9 +448,9 @@ export function getStrategyRulesDiagnostics({
 
   riskChecks.push({
     key: 'sl_bounds',
-    label: `Stop-Loss (${slType})`,
+    label: `Stop-Loss (${slDesc.shortLabel})`,
     configuredText: slConfigDesc,
-    liveText: candSlDist !== null ? `${candSlDist.toFixed(2)}%` : `${slDistPct}%`,
+    liveText: candSlDist !== null ? `${candSlDist.toFixed(2)}%` : slDesc.valueText,
     status: slStatus,
     reasonText: slReason,
   });
@@ -641,10 +634,12 @@ export function buildStrategyNarrative({
   if (strategyActiveTrades.length > 0) {
     const syms = strategyActiveTrades.map(t => `${t.symbol} ${t.direction}`).slice(0, 3).join(', ');
     const exitCount = (strategyConfig.exit_signals || []).length + (strategyConfig.trigger_candle_exit_enabled ? 1 : 0);
+    const slSummary = formatStopLossDescriptor(strategyConfig).compactText;
+    const tpSummary = formatTakeProfitDescriptor(strategyConfig).compactText;
     return {
       tone: 'positive',
       headline: `Managing ${strategyActiveTrades.length} active position${strategyActiveTrades.length > 1 ? 's' : ''} (${syms})`,
-      detail: `Monitoring ${exitCount} exit rule${exitCount === 1 ? '' : 's'} & ${strategyConfig.sl_type || 'pct'} stop-loss protection (${strategyConfig.tp_mode === 'fixed' ? `${strategyConfig.tp_ratio ?? 2}R TP` : 'R:R ratchet ladder'}).`,
+      detail: `Monitoring ${exitCount} exit rule${exitCount === 1 ? '' : 's'} & ${slSummary} SL (${tpSummary}).`,
       when: `Live feed ${streamAgeSec}s`,
     };
   }

@@ -212,12 +212,14 @@ test('ActiveSummaryPanel, right-end More tab dropdown, section-level error indic
   assert.match(configModalSource, /hasError = false, errorCount = 0/);
   assert.match(configModalSource, /if \(!k\.endsWith\('_warn'\)\)|filter\(k => !k\.endsWith\('_warn'\)\)/);
 
-  // 4. Active & latest-used presets/sessions bubbling
+  // 4. Active & latest-used presets/sessions bubbling (extracted to utils/presetFiltering.js)
+  const presetFilteringSource = fs.readFileSync(path.resolve(__dirname, '../utils/presetFiltering.js'), 'utf8');
   assert.match(configModalSource, /const sessionRecency = useMemo\(/);
-  assert.match(configModalSource, /const getBubbleTier = \(p\) =>/);
-  assert.match(configModalSource, /if \(activeBasePresetName && p\.name === activeBasePresetName/);
-  assert.match(configModalSource, /if \(sessionRecency\.activeNames\.has\(p\.name\)\) return 2;/);
-  assert.match(configModalSource, /sessionRecency\.lastUsedTsByName\.get\(b\.name\)/);
+  assert.match(configModalSource, /const presetPartition = useMemo\(\(\) => \{[\s\S]*?filterAndGroupPresets\(/);
+  assert.match(presetFilteringSource, /export function classifyPresetUsage\(/);
+  assert.match(presetFilteringSource, /if \(name && activeBasePresetName && name === activeBasePresetName/);
+  assert.match(presetFilteringSource, /if \(name && activeSessionNames\.has\(name\)\)/);
+  assert.match(presetFilteringSource, /metaB\.lastUsedTs - metaA\.lastUsedTs/);
   assert.match(historyViewSource, /const aActive = a\.status === 'active' \|\| !a\.endTime;/);
 });
 

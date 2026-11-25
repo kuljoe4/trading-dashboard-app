@@ -5,6 +5,7 @@ import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
 import { calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
 import { calculatePerformanceMetrics } from '../lib/analytics'
 import { resolveAdaptivePeriodicLimit, isClosedValidTrade, computePeriodicBuckets, computePeriodBadges } from '../utils/periodicPerformance'
+import { formatTakeProfitDescriptor } from '../utils/strategySummary.js'
 
 const formatTimeAgo = (ts) => {
   if (!ts) return 'ago';
@@ -941,7 +942,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
               {(activeEstPnl !== 0 || totalEstToRealize !== 0) ? (
                 <>Est <span className="font-bold" style={{ color: pnlColor(activeEstPnl) }}>{fmtUSD(activeEstPnl)}</span> · Proj <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>{fmtUSD(totalEstToRealize)}</span></>
               ) : (
-                <span className="opacity-70">Target: +{Number(config.tp_ratio || 2).toFixed(1)}R</span>
+                <span className="opacity-70">{formatTakeProfitDescriptor(config).compactText}</span>
               )}
             </span>
           )}

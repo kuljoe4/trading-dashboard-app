@@ -13,6 +13,7 @@ import { analyzeTradeDiagnostics } from '../../utils/tradeDiagnostics'
 import { SignalGauge } from '../ui/SignalGauge'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ConfirmationModal } from '../ConfirmationModal'
+import { formatStopLossDescriptor, formatTakeProfitDescriptor } from '../../utils/strategySummary.js'
 
 const FRIENDLY_SIGNAL_NAMES = {
   ema_close: 'EMA Close',
@@ -2774,8 +2775,18 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                   <Metric label="Scan Interval & Side" value={`${sc.scan_interval || '1m'} · ${(sc.entry_side || 'both').toUpperCase()}`} tooltip="Scanner timeframe and allowed trade direction" />
                   <Metric label="Entry Signals" value={`${entrySigs} (${(sc.signal_logic || 'all').toUpperCase()})`} tooltip="Configured entry signal triggers and combination logic" />
                   <Metric label="Exit Signals" value={`${exitSigs} (${(sc.exit_signal_logic || 'any').toUpperCase()})`} tooltip="Configured exit signals and trigger logic" />
-                  <Metric label="SL Model & Bounds" value={`${sc.sl_type || 'pct'} · ${sc.sl_min_pct ?? 0.3}%–${sc.sl_max_pct ?? 3.0}% (${(sc.sl_out_of_bounds_action || 'clamp').toUpperCase()})`} tooltip="Stop-loss computation method and bounds enforcement" />
-                  <Metric label="TP Mode & Ladder" value={sc.tp_mode === 'fixed' ? `Fixed ${sc.tp_ratio ?? 2.0}R` : `${sc.tp_mode || 'exp_rr_seq'} (${ladderStr})`} tooltip="Take-profit / R:R ratchet schedule snapshotted at entry" />
+                  <Metric
+                    label="SL Model & Bounds"
+                    value={(sc.sl_type || 'pct') === 'pct'
+                      ? formatStopLossDescriptor(sc).fullText
+                      : `${formatStopLossDescriptor(sc).fullText} (${(sc.sl_out_of_bounds_action || 'clamp').toUpperCase()})`}
+                    tooltip="Stop-loss computation method and bounds enforcement"
+                  />
+                  <Metric
+                    label="TP Mode & Ladder"
+                    value={formatTakeProfitDescriptor(sc).fullText}
+                    tooltip="Take-profit / R:R ratchet schedule snapshotted at entry"
+                  />
                   <Metric label="Risk & Portfolio Cap" value={`${sc.risk_pct_per_trade ?? 1.0}%/tr · Cap ${sc.max_total_risk_pct ?? 5.0}% (${sc.max_open_trades ?? 3} slots)`} tooltip="Position sizing risk % and maximum concurrent risk limits" />
                 </div>
               );

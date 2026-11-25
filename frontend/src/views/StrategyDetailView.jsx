@@ -13,6 +13,7 @@ import {
   formatDiagnosticDetailEntry,
   formatDecisionLogsForCopy,
 } from '../utils/strategyDiagnostics'
+import { formatStopLossDescriptor, formatTakeProfitDescriptor } from '../utils/strategySummary.js'
 import {
   StatCard, SectionLabel, StatusBadge,
   CopyButton, cn, ViewHeader, Tooltip
@@ -27,7 +28,7 @@ import {
   Activity, BarChart3, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon,
   ChevronDown, Turtle, Flame, RefreshCw, Clock, Radio, Search,
   Copy, Check, FileText, X, ShieldCheck, AlertTriangle, CheckCircle2, Ban,
-  Pin, RotateCw, SkipForward
+  Pin, RotateCw, SkipForward, SlidersHorizontal, RotateCcw
 } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { useNow } from '../hooks/useNow'
@@ -407,6 +408,22 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
   const [reasonsSearch, setReasonsSearch] = useState('')
   const [copiedReasonId, setCopiedReasonId] = useState(null)
   const [copiedLogScope, setCopiedLogScope] = useState(null)
+  const [decisionFiltersExpanded, setDecisionFiltersExpanded] = useState(() => {
+    try {
+      return localStorage.getItem('strategy_decision_filters_expanded') === 'true';
+    } catch {
+      return false;
+    }
+  })
+  const handleToggleDecisionFilters = useCallback(() => {
+    setDecisionFiltersExpanded(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('strategy_decision_filters_expanded', String(next));
+      } catch {}
+      return next;
+    });
+  }, [])
 
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
   const strategyConfig = useMemo(() => {
@@ -1001,7 +1018,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
         tone: isStrategyPaused ? 'warning' : (effectiveGate === 'ACTIVE' || effectiveGate === 'OK') ? 'positive' : 'danger',
         desc: 'Validates SL bounds, anti-whipsaw delay, trade frequency, and portfolio exposure caps.',
         criteria: [
-          { label: 'SL Model & Bounds', value: `${strategyConfig.sl_type || 'pct'} (${strategyConfig.sl_min_pct ?? 0.3}%–${strategyConfig.sl_max_pct ?? 3.0}% · ${strategyConfig.sl_out_of_bounds_action || 'clamp'})` },
+          {
+            label: 'SL Model & Bounds',
+            value: (strategyConfig.sl_type || 'pct') === 'pct'
+              ? formatStopLossDescriptor(strategyConfig).fullText
+              : `${formatStopLossDescriptor(strategyConfig).fullText} · ${(strategyConfig.sl_out_of_bounds_action || 'clamp').toUpperCase()}`
+          },
           { label: 'Risk Per Trade', value: `${strategyConfig.risk_pct_per_trade || 1.0}% ($${((startingBal * (strategyConfig.risk_pct_per_trade || 1.0)) / 100).toFixed(2)})` },
           { label: 'Max Risk / Slots', value: `${strategyConfig.max_total_risk_pct || 5.0}% Cap · ${strategyConfig.max_open_trades || 3} Open` },
           { label: 'Anti-Whipsaw', value: `${strategyConfig.anti_whipsaw_candle_delay ?? 1}c (≤${strategyConfig.anti_whipsaw_max_tf || '4h'})` }
@@ -1015,7 +1037,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
         tone: strategyActiveTrades.length > 0 ? 'accent' : 'neutral',
         desc: 'Places entry order and protective stop-loss simultaneously with precision filters.',
         criteria: [
-          { label: 'Initial SL', value: `${strategyConfig.sl_distance_pct || 0.8}% (${strategyConfig.sl_type || 'pct'})` },
+          { label: 'Initial SL', value: formatStopLossDescriptor(strategyConfig).fullText },
           { label: 'Order Sizing', value: strategyConfig.auto_scale_min_notional !== false ? `Risk + Min-Notional (≤${strategyConfig.auto_scale_max_overshoot ?? 3}x)` : 'Strict Risk' },
           { label: 'Slippage Abort', value: `${strategyConfig.slippage_abort_threshold ?? 1.5}%` },
           { label: 'Active Positions', value: `${activeTradeCount} Open` }
@@ -1030,7 +1052,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
         tone: strategyActiveTrades.some(t => t.current_sl && Number(t.current_sl) >= Number(t.entry_price)) ? 'positive' : 'neutral',
         desc: 'Automated SL ratcheting along R:R ladder and optional trailing stop.',
         criteria: [
-          { label: 'Trailing Stop', value: strategyConfig.trailing_stop_enabled ? `${strategyConfig.trailing_stop_distance_pct || 1.0}% (Act ≥ ${strategyConfig.trailing_activation_rr ?? 0}R)` : 'Disabled' },
+          {
+            label: 'Trailing Stop',
+            value: strategyConfig.trailing_stop_enabled
+              ? `${strategyConfig.trailing_stop_type === 'rr' ? `${strategyConfig.trailing_stop_rr ?? 1.0}R` : `${strategyConfig.trailing_stop_distance_pct || 1.0}%`} (Act ≥ ${strategyConfig.trailing_activation_rr ?? 0}R)`
+              : 'Disabled'
+          },
           { label: 'Guard Ladder', value: (strategyConfig.live_rr_sequence || [1, 2, 4]).map((v, i) => `${v}R→${(strategyConfig.exit_rr_sequence || [0, 1, 2])[i] ?? 0}R`).join(', ') },
           {
             label: 'Risk Release',
@@ -1054,7 +1081,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
         tone: stratPerformance.total > 0 ? (stratPerformance.sumPnl >= 0 ? 'positive' : 'danger') : 'neutral',
         desc: 'Closes positions on technical exit signals, TP targets, or stop-loss.',
         criteria: [
-          { label: 'TP Mode / Target', value: `${strategyConfig.tp_mode || 'fixed'} (${strategyConfig.tp_ratio || 2.0}R)` },
+          { label: 'TP Mode / Target', value: formatTakeProfitDescriptor(strategyConfig).fullText },
           { label: 'Exit Signals', value: (strategyConfig.exit_signals || []).map(sig => formatSignalLabel(sig)).join(', ') || 'SL / TP Only' },
           { label: 'Realized PnL', value: fmtUSD(stratPerformance.sumPnl) },
           { label: 'Win Rate', value: `${stratPerformance.hitRate.toFixed(1)}% (${stratPerformance.total})` }
@@ -3055,201 +3082,332 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
       {/* TAB 2: Decision Log (Causal Filtering & Trade Story) */}
       {activeTab === 'decisions' && (
         <div className="space-y-2.5 sm:space-y-3 text-left">
-          {/* Mobile-First Faceted Filter Bar */}
-          <div className="p-3 bg-surface/50 border border-border/50 rounded-xl flex flex-col gap-2.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              {/* Outcome Segmented Filter */}
-              <div className="grid grid-cols-4 sm:inline-flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl w-full sm:w-auto">
-                {[
-                  { id: 'all', short: 'All', label: 'All', count: reasonOutcomeCounts.all },
-                  { id: 'allowed', short: 'Allow', label: 'Allowed / Fired', count: reasonOutcomeCounts.allowed },
-                  { id: 'rejected', short: 'Reject', label: 'Rejected / Blocked', count: reasonOutcomeCounts.rejected },
-                  { id: 'waiting', short: 'Wait', label: 'Waiting / Miss', count: reasonOutcomeCounts.waiting },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => {
-                      setReasonsOutcome(tab.id);
-                      setVisibleReasonsLimit(25);
-                    }}
-                    className={cn(
-                      "min-h-[40px] sm:min-h-[30px] px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 min-w-0",
-                      reasonsOutcome === tab.id
-                        ? "bg-surface text-text border border-border/60 shadow-xs"
-                        : "text-dim hover:text-text"
-                    )}
-                  >
-                    <span className="sm:hidden truncate">{tab.short}</span>
-                    <span className="hidden sm:inline">{tab.label}</span>
-                    <span className="text-[10px] sm:text-[11px] font-mono text-dim tabular-nums">{tab.count}</span>
-                  </button>
-                ))}
-              </div>
+          {/* Mobile-First Faceted Filter Bar with Progressive Disclosure */}
+          {(() => {
+            const secondaryFilterCount =
+              (reasonsStage !== 'all' ? 1 : 0) +
+              (reasonsSymbol !== 'all' ? 1 : 0) +
+              (!hideRoutineMisses ? 1 : 0) +
+              (reasonsViewMode !== 'timeline' ? 1 : 0) +
+              (reasonsSearch.trim() !== '' ? 1 : 0);
+            const hasResettableFilters =
+              reasonsOutcome !== 'all' ||
+              reasonsStage !== 'all' ||
+              reasonsSymbol !== 'all' ||
+              reasonsSearch.trim() !== '' ||
+              !hideRoutineMisses;
+            const handleResetDecisionFilters = () => {
+              setReasonsOutcome('all');
+              setReasonsStage('all');
+              setReasonsSymbol('all');
+              setReasonsSearch('');
+              setHideRoutineMisses(true);
+              setVisibleReasonsLimit(25);
+            };
 
-              {/* View Mode & Noise Filter */}
-              <div className="grid grid-cols-2 sm:flex items-center sm:justify-end gap-2 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => setHideRoutineMisses(!hideRoutineMisses)}
-                  aria-pressed={hideRoutineMisses}
-                  className={cn(
-                    "min-h-[40px] sm:min-h-[32px] px-2.5 py-1 rounded-xl border text-[11px] sm:text-xs font-medium cursor-pointer transition-colors whitespace-nowrap flex items-center justify-center",
-                    hideRoutineMisses
-                      ? "bg-accent/10 border-accent/40 text-accent"
-                      : "bg-background/50 border-border/40 text-dim hover:text-text"
-                  )}
-                >
-                  {hideRoutineMisses
-                    ? `Misses Hidden (${reasonOutcomeCounts.routineHidden})`
-                    : 'Show Misses'}
-                </button>
+            return (
+              <div className="p-2.5 sm:p-3 bg-surface/50 border border-border/50 rounded-xl flex flex-col gap-2">
+                {/* Primary Row: Outcome Tabs & Filters Disclosure Trigger */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  {/* Outcome Segmented Filter */}
+                  <div className="grid grid-cols-4 sm:inline-flex items-center gap-1 p-1 bg-background/60 border border-border/40 rounded-xl w-full sm:w-auto">
+                    {[
+                      { id: 'all', short: 'All', label: 'All', count: reasonOutcomeCounts.all },
+                      { id: 'allowed', short: 'Allow', label: 'Allowed / Fired', count: reasonOutcomeCounts.allowed },
+                      { id: 'rejected', short: 'Reject', label: 'Rejected / Blocked', count: reasonOutcomeCounts.rejected },
+                      { id: 'waiting', short: 'Wait', label: 'Waiting / Miss', count: reasonOutcomeCounts.waiting },
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => {
+                          setReasonsOutcome(tab.id);
+                          setVisibleReasonsLimit(25);
+                        }}
+                        className={cn(
+                          "min-h-[40px] sm:min-h-[30px] px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 min-w-0",
+                          reasonsOutcome === tab.id
+                            ? "bg-surface text-text border border-border/60 shadow-xs"
+                            : "text-dim hover:text-text"
+                        )}
+                      >
+                        <span className="sm:hidden truncate">{tab.short}</span>
+                        <span className="hidden sm:inline">{tab.label}</span>
+                        <span className="text-[10px] sm:text-[11px] font-mono text-dim tabular-nums">{tab.count}</span>
+                      </button>
+                    ))}
+                  </div>
 
-                <div className="grid grid-cols-2 sm:inline-flex items-center gap-0.5 p-1 bg-background/60 border border-border/40 rounded-xl shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setReasonsViewMode('timeline')}
-                    className={cn(
-                      "min-h-[36px] sm:min-h-[26px] px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-lg cursor-pointer transition-colors whitespace-nowrap",
-                      reasonsViewMode === 'timeline' ? "bg-surface text-text shadow-xs" : "text-dim hover:text-text"
-                    )}
-                  >
-                    Timeline
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReasonsViewMode('story')}
-                    className={cn(
-                      "min-h-[36px] sm:min-h-[26px] px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-lg cursor-pointer transition-colors whitespace-nowrap",
-                      reasonsViewMode === 'story' ? "bg-surface text-text shadow-xs" : "text-dim hover:text-text"
-                    )}
-                  >
-                    By Symbol
-                  </button>
+                  {/* Disclosure Controls */}
+                  <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                    <div className="sm:hidden flex items-center gap-1.5 text-[11px] font-mono text-dim truncate min-w-0">
+                      <span className="tabular-nums">{filteredReasons.length} shown</span>
+                      {hideRoutineMisses && reasonOutcomeCounts.routineHidden > 0 && (
+                        <>
+                          <span aria-hidden="true" className="opacity-40">·</span>
+                          <span className="truncate">{reasonOutcomeCounts.routineHidden} misses hidden</span>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {hasResettableFilters && (
+                        <button
+                          type="button"
+                          onClick={handleResetDecisionFilters}
+                          aria-label="Reset decision log filters"
+                          className="min-h-[36px] sm:min-h-[30px] px-2.5 py-1 rounded-xl border border-red/25 text-red hover:bg-red/10 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <RotateCcw size={12} />
+                          <span>Reset</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        data-testid="strategy-decision-filters-toggle"
+                        onClick={handleToggleDecisionFilters}
+                        aria-expanded={decisionFiltersExpanded}
+                        aria-label={decisionFiltersExpanded ? 'Collapse decision log filters' : 'Expand decision log filters'}
+                        className={cn(
+                          "min-h-[36px] sm:min-h-[30px] px-2.5 sm:px-3 py-1 rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                          decisionFiltersExpanded || secondaryFilterCount > 0
+                            ? "bg-accent/15 border-accent/40 text-accent"
+                            : "bg-background/60 border-border/50 text-dim hover:text-text hover:border-accent/30"
+                        )}
+                      >
+                        <SlidersHorizontal size={12} className="shrink-0" />
+                        <span>Filters</span>
+                        {secondaryFilterCount > 0 && (
+                          <span className="font-mono text-[10px] tabular-nums">({secondaryFilterCount})</span>
+                        )}
+                        <ChevronDown size={12} className={cn("transition-transform duration-200", decisionFiltersExpanded && "rotate-180")} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Secondary Facets: Stage, Symbol & Search */}
-            <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-center">
-              <div className="col-span-1 sm:col-span-3">
-                <select
-                  aria-label="Filter by lifecycle stage"
-                  value={reasonsStage}
-                  onChange={(e) => {
-                    setReasonsStage(e.target.value);
-                    setVisibleReasonsLimit(25);
-                  }}
-                  className="w-full min-h-[40px] sm:min-h-[34px] px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-xl text-xs font-mono text-text focus:outline-none focus:border-accent"
-                >
-                  <option value="all">All Stages</option>
-                  <option value="1">1. Discovery</option>
-                  <option value="2">2. Entry Signals</option>
-                  <option value="3">3. Risk &amp; SL</option>
-                  <option value="4">4. Execution</option>
-                  <option value="5">5. Protection</option>
-                  <option value="6">6. Exit</option>
-                </select>
-              </div>
+                {/* Quiet 1-Line Collapsed Facet Summary + Quick Copy */}
+                {!decisionFiltersExpanded && (
+                  <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-dim pt-1.5 border-t border-border/25">
+                    <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap min-w-0">
+                      <span>
+                        View:{' '}
+                        <strong className={cn("font-semibold", reasonsViewMode === 'story' ? "text-accent" : "text-text")}>
+                          {reasonsViewMode === 'story' ? 'By Symbol' : 'Timeline'}
+                        </strong>
+                      </span>
+                      <span aria-hidden="true" className="opacity-40">·</span>
+                      <button
+                        type="button"
+                        onClick={() => setHideRoutineMisses(!hideRoutineMisses)}
+                        className="hover:text-text underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
+                      >
+                        {hideRoutineMisses
+                          ? `Misses hidden (${reasonOutcomeCounts.routineHidden})`
+                          : 'Showing misses'}
+                      </button>
+                      {reasonsStage !== 'all' && (
+                        <>
+                          <span aria-hidden="true" className="opacity-40">·</span>
+                          <span>Stage: <strong className="text-accent font-semibold">{reasonsStage}</strong></span>
+                        </>
+                      )}
+                      {reasonsSymbol !== 'all' && (
+                        <>
+                          <span aria-hidden="true" className="opacity-40">·</span>
+                          <span>Pair: <strong className="text-accent font-semibold">{reasonsSymbol}</strong></span>
+                        </>
+                      )}
+                      {reasonsSearch.trim() !== '' && (
+                        <>
+                          <span aria-hidden="true" className="opacity-40">·</span>
+                          <span className="truncate max-w-[140px]">Match: <strong className="text-accent font-semibold">&ldquo;{reasonsSearch.trim()}&rdquo;</strong></span>
+                        </>
+                      )}
+                      <span className="hidden sm:inline opacity-40" aria-hidden="true">·</span>
+                      <span className="hidden sm:inline tabular-nums">{filteredReasons.length} shown</span>
+                    </div>
 
-              <div className="col-span-1 sm:col-span-3">
-                <select
-                  aria-label="Filter by symbol"
-                  value={reasonsSymbol}
-                  onChange={(e) => {
-                    setReasonsSymbol(e.target.value);
-                    setVisibleReasonsLimit(25);
-                  }}
-                  className="w-full min-h-[40px] sm:min-h-[34px] px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-xl text-xs font-mono text-text focus:outline-none focus:border-accent"
-                >
-                  <option value="all">All Pairs ({availableReasonSymbols.length})</option>
-                  {availableReasonSymbols.map(sym => (
-                    <option key={sym} value={sym}>{sym}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="col-span-2 sm:col-span-4 relative">
-                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
-                <input
-                  type="text"
-                  inputMode="search"
-                  value={reasonsSearch}
-                  onChange={(e) => setReasonsSearch(e.target.value)}
-                  placeholder="Filter keyword (SL, MACD, ETH)..."
-                  className="w-full min-h-[40px] sm:min-h-[34px] pl-8 pr-8 py-1.5 bg-background/70 border border-border/50 rounded-xl text-xs font-mono text-text placeholder:text-dim/60 focus:outline-none focus:border-accent"
-                />
-                {reasonsSearch && (
-                  <button
-                    type="button"
-                    onClick={() => setReasonsSearch('')}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-[30px] min-h-[30px] flex items-center justify-center text-dim hover:text-text cursor-pointer rounded-md"
-                    aria-label="Clear search"
-                  >
-                    <X size={13} />
-                  </button>
-                )}
-              </div>
-
-              <div className="col-span-2 sm:col-span-2 flex items-center justify-between sm:justify-end gap-2 text-[11px] font-mono text-dim px-0.5">
-                <span className="tabular-nums">{filteredReasons.length} shown</span>
-                {(reasonsOutcome !== 'all' || reasonsStage !== 'all' || reasonsSymbol !== 'all' || reasonsSearch) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReasonsOutcome('all');
-                      setReasonsStage('all');
-                      setReasonsSymbol('all');
-                      setReasonsSearch('');
-                      setVisibleReasonsLimit(25);
-                    }}
-                    className="min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg border border-red/25 text-red hover:bg-red/10 font-semibold cursor-pointer transition-colors"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Bulk Copy Actions: Visible / Filtered / All */}
-            <div className="pt-2.5 border-t border-border/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono">
-              <div className="flex items-center gap-1.5 text-dim min-w-0">
-                <Copy size={12} className="text-accent shrink-0" />
-                <span className="truncate">
-                  Copy logs (<span className="tabular-nums text-text/90">{displayedLogItems.length}</span> visible · <span className="tabular-nums text-text/90">{filteredReasons.length}</span> filtered · <span className="tabular-nums text-text/90">{strategyReasons.length}</span> all)
-                </span>
-              </div>
-              <div className="grid grid-cols-3 sm:inline-flex items-center gap-1.5 shrink-0">
-                {[
-                  { id: 'visible', label: 'Visible', count: displayedLogItems.length, title: 'Copy currently visible log entries' },
-                  { id: 'filtered', label: 'Filtered', count: filteredReasons.length, title: 'Copy all log entries matching active filters' },
-                  { id: 'all', label: 'All', count: strategyReasons.length, title: 'Copy all unfiltered decision log entries for this strategy' },
-                ].map(opt => {
-                  const isCopied = copiedLogScope === opt.id;
-                  const isDisabled = opt.count === 0;
-                  return (
                     <button
-                      key={opt.id}
                       type="button"
-                      disabled={isDisabled}
-                      title={opt.title}
-                      onClick={() => handleCopyLogScope(opt.id)}
+                      disabled={filteredReasons.length === 0}
+                      onClick={() => handleCopyLogScope('filtered')}
                       className={cn(
-                        "min-h-[38px] sm:min-h-[28px] px-2.5 py-1 rounded-xl border text-[11px] font-mono transition-colors flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                        isCopied
+                        "min-h-[30px] sm:min-h-[26px] px-2 py-0.5 rounded-lg border text-[11px] font-mono transition-colors inline-flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-40",
+                        copiedLogScope === 'filtered'
                           ? "bg-green/10 border-green/40 text-green font-semibold"
-                          : "bg-background/60 border-border/50 text-text/85 hover:text-accent hover:border-accent/40"
+                          : "bg-background/60 border-border/50 text-text/80 hover:text-accent hover:border-accent/40"
                       )}
                     >
-                      {isCopied ? <Check size={11} className="shrink-0" /> : <Copy size={11} className="shrink-0 text-dim" />}
-                      <span>{isCopied ? 'Copied' : opt.label}</span>
-                      <span className="text-[10px] text-dim tabular-nums">({opt.count})</span>
+                      {copiedLogScope === 'filtered' ? <Check size={11} /> : <Copy size={11} className="text-dim" />}
+                      <span>{copiedLogScope === 'filtered' ? 'Copied' : 'Copy'}</span>
                     </button>
-                  );
-                })}
+                  </div>
+                )}
+
+                {/* Progressive Disclosure: Secondary Facets, View Switcher & Bulk Copy */}
+                <SmoothCollapse isOpen={decisionFiltersExpanded}>
+                  <div className="pt-2 border-t border-border/30 flex flex-col gap-2.5">
+                    {/* View Mode & Noise Filter */}
+                    <div className="grid grid-cols-2 sm:flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setHideRoutineMisses(!hideRoutineMisses)}
+                        aria-pressed={hideRoutineMisses}
+                        className={cn(
+                          "min-h-[40px] sm:min-h-[32px] px-2.5 py-1 rounded-xl border text-[11px] sm:text-xs font-medium cursor-pointer transition-colors whitespace-nowrap flex items-center justify-center",
+                          hideRoutineMisses
+                            ? "bg-accent/10 border-accent/40 text-accent"
+                            : "bg-background/50 border-border/40 text-dim hover:text-text"
+                        )}
+                      >
+                        {hideRoutineMisses
+                          ? `Misses Hidden (${reasonOutcomeCounts.routineHidden})`
+                          : 'Show Misses'}
+                      </button>
+
+                      <div className="grid grid-cols-2 sm:inline-flex items-center gap-0.5 p-1 bg-background/60 border border-border/40 rounded-xl shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setReasonsViewMode('timeline')}
+                          className={cn(
+                            "min-h-[36px] sm:min-h-[26px] px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-lg cursor-pointer transition-colors whitespace-nowrap",
+                            reasonsViewMode === 'timeline' ? "bg-surface text-text shadow-xs" : "text-dim hover:text-text"
+                          )}
+                        >
+                          Timeline
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReasonsViewMode('story')}
+                          className={cn(
+                            "min-h-[36px] sm:min-h-[26px] px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-lg cursor-pointer transition-colors whitespace-nowrap",
+                            reasonsViewMode === 'story' ? "bg-surface text-text shadow-xs" : "text-dim hover:text-text"
+                          )}
+                        >
+                          By Symbol
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Stage, Symbol & Keyword Search */}
+                    <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-center">
+                      <div className="col-span-1 sm:col-span-3">
+                        <select
+                          aria-label="Filter by lifecycle stage"
+                          value={reasonsStage}
+                          onChange={(e) => {
+                            setReasonsStage(e.target.value);
+                            setVisibleReasonsLimit(25);
+                          }}
+                          className="w-full min-h-[40px] sm:min-h-[34px] px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-xl text-xs font-mono text-text focus:outline-none focus:border-accent"
+                        >
+                          <option value="all">All Stages</option>
+                          <option value="1">1. Discovery</option>
+                          <option value="2">2. Entry Signals</option>
+                          <option value="3">3. Risk &amp; SL</option>
+                          <option value="4">4. Execution</option>
+                          <option value="5">5. Protection</option>
+                          <option value="6">6. Exit</option>
+                        </select>
+                      </div>
+
+                      <div className="col-span-1 sm:col-span-3">
+                        <select
+                          aria-label="Filter by symbol"
+                          value={reasonsSymbol}
+                          onChange={(e) => {
+                            setReasonsSymbol(e.target.value);
+                            setVisibleReasonsLimit(25);
+                          }}
+                          className="w-full min-h-[40px] sm:min-h-[34px] px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-xl text-xs font-mono text-text focus:outline-none focus:border-accent"
+                        >
+                          <option value="all">All Pairs ({availableReasonSymbols.length})</option>
+                          {availableReasonSymbols.map(sym => (
+                            <option key={sym} value={sym}>{sym}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="col-span-2 sm:col-span-4 relative">
+                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
+                        <input
+                          type="text"
+                          inputMode="search"
+                          value={reasonsSearch}
+                          onChange={(e) => setReasonsSearch(e.target.value)}
+                          placeholder="Filter keyword (SL, MACD, ETH)..."
+                          className="w-full min-h-[40px] sm:min-h-[34px] pl-8 pr-8 py-1.5 bg-background/70 border border-border/50 rounded-xl text-xs font-mono text-text placeholder:text-dim/60 focus:outline-none focus:border-accent"
+                        />
+                        {reasonsSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setReasonsSearch('')}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-[30px] min-h-[30px] flex items-center justify-center text-dim hover:text-text cursor-pointer rounded-md"
+                            aria-label="Clear search"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="col-span-2 sm:col-span-2 flex items-center justify-between sm:justify-end gap-2 text-[11px] font-mono text-dim px-0.5">
+                        <span className="tabular-nums">{filteredReasons.length} shown</span>
+                        {hasResettableFilters && (
+                          <button
+                            type="button"
+                            onClick={handleResetDecisionFilters}
+                            className="min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg border border-red/25 text-red hover:bg-red/10 font-semibold cursor-pointer transition-colors"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bulk Copy Actions: Visible / Filtered / All */}
+                    <div className="pt-2 border-t border-border/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono">
+                      <div className="flex items-center gap-1.5 text-dim min-w-0">
+                        <Copy size={12} className="text-accent shrink-0" />
+                        <span className="truncate">
+                          Copy logs (<span className="tabular-nums text-text/90">{displayedLogItems.length}</span> visible · <span className="tabular-nums text-text/90">{filteredReasons.length}</span> filtered · <span className="tabular-nums text-text/90">{strategyReasons.length}</span> all)
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 sm:inline-flex items-center gap-1.5 shrink-0">
+                        {[
+                          { id: 'visible', label: 'Visible', count: displayedLogItems.length, title: 'Copy currently visible log entries' },
+                          { id: 'filtered', label: 'Filtered', count: filteredReasons.length, title: 'Copy all log entries matching active filters' },
+                          { id: 'all', label: 'All', count: strategyReasons.length, title: 'Copy all unfiltered decision log entries for this strategy' },
+                        ].map(opt => {
+                          const isCopied = copiedLogScope === opt.id;
+                          const isDisabled = opt.count === 0;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              disabled={isDisabled}
+                              title={opt.title}
+                              onClick={() => handleCopyLogScope(opt.id)}
+                              className={cn(
+                                "min-h-[38px] sm:min-h-[28px] px-2.5 py-1 rounded-xl border text-[11px] font-mono transition-colors flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                                isCopied
+                                  ? "bg-green/10 border-green/40 text-green font-semibold"
+                                  : "bg-background/60 border-border/50 text-text/85 hover:text-accent hover:border-accent/40"
+                              )}
+                            >
+                              {isCopied ? <Check size={11} className="shrink-0" /> : <Copy size={11} className="shrink-0 text-dim" />}
+                              <span>{isCopied ? 'Copied' : opt.label}</span>
+                              <span className="text-[10px] text-dim tabular-nums">({opt.count})</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </SmoothCollapse>
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* Decision Results */}
           {filteredReasons.length === 0 ? (

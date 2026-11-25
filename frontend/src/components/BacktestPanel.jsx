@@ -8,6 +8,7 @@ import {
   SectionLabel, StatCard, cn, Tooltip, Btn, CandlestickChart
 } from './ui/primitives'
 import { SkeletonBlock, BacktestResultsSkeleton } from './ui/Skeletons'
+import { formatStopLossDescriptor, formatTakeProfitDescriptor } from '../utils/strategySummary.js'
 import {
   BarChart3, Play, RefreshCw, CheckCircle2, AlertCircle, Clock, Search,
   Sliders, ShieldCheck, Zap, Layers, Award, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight, Check, X
@@ -335,9 +336,9 @@ export const BacktestPanel = ({ onApplyConfig }) => {
             <div className="flex items-center gap-3 text-[11px] text-dim font-mono flex-wrap">
               <span>Risk: <strong className="text-text">{targetStrategyConfig.risk_pct_per_trade || 1.0}%</strong></span>
               <span>·</span>
-              <span>SL: <strong className="text-text">{targetStrategyConfig.sl_type || 'fixed'} ({targetStrategyConfig.sl_distance_pct || 2.0}%)</strong></span>
+              <span>SL: <strong className="text-text">{formatStopLossDescriptor(targetStrategyConfig).fullText}</strong></span>
               <span>·</span>
-              <span>TP: <strong className="text-text">{targetStrategyConfig.tp_mode || 'none'}</strong></span>
+              <span>TP: <strong className="text-text">{formatTakeProfitDescriptor(targetStrategyConfig).fullText}</strong></span>
               <span>·</span>
               <span>Interval: <strong className="text-text">{targetStrategyConfig.scan_interval || '5m'}</strong></span>
             </div>

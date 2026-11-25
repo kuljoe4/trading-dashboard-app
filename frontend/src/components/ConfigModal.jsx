@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, MoreVertical, SlidersHorizontal, ChevronDown, ChevronRight, Layers, Edit3 } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, MoreVertical, SlidersHorizontal, ChevronDown, ChevronRight, Layers, Edit3, Filter } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
+import { SmoothCollapse } from './ui/SmoothMotion'
 import * as Switch from '@radix-ui/react-switch'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { ConfirmationModal } from './ConfirmationModal'
@@ -22,6 +23,14 @@ import {
   rankHtfRotationCandidates,
   formatHtfCrossCompact,
 } from '../utils/htfEmaCross.js'
+import {
+  filterAndGroupPresets,
+  formatRelativePresetAge,
+} from '../utils/presetFiltering.js'
+import {
+  formatStopLossDescriptor,
+  formatTakeProfitDescriptor,
+} from '../utils/strategySummary.js'
 import {
   TAB_SECTION_DEFAULTS,
   loadPersistedSectionOrders,
@@ -2403,13 +2412,12 @@ const computePresetDiff = (current, saved) => {
   const rSaved = saved.risk_pct_per_trade;
   if (rCurr !== rSaved) diffs.push({ label: 'Risk per trade', old: `${rSaved}%`, new: `${rCurr}%` });
 
-  // Stop loss
-  if ((current.sl_type || 'pct') !== (saved.sl_type || 'pct')) {
-    diffs.push({ label: 'SL model', old: saved.sl_type || 'pct', new: current.sl_type || 'pct' });
+  // Stop loss (type-aware: pct vs lookback_low/high vs streak_extreme vs supertrend)
+  const slCurrDesc = formatStopLossDescriptor(current);
+  const slSavedDesc = formatStopLossDescriptor(saved);
+  if (slCurrDesc.fullText !== slSavedDesc.fullText) {
+    diffs.push({ label: 'Stop loss', old: slSavedDesc.fullText, new: slCurrDesc.fullText });
   }
-  const slCurr = current.sl_distance_pct;
-  const slSaved = saved.sl_distance_pct;
-  if (slCurr !== slSaved) diffs.push({ label: 'Stop loss', old: `${slSaved}%`, new: `${slCurr}%` });
 
   // Trailing stop (matches canonical SessionConfig fields)
   const formatTrail = (c) => {
@@ -2423,8 +2431,11 @@ const computePresetDiff = (current, saved) => {
   const tSaved = formatTrail(saved);
   if (tCurr !== tSaved) diffs.push({ label: 'Trailing stop', old: tSaved, new: tCurr });
 
-  if ((current.tp_mode || 'exp_rr_seq') !== (saved.tp_mode || 'exp_rr_seq')) {
-    diffs.push({ label: 'TP mode', old: saved.tp_mode || 'exp_rr_seq', new: current.tp_mode || 'exp_rr_seq' });
+  // Take profit / exit strategy (type-aware: fixed vs exp_rr_seq vs exp_rr_seq_switch)
+  const tpCurrDesc = formatTakeProfitDescriptor(current);
+  const tpSavedDesc = formatTakeProfitDescriptor(saved);
+  if (tpCurrDesc.fullText !== tpSavedDesc.fullText) {
+    diffs.push({ label: 'Profit / Exit', old: tpSavedDesc.fullText, new: tpCurrDesc.fullText });
   }
 
   return diffs;
@@ -2725,18 +2736,28 @@ const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSumm
                 <span>{configSummary.interval}</span>
                 <span>·</span>
                 <span>{configSummary.risk}% risk</span>
-                {configSummary.sl !== undefined && configSummary.sl !== null && (
+                {configSummary.slText ? (
+                  <>
+                    <span>·</span>
+                    <span>SL {configSummary.slText}</span>
+                  </>
+                ) : (configSummary.sl !== undefined && configSummary.sl !== null && (
                   <>
                     <span>·</span>
                     <span>SL {configSummary.sl}%</span>
                   </>
-                )}
-                {configSummary.tp !== undefined && configSummary.tp !== null && (
+                ))}
+                {configSummary.tpText ? (
+                  <>
+                    <span>·</span>
+                    <span>TP {configSummary.tpText}</span>
+                  </>
+                ) : (configSummary.tp !== undefined && configSummary.tp !== null && (
                   <>
                     <span>·</span>
                     <span>TP {configSummary.tp}R</span>
                   </>
-                )}
+                ))}
               </div>
             </div>
           )}
@@ -2786,310 +2807,353 @@ const PresetItem = React.memo(React.forwardRef(({
   onDuplicate,
   onPromoteVariant,
   onEditBase,
-  lastEditedLabel = 'Active'
+  lastEditedLabel = 'Active',
+  usageMeta = null,
 }, ref) => {
   const [manualExpanded, setManualExpanded] = useState(false);
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
   const isExpanded = manualExpanded || isEditingVariant;
 
-  let modeColor = "bg-dim";
   let modeLabel = "Paper";
-  if (pMode === 'live') { modeColor = "bg-green"; modeLabel = "Live"; }
-  else if (pMode === 'testnet') { modeColor = "bg-cyan-500"; modeLabel = "Testnet"; }
+  let modeTextClass = "text-dim";
+  if (pMode === 'live') { modeLabel = "Live"; modeTextClass = "text-green"; }
+  else if (pMode === 'testnet') { modeLabel = "Testnet"; modeTextClass = "text-cyan-400"; }
 
-  const tpRatio = (preset.config.tp_mode === 'fixed' || preset.config.tp_mode === undefined)
-    ? preset.config.tp_ratio || 2.0
-    : (preset.config.exit_rr_sequence && preset.config.exit_rr_sequence.length > 0)
-        ? preset.config.exit_rr_sequence[preset.config.exit_rr_sequence.length - 1]
-        : 2.0;
-
+  const scopeDesc = getWatchlistScopeDescriptor(preset.config);
+  const slDesc = formatStopLossDescriptor(preset.config);
+  const tpDesc = formatTakeProfitDescriptor(preset.config);
   const diffs = (isExpanded && isLoaded && isDirty && currentCfg) ? computePresetDiff(currentCfg, preset.config) : [];
+  const ageLabel = usageMeta?.lastUsedTs ? formatRelativePresetAge(usageMeta.lastUsedTs) : null;
+
+  let roleLabel = 'Library';
+  let roleTextClass = 'text-dim';
+  if (isVariant) {
+    roleLabel = variantIndex !== undefined && variantIndex >= 0 ? `Variant #${variantIndex + 1}` : 'Variant';
+    roleTextClass = 'text-violet-300 font-semibold';
+  } else if (isLoaded) {
+    roleLabel = 'Active Base';
+    roleTextClass = 'text-accent font-semibold';
+  } else if (usageMeta?.role === 'active_session') {
+    roleLabel = 'Active Session';
+    roleTextClass = 'text-green font-semibold';
+  } else if (usageMeta?.group === 'recent') {
+    roleLabel = ageLabel ? `Used ${ageLabel}` : 'Recently used';
+    roleTextClass = 'text-amber font-medium';
+  }
 
   return (
     <motion.div
       ref={ref}
       layout
-      initial={{ opacity: 0, y: 6 }}
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.96 }}
-      transition={{ duration: 0.16, ease: "easeInOut" }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={{ duration: 0.14, ease: "easeInOut" }}
       className={cn(
-        "flex flex-col border-b border-border/40 hover:bg-white/[0.02] transition-all relative overflow-hidden group/preset",
-        isSelected && "bg-accent/[0.06] border-accent/30",
-        isVariant && "border-violet-500/30 bg-violet-500/[0.03] hover:bg-violet-500/[0.06]",
-        isEditingVariant && "ring-1 ring-violet-500 bg-violet-500/[0.08]",
-        isExpanded && !isVariant && "bg-surface/30 border-b-border"
+        "flex flex-col rounded-xl border transition-colors relative overflow-hidden group/preset",
+        isExpanded && "md:col-span-2",
+        isSelected
+          ? "bg-accent/[0.07] border-accent/45"
+          : isVariant
+            ? "border-violet-500/30 bg-violet-500/[0.03] hover:bg-violet-500/[0.06]"
+            : isLoaded
+              ? "border-accent/40 bg-accent/[0.04] hover:bg-accent/[0.07]"
+              : "border-border/55 bg-surface-elevated/35 hover:bg-surface-elevated/60 hover:border-border-hover",
+        isEditingVariant && "ring-1 ring-violet-500 bg-violet-500/[0.08]"
       )}
     >
+      {/* Card Primary Surface — Compact Vertical Rhythm */}
       <div
-        className="flex items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 cursor-pointer"
+        className="flex flex-col gap-1 p-2 sm:p-2.5 cursor-pointer"
         onClick={(e) => {
           if (e.target.closest('button') || e.target.closest('input')) return;
           if (onToggleSelect && (isSelected || e.metaKey || e.ctrlKey)) {
-             onToggleSelect(preset.name);
+            onToggleSelect(preset.name);
           } else if (isVariant && onEditVariant) {
-             onEditVariant(preset, variantIndex);
+            onEditVariant(preset, variantIndex);
           } else {
-             onLoad(preset);
+            onLoad(preset);
           }
         }}
       >
-        {/* Checkbox for batch select */}
-        {onToggleSelect && (
-           <button
-             type="button"
-             onClick={(e) => { e.stopPropagation(); onToggleSelect(preset.name); }}
-             aria-label={`Select ${preset.name}`}
-             className="shrink-0 p-1 rounded-md focus-visible:ring-2 focus-visible:ring-accent"
-           >
-             <div className={cn(
-               "w-4 h-4 rounded border flex items-center justify-center transition-all",
-               isSelected ? "bg-accent border-accent text-black font-bold" : "border-border/60 hover:border-accent/40"
-             )}>
-               {isSelected && <Check size={10} className="stroke-[3]" />}
-             </div>
-           </button>
-        )}
+        {/* Top Row: Preset Title + Unboxed Kicker + Compact 36px Hitbox Controls */}
+        <div className="flex items-start justify-between gap-1.5">
+          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5 text-[10.5px] leading-none flex-wrap">
+              {isVariant && (
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.8)] shrink-0"
+                  title={`Running as Variant #${(variantIndex ?? 0) + 1}`}
+                />
+              )}
+              <span className={roleTextClass}>{roleLabel}</span>
+              <span aria-hidden="true" className="text-dim/45">·</span>
+              <span className={cn("font-medium", modeTextClass)}>{modeLabel}</span>
+              {isEditingVariant && (
+                <>
+                  <span aria-hidden="true" className="text-dim/45">·</span>
+                  <span className="font-semibold text-violet-200">Editing</span>
+                </>
+              )}
+              {isLoaded && isDirty && !isVariant && (
+                <>
+                  <span aria-hidden="true" className="text-dim/45">·</span>
+                  <span className="font-semibold text-amber">Modified</span>
+                </>
+              )}
+            </div>
 
-        <div className="flex-1 min-w-0 flex items-center gap-2 sm:gap-2.5">
-          {/* Status dots */}
-          <div className="flex items-center gap-1 shrink-0">
-            <span className={cn("w-2 h-2 rounded-full", modeColor)} title={`Mode: ${modeLabel}`} />
-            {isVariant && (
-              <span
-                className="w-2 h-2 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.8)]"
-                title={`Running as Variant #${(variantIndex ?? 0) + 1}`}
-              />
-            )}
+            <h4 className={cn(
+              "text-sm font-bold truncate tracking-tight transition-colors leading-tight",
+              isVariant ? "text-violet-100 group-hover/preset:text-white" : "text-text group-hover/preset:text-accent"
+            )}>
+              {preset.name}
+            </h4>
           </div>
 
-          <div className="flex flex-col gap-0.5 min-w-0 flex-1 leading-snug">
-             <div className="flex items-center gap-1.5 min-w-0">
-                <span className={cn(
-                  "text-xs sm:text-[13px] font-bold truncate tracking-tight transition-colors min-w-0 leading-snug",
-                  isVariant ? "text-violet-200 group-hover/preset:text-violet-100" : "text-text group-hover/preset:text-accent"
+          <div className="flex items-center gap-0.5 shrink-0 -mr-1 -mt-1">
+            {onToggleSelect && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onToggleSelect(preset.name); }}
+                aria-label={`Select ${preset.name}`}
+                aria-pressed={!!isSelected}
+                className="min-w-[36px] min-h-[36px] sm:min-w-[30px] sm:min-h-[30px] flex items-center justify-center rounded-lg hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent cursor-pointer"
+              >
+                <div className={cn(
+                  "w-3.5 h-3.5 rounded border flex items-center justify-center transition-all",
+                  isSelected ? "bg-accent border-accent text-white font-bold" : "border-border-hover/80 hover:border-accent/60"
                 )}>
-                  {preset.name}
-                </span>
-
-                {/* Variant Color-Coded Badge */}
-                {isVariant && (
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/40 flex items-center gap-1 shrink-0 leading-none">
-                    <Layers size={9} className="text-violet-400 hidden sm:inline" />
-                    {variantIndex !== undefined && variantIndex >= 0 ? (
-                      <>
-                        <span className="sm:hidden">V{variantIndex + 1}</span>
-                        <span className="hidden sm:inline">{`Variant #${variantIndex + 1}`}</span>
-                      </>
-                    ) : 'Variant'}
-                  </span>
-                )}
-
-                {isEditingVariant && (
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-violet-500/30 text-violet-200 border border-violet-400 shrink-0 leading-none">
-                    Editing
-                  </span>
-                )}
-
-                {/* Active Base Badge */}
-                {isLoaded && !isVariant && (
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-accent/20 text-accent border border-accent/40 shrink-0 leading-none">
-                    <span className="sm:hidden">Base</span>
-                    <span className="hidden sm:inline">Active Base</span>
-                  </span>
-                )}
-
-                {isLoaded && isDirty && !isVariant && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber shrink-0 sm:hidden" title="Modified" />
-                )}
-             </div>
-
-             <div className="text-[10.5px] text-dim font-mono tracking-tight truncate leading-snug">
-               {`${getWatchlistScopeDescriptor(preset.config).badge} · ${preset.config.scan_interval || '1m'} · ${preset.config.risk_pct_per_trade}% · SL ${preset.config.sl_distance_pct}%${tpRatio ? ` · ${Number(tpRatio).toFixed(1)}R` : ''} · ${modeLabel}`}
-             </div>
+                  {isSelected && <Check size={9} className="stroke-[3]" />}
+                </div>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setManualExpanded(prev => !prev); }}
+              aria-label={isExpanded ? `Collapse ${preset.name} details` : `Expand ${preset.name} details`}
+              aria-expanded={isExpanded}
+              className={cn(
+                "min-w-[36px] min-h-[36px] sm:min-w-[30px] sm:min-h-[30px] flex items-center justify-center rounded-lg text-dim hover:text-text hover:bg-white/5 transition-all cursor-pointer",
+                isExpanded && "bg-white/5 text-accent rotate-180"
+              )}
+            >
+              <ChevronDown size={14} />
+            </button>
           </div>
         </div>
 
-        {/* Right Actions: Compact & Zero-Overlap on Narrow Screens */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        {/* 4-Column Tabular Strategy Parameters (Type-aware SL & Profit/Exit) */}
+        <div className="grid grid-cols-4 gap-1.5 pt-1 border-t border-border/30">
+          <div className="flex flex-col gap-0 min-w-0">
+            <span className="text-[9.5px] text-dim leading-none truncate">Scope · TF</span>
+            <span className="text-[11px] font-mono tabular-nums font-semibold text-text truncate leading-tight" title={`${scopeDesc.badge} · ${preset.config.scan_interval || '1m'}`}>
+              {scopeDesc.shortTag} · {preset.config.scan_interval || '1m'}
+            </span>
+          </div>
+          <div className="flex flex-col gap-0 min-w-0">
+            <span className="text-[9.5px] text-dim leading-none truncate">Risk</span>
+            <span className="text-[11px] font-mono tabular-nums font-semibold text-text truncate leading-tight">
+              {preset.config.risk_pct_per_trade}%
+            </span>
+          </div>
+          <div className="flex flex-col gap-0 min-w-0">
+            <span className="text-[9.5px] text-dim leading-none truncate" title={slDesc.fullLabel}>{slDesc.shortLabel}</span>
+            <span className="text-[11px] font-mono tabular-nums font-semibold text-text truncate leading-tight" title={slDesc.fullText}>
+              {slDesc.valueText}
+            </span>
+          </div>
+          <div className="flex flex-col gap-0 min-w-0 text-right">
+            <span className="text-[9.5px] text-dim leading-none truncate" title={tpDesc.fullLabel}>{tpDesc.shortLabel}</span>
+            <span className="text-[11px] font-mono tabular-nums font-semibold text-text truncate leading-tight" title={tpDesc.fullText}>
+              {tpDesc.valueText}
+            </span>
+          </div>
+        </div>
+
+        {/* Compact Thumb-Friendly Action Row */}
+        <div className="flex items-center gap-1.5 pt-1 border-t border-border/30">
           {isVariant ? (
-            <div className="flex items-center gap-1.5">
+            <>
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onEditVariant?.(preset, variantIndex);
                 }}
-                className="h-8 px-2.5 sm:px-3 rounded-lg text-[11px] font-bold bg-violet-600/20 hover:bg-violet-600/30 text-violet-200 border border-violet-500/40 transition-all flex items-center gap-1 cursor-pointer"
+                className="flex-1 min-h-[36px] sm:min-h-0 sm:h-7 px-2.5 rounded-lg text-[11px] font-semibold bg-violet-600/20 hover:bg-violet-600/30 text-violet-200 border border-violet-500/40 transition-colors flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
                 title={`Edit this variant's parameters at ${lastEditedLabel} without altering base strategy`}
               >
                 <Edit3 size={11} className="text-violet-400 shrink-0" />
-                <span className="hidden sm:inline">Edit Variant</span>
-                <span className="sm:hidden">Edit</span>
+                <span>Edit Variant</span>
               </button>
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
                 aria-label={`Remove variant ${preset.name}`}
-                className="h-8 px-2.5 rounded-lg border border-border/60 text-[11px] font-medium text-dim hover:text-red hover:border-red/40 transition-colors cursor-pointer"
+                className="min-h-[36px] sm:min-h-0 sm:h-7 px-2.5 rounded-lg border border-border/70 text-[11px] font-semibold text-dim hover:text-red hover:border-red/40 hover:bg-red/5 transition-colors flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                 title="Remove from active variants"
               >
-                <span className="hidden sm:inline">Remove</span>
-                <X size={12} className="sm:hidden" />
+                <X size={12} />
+                <span>Remove</span>
               </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
-                className="h-8 px-2.5 sm:px-3 rounded-lg border border-border/80 text-[11px] font-bold text-text hover:border-accent hover:text-accent hover:bg-accent/5 transition-all cursor-pointer whitespace-nowrap"
-                title="Add as secondary trading variant"
-              >
-                <span className="hidden sm:inline">+ Variant</span>
-                <span className="sm:hidden">+ Var</span>
-              </button>
-              {isLoaded && onEditBase ? (
+            </>
+          ) : isLoaded ? (
+            <>
+              {onEditBase && (
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onEditBase(); }}
-                  className="h-8 inline-flex items-center gap-1 px-2.5 sm:px-3 rounded-lg text-[11px] font-bold bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 transition-all cursor-pointer whitespace-nowrap"
+                  className="flex-1 min-h-[36px] sm:min-h-0 sm:h-7 px-2.5 rounded-lg text-[11px] font-semibold bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 transition-colors flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
                   title={`Continue editing base strategy at ${lastEditedLabel}`}
                 >
                   <Edit3 size={11} className="shrink-0" />
-                  <span>Edit</span>
+                  <span>Edit Strategy</span>
+                </button>
+              )}
+              {isDirty ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onSave(preset.name); }}
+                  className="min-h-[36px] sm:min-h-0 sm:h-7 px-2.5 rounded-lg text-[11px] font-semibold bg-amber/15 hover:bg-amber/25 text-amber border border-amber/35 transition-colors flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Save size={11} />
+                  <span>Update</span>
                 </button>
               ) : (
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); onLoad(preset); }}
-                  className={cn(
-                    "hidden sm:inline-flex h-8 items-center px-3 rounded-lg text-[11px] font-bold transition-all cursor-pointer",
-                    isLoaded ? "bg-accent/15 text-accent border border-accent/40" : "text-dim hover:text-text hover:bg-white/5 border border-transparent"
-                  )}
-                  title="Load as primary base strategy"
+                  onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
+                  className="min-h-[36px] sm:min-h-0 sm:h-7 px-2.5 rounded-lg border border-border/70 text-[11px] font-semibold text-dim hover:text-text hover:border-border-hover transition-colors flex items-center justify-center cursor-pointer whitespace-nowrap shrink-0"
+                  title="Add as secondary trading variant"
                 >
-                  {isLoaded ? 'Loaded' : 'Load Base'}
+                  + Variant
                 </button>
               )}
-            </div>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onLoad(preset); }}
+                className="flex-1 min-h-[36px] sm:min-h-0 sm:h-7 px-2.5 rounded-lg text-[11px] font-semibold bg-background/70 hover:bg-accent/15 text-text hover:text-accent border border-border/70 hover:border-accent/40 transition-colors flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
+                title="Load as primary base strategy"
+              >
+                <span>Load Base</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
+                className="min-h-[36px] sm:min-h-0 sm:h-7 px-2.5 rounded-lg border border-border/70 text-[11px] font-semibold text-text/90 hover:border-violet-500/45 hover:text-violet-300 hover:bg-violet-500/10 transition-colors flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                title="Add as secondary trading variant"
+              >
+                <Layers size={11} className="text-violet-400 shrink-0" />
+                <span>+ Variant</span>
+              </button>
+            </>
           )}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setManualExpanded(prev => !prev); }}
-            aria-label={isExpanded ? `Collapse ${preset.name} actions` : `Expand ${preset.name} actions`}
-            aria-expanded={isExpanded}
-            className={cn(
-              "h-8 w-8 flex items-center justify-center rounded-lg border border-transparent text-dim hover:text-text hover:bg-white/5 transition-all cursor-pointer shrink-0",
-              isExpanded && "bg-white/5 text-accent rotate-180"
-            )}
-          >
-            <ChevronDown size={14} />
-          </button>
         </div>
       </div>
 
-      {/* Inline Expansion */}
+      {/* Inline Expansion Drawer */}
       {isExpanded && (
         <AnimatePresence>
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="px-3 sm:px-4 pb-3 flex flex-col gap-2.5 overflow-hidden bg-background/20 border-t border-border/20 pt-2.5"
+            className="px-3.5 sm:px-4 pb-3.5 flex flex-col gap-2.5 overflow-hidden bg-background/30 border-t border-border/35 pt-3"
           >
             {isLoaded && isDirty && diffs.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                 {diffs.map((d, i) => (
-                    <div key={i} className="bg-background/60 border border-border/40 rounded-lg p-2 flex flex-col gap-0.5">
-                       <span className="text-[10px] text-dim">{d.label}</span>
-                       <div className="text-[11px] font-mono tracking-tight flex items-center gap-1.5">
-                         <span className="text-dim/80">{d.old}</span>
-                         <span className="text-dim/40">→</span>
-                         <span className="text-amber font-semibold">{d.new}</span>
-                       </div>
+                {diffs.map((d, i) => (
+                  <div key={i} className="bg-background/60 border border-border/40 rounded-xl px-2.5 py-2 flex flex-col gap-0.5">
+                    <span className="text-[10px] text-dim">{d.label}</span>
+                    <div className="text-[11px] font-mono tabular-nums tracking-tight flex items-center gap-1.5">
+                      <span className="text-dim/80">{d.old}</span>
+                      <span className="text-dim/40">→</span>
+                      <span className="text-amber font-semibold">{d.new}</span>
                     </div>
-                 ))}
+                  </div>
+                ))}
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-1.5">
-               {isVariant ? (
-                 <>
-                   <Btn
-                     variant="primary"
-                     onClick={() => onEditVariant?.(preset, variantIndex)}
-                     className="h-8 px-3 text-[11px] bg-violet-600 hover:bg-violet-500 text-white font-bold flex items-center gap-1"
-                   >
-                     <Edit3 size={12} /> Edit Variant
-                   </Btn>
-                   <Btn
-                     type="button"
-                     variant="ghost"
-                     onClick={() => onPromoteVariant ? onPromoteVariant(variantIndex) : onLoad(preset)}
-                     className="h-8 px-3 text-[11px] border border-border text-dim hover:text-text font-bold"
-                     title="Make this variant your main base strategy"
-                   >
-                     Promote to Base
-                   </Btn>
-                 </>
-               ) : (
-                 <>
-                   {isLoaded && (
-                     <Btn
-                       variant="primary"
-                       onClick={() => onSave(preset.name)}
-                       className="h-8 px-3 text-[11px] bg-accent text-white font-bold"
-                     >
-                       Update preset
-                     </Btn>
-                   )}
-                   <Btn
-                     variant="ghost"
-                     onClick={() => onLoad(preset)}
-                     className="h-8 px-3 text-[11px] border border-border text-dim hover:text-text font-bold"
-                   >
-                     {isLoaded ? 'Reload Base' : 'Load as Base'}
-                   </Btn>
-                 </>
-               )}
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5">
+              {isVariant ? (
+                <>
+                  <Btn
+                    type="button"
+                    variant="ghost"
+                    onClick={() => onPromoteVariant ? onPromoteVariant(variantIndex) : onLoad(preset)}
+                    className="min-h-[38px] sm:min-h-0 sm:h-8 px-3 text-xs border border-border text-text hover:border-accent font-semibold"
+                    title="Make this variant your main base strategy"
+                  >
+                    Promote to Base
+                  </Btn>
+                </>
+              ) : (
+                <>
+                  {isLoaded && (
+                    <Btn
+                      variant="primary"
+                      onClick={() => onSave(preset.name)}
+                      className="min-h-[38px] sm:min-h-0 sm:h-8 px-3 text-xs bg-accent text-white font-semibold"
+                    >
+                      Update preset
+                    </Btn>
+                  )}
+                  <Btn
+                    variant="ghost"
+                    onClick={() => onLoad(preset)}
+                    className="min-h-[38px] sm:min-h-0 sm:h-8 px-3 text-xs border border-border text-dim hover:text-text font-semibold"
+                  >
+                    {isLoaded ? 'Reload Base' : 'Load as Base'}
+                  </Btn>
+                </>
+              )}
 
-               <Btn
-                 variant="ghost"
-                 onClick={() => onSaveAsNew(preset)}
-                 className="h-8 px-2.5 text-[11px] border border-border text-dim hover:text-accent font-bold flex items-center gap-1"
-               >
-                 <Copy size={11} /> Save as new
-               </Btn>
+              <Btn
+                variant="ghost"
+                onClick={() => onSaveAsNew(preset)}
+                className="min-h-[38px] sm:min-h-0 sm:h-8 px-3 text-xs border border-border text-dim hover:text-accent font-semibold flex items-center justify-center gap-1"
+              >
+                <Copy size={12} /> Save as new
+              </Btn>
 
-               {isLoaded && isDirty && (
-                 <Btn
-                   variant="ghost"
-                   onClick={onRevert}
-                   className="h-8 px-2.5 text-[11px] text-amber hover:text-amber-300 font-bold"
-                 >
-                   Revert
-                 </Btn>
-               )}
+              {isLoaded && isDirty && (
+                <Btn
+                  variant="ghost"
+                  onClick={onRevert}
+                  className="min-h-[38px] sm:min-h-0 sm:h-8 px-3 text-xs border border-amber/30 text-amber hover:text-amber-300 font-semibold"
+                >
+                  Revert
+                </Btn>
+              )}
 
-               <div className="flex-1" />
+              <div className="hidden sm:block sm:flex-1" />
 
-               <Btn
-                 variant="ghost"
-                 onClick={onDuplicate}
-                 className="h-8 px-2.5 text-[11px] text-dim hover:text-text flex font-bold"
-               >
-                 Duplicate
-               </Btn>
+              <Btn
+                variant="ghost"
+                onClick={onDuplicate}
+                className="min-h-[38px] sm:min-h-0 sm:h-8 px-3 text-xs border border-border/60 text-dim hover:text-text font-semibold"
+              >
+                Duplicate
+              </Btn>
 
-               <Btn
-                 variant="ghost"
-                 disabled={sessionActive}
-                 onClick={(e) => onDelete(e, preset.name)}
-                 className={cn("h-8 px-2.5 text-[11px] font-bold", sessionActive ? "text-dim/30 cursor-not-allowed" : "text-red hover:bg-red/10")}
-               >
-                 Delete
-               </Btn>
+              <Btn
+                variant="ghost"
+                disabled={sessionActive}
+                onClick={(e) => onDelete(e, preset.name)}
+                className={cn(
+                  "min-h-[38px] sm:min-h-0 sm:h-8 px-3 text-xs font-semibold border",
+                  sessionActive
+                    ? "border-border/30 text-dim/30 cursor-not-allowed"
+                    : "border-red/25 text-red hover:bg-red/10"
+                )}
+              >
+                Delete
+              </Btn>
             </div>
           </motion.div>
         </AnimatePresence>
@@ -3781,7 +3845,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [libraryExpanded, setLibraryExpanded] = useState(false);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [selectedPresetNames, setSelectedPresetNames] = useState(new Set());
-  const [presetTabFilter, setPresetTabFilter] = useState('all'); // 'all' | 'in_use'
+  const [presetTabFilter, setPresetTabFilter] = useState('all'); // 'all' | 'live' | 'testnet' | 'paper' | 'variants'
+  const [presetUsageFilter, setPresetUsageFilter] = useState('all'); // 'all' | 'active' | 'recent' | 'other'
+  const [presetFiltersExpanded, setPresetFiltersExpanded] = useState(() => {
+    try {
+      return localStorage.getItem('presets_filters_expanded') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const handleTogglePresetFilters = React.useCallback(() => {
+    setPresetFiltersExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('presets_filters_expanded', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
   const [recentlyUsedNames, setRecentlyUsedNames] = useState(() => {
     try {
       const stored = localStorage.getItem('recently_used_presets');
@@ -4003,65 +4084,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return loadedPresetName || (isEdit ? (initialConfig?.strategy_label || cfg.strategy_label) : null);
   }, [baseConfigBackup, loadedPresetName, isEdit, initialConfig?.strategy_label, cfg.strategy_label]);
 
-  const filteredPresets = useMemo(() => {
-    let list = Array.isArray(presets) ? presets : [];
-
-    const searchLower = presetSearch.toLowerCase().trim();
-    if (searchLower) {
-      list = list.filter(p => p && typeof p.name === 'string' && p.name.toLowerCase().includes(searchLower));
-    }
-
-    if (presetTabFilter !== 'all') {
-      if (presetTabFilter === 'variants') {
-        const variantsSet = new Set(activeVariants.map(v => v?.strategy_label));
-        list = list.filter(p => variantsSet.has(p.name));
-      } else {
-        list = list.filter(p => {
-          const pMode = p.config?.trading_mode || (p.config?.paper_mode ? 'paper' : 'live');
-          return pMode === presetTabFilter;
-        });
-      }
-    }
-
-    const variantOrderMap = new Map();
-    activeVariants.forEach((v, idx) => {
-      if (v?.strategy_label && !variantOrderMap.has(v.strategy_label)) {
-        variantOrderMap.set(v.strategy_label, idx);
-      }
+  const presetPartition = useMemo(() => {
+    return filterAndGroupPresets(presets, {
+      search: presetSearch,
+      modeFilter: presetTabFilter,
+      usageFilter: presetUsageFilter,
+      activeBasePresetName,
+      activeVariants,
+      sessionRecency,
+      recentlyUsedNames,
     });
+  }, [presets, presetSearch, presetTabFilter, presetUsageFilter, activeBasePresetName, activeVariants, sessionRecency, recentlyUsedNames]);
 
-    const getBubbleTier = (p) => {
-      if (activeBasePresetName && p.name === activeBasePresetName && !variantOrderMap.has(p.name)) return 0; // Active Base
-      if (variantOrderMap.has(p.name)) return 1; // Active Variants
-      if (sessionRecency.activeNames.has(p.name)) return 2; // Active Session(s)
-      if (recentlyUsedNames.includes(p.name) || sessionRecency.lastUsedTsByName.has(p.name)) return 3; // Latest Used
-      return 4;
-    };
-
-    // Bubble active base, active variants, active sessions, and latest used sessions/presets to the top
-    return [...list].sort((a, b) => {
-      const tierA = getBubbleTier(a);
-      const tierB = getBubbleTier(b);
-      if (tierA !== tierB) return tierA - tierB;
-
-      if (tierA === 1) {
-        return variantOrderMap.get(a.name) - variantOrderMap.get(b.name);
-      }
-
-      if (tierA === 3) {
-        const idxA = recentlyUsedNames.indexOf(a.name);
-        const idxB = recentlyUsedNames.indexOf(b.name);
-        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-        if (idxA !== -1) return -1;
-        if (idxB !== -1) return 1;
-        const tsA = sessionRecency.lastUsedTsByName.get(a.name) || 0;
-        const tsB = sessionRecency.lastUsedTsByName.get(b.name) || 0;
-        if (tsA !== tsB) return tsB - tsA;
-      }
-
-      return a.name.localeCompare(b.name);
-    });
-  }, [presets, presetSearch, presetTabFilter, activeVariants, recentlyUsedNames, activeBasePresetName, sessionRecency]);
+  const filteredPresets = presetPartition.items;
 
 
   // Persist uncommitted New Session drafts with short debounce so closing right after edits never loses state
@@ -5156,6 +5191,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setEditingVariantIdx(null);
     setLoadedPresetName(variantLabel);
     setPresetName(variantLabel);
+    recordRecentlyUsed(variantLabel);
     setIsDirty(true);
     setHasPendingSessionChanges(true);
     if (!isEdit) persistDraft(flattenedBase, variantLabel);
@@ -5166,7 +5202,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       message: `"${variantLabel}" is now the active base strategy.`
     });
     setSection('presets');
-  }, [baseConfigBackup, cfg, editingVariantIdx, isEdit, sessionActive, persistDraft, addAlert]);
+  }, [baseConfigBackup, cfg, editingVariantIdx, isEdit, sessionActive, persistDraft, addAlert, recordRecentlyUsed]);
 
   const promoteVariantToBase = React.useCallback(() => {
     promoteVariantToBaseByIndex(editingVariantIdx);
@@ -5229,12 +5265,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const mode = targetConfig.trading_mode || (targetConfig.paper_mode ? 'paper' : 'live');
     const interval = targetConfig.scan_interval || '1m';
     const risk = targetConfig.risk_pct_per_trade || 1.0;
-    const sl = targetConfig.sl_distance_pct;
-    const tp = (targetConfig.tp_mode === 'fixed' || targetConfig.tp_mode === undefined)
-      ? targetConfig.tp_ratio || 2.0
-      : (targetConfig.exit_rr_sequence && targetConfig.exit_rr_sequence.length > 0)
-          ? targetConfig.exit_rr_sequence[targetConfig.exit_rr_sequence.length - 1]
-          : 2.0;
+    const slDesc = formatStopLossDescriptor(targetConfig);
+    const tpDesc = formatTakeProfitDescriptor(targetConfig);
 
     setSaveModalState({
       isOpen: true,
@@ -5246,8 +5278,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         scope: scopeInfo.badge,
         interval,
         risk,
-        sl,
-        tp: tp ? Number(tp).toFixed(1) : undefined
+        slText: slDesc.compactText,
+        tpText: tpDesc.compactText,
       }
     });
   }, [cfg, loadedPresetName, presets]);
@@ -5714,10 +5746,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       return;
     }
 
+    if (!exists) {
+      recordRecentlyUsed(p.name);
+    }
     updateVariantsList(variants => exists
       ? variants.filter((v) => v?.strategy_label !== p.name)
       : [...variants, coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name }, true)]);
-  }, [activeVariants, editingVariantIdx, baseConfigBackup, loadedPresetName, cfg.strategy_label, updateVariantsList, addAlert]);
+  }, [activeVariants, editingVariantIdx, baseConfigBackup, loadedPresetName, cfg.strategy_label, updateVariantsList, addAlert, recordRecentlyUsed]);
 
   const clearAllVariants = React.useCallback(() => {
     const count = activeVariants.length;
@@ -8159,298 +8194,576 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-presets"
             className="flex flex-col gap-0 animate-in fade-in duration-200 -mx-2.5 sm:-mx-4 -mt-1.5 sm:-mt-2.5"
           >
-            {/* Sticky Presets Toolbar + Mobile-First Filter Nav */}
-            <div className="sticky top-0 z-20 bg-surface/95 backdrop-blur-md flex flex-col gap-2 px-3 sm:px-4 pt-2.5 pb-2.5 border-b border-border/40">
-               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    <div className="relative flex-1 min-w-0">
-                      <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
-                      <input
-                         ref={presetSearchInputRef}
-                         type="text"
-                         inputMode="search"
-                         placeholder="Search presets by name or mode... (/)"
-                         value={presetSearch}
-                         onChange={(e) => setPresetSearch(e.target.value)}
-                         className="w-full bg-background/70 border border-border/70 hover:border-border rounded-xl min-h-[40px] sm:min-h-0 sm:h-8 pl-8 pr-8 text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus:bg-background focus:outline-none transition-all"
-                      />
-                      {presetSearch && (
-                         <button
-                            type="button"
-                            onClick={() => setPresetSearch('')}
-                            aria-label="Clear search"
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-[30px] min-h-[30px] flex items-center justify-center text-dim hover:text-text rounded-md transition-colors cursor-pointer"
-                         >
-                            <X size={12} />
-                         </button>
-                      )}
+            {/* Compact Single-Row Sticky Search & Primary Actions (keeps >=85% viewport scrollable on mobile) */}
+            <div className="sticky top-0 z-20 bg-surface/95 backdrop-blur-md flex flex-col gap-1 px-3 sm:px-4 py-1.5 border-b border-border/45">
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1 min-w-0">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
+                  <input
+                    ref={presetSearchInputRef}
+                    type="text"
+                    inputMode="search"
+                    placeholder="Search presets by name or mode... (/)"
+                    value={presetSearch}
+                    onChange={(e) => setPresetSearch(e.target.value)}
+                    className="w-full bg-background/75 border border-border/70 hover:border-border rounded-xl min-h-[42px] sm:min-h-0 sm:h-9 pl-8 pr-8 text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus:bg-background focus:outline-none transition-all"
+                  />
+                  {presetSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setPresetSearch('')}
+                      aria-label="Clear search"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 min-w-[34px] min-h-[34px] flex items-center justify-center text-dim hover:text-text rounded-lg transition-colors cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenSaveAsNew(null)}
+                  className="min-h-[42px] sm:min-h-0 sm:h-9 px-3 rounded-xl bg-accent hover:bg-accent/90 text-white text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 whitespace-nowrap"
+                >
+                  <Plus size={13} />
+                  <span className="hidden sm:inline">Save as Preset</span>
+                  <span className="sm:hidden">Save</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
+                  aria-expanded={openSectionId === 'presets_tools'}
+                  className={cn(
+                    "min-h-[42px] sm:min-h-0 sm:h-9 px-2.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 whitespace-nowrap",
+                    openSectionId === 'presets_tools'
+                      ? "bg-accent/12 border-accent/45 text-accent"
+                      : "border-border/70 text-dim hover:text-text hover:bg-background/60"
+                  )}
+                >
+                  <SlidersHorizontal size={13} className="shrink-0" />
+                  <span className="hidden xs:inline">Tools</span>
+                </button>
+              </div>
+
+              {/* Collapsible Import / Export / Clipboard Tools */}
+              <AnimatePresence>
+                {openSectionId === 'presets_tools' && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1 pb-0.5">
+                      <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="min-h-[38px] sm:min-h-0 sm:h-8 border border-border hover:border-accent text-xs font-semibold">
+                        <Copy size={12} className="mr-1.5" /> Copy active
+                      </Btn>
+                      <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="min-h-[38px] sm:min-h-0 sm:h-8 border border-border hover:border-accent text-xs font-semibold">
+                        <ClipboardPaste size={12} className="mr-1.5" /> Paste active
+                      </Btn>
+                      <Btn variant="ghost" onClick={handleExportToFile} className="min-h-[38px] sm:min-h-0 sm:h-8 border border-border hover:border-accent text-xs font-semibold">
+                        <Download size={12} className="mr-1.5" /> Export JSON
+                      </Btn>
+                      <label className="relative flex items-center justify-center border border-border hover:border-accent rounded-lg text-xs font-semibold cursor-pointer text-text hover:text-accent transition-colors min-h-[38px] sm:min-h-0 sm:h-8">
+                        <input type="file" accept=".json" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer" />
+                        <Upload size={12} className="mr-1.5" /> Import File
+                      </label>
                     </div>
-                    <button
-                       type="button"
-                       onClick={() => handleOpenSaveAsNew(null)}
-                       className="min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-xl sm:rounded-lg bg-accent hover:bg-accent/90 text-white text-[11px] font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
-                    >
-                       <Plus size={12} />
-                       <span className="hidden sm:inline">Save as Preset</span>
-                       <span className="sm:hidden">Save</span>
-                    </button>
-                    <button
-                       type="button"
-                       onClick={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
-                       className={cn(
-                          "min-h-[40px] sm:min-h-0 sm:h-8 px-2.5 rounded-xl sm:rounded-lg border text-[11px] font-bold transition-colors cursor-pointer shrink-0",
-                          openSectionId === 'presets_tools'
-                             ? "bg-accent/10 border-accent/40 text-accent"
-                             : "border-border/70 text-dim hover:text-text hover:bg-background/60"
-                       )}
-                    >
-                       Tools
-                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Scrollable Mobile-First Presets Workspace */}
+            <div className="px-3 sm:px-4 py-1.5 flex flex-col gap-1.5">
+              {/* Compact Active Strategy & Variant Portfolio Bar */}
+              {(() => {
+                const activeMode = cfg.trading_mode || (cfg.paper_mode ? 'paper' : 'live');
+                const activeModeLabel = activeMode === 'live' ? 'Live' : activeMode === 'testnet' ? 'Testnet' : 'Paper';
+                const combinedVariantRisk = activeVariants.reduce((acc, v) => acc + (Number(v?.risk_pct_per_trade) || 0), 0);
+                const maxTotalRisk = Number(cfg.max_total_risk_pct || CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT);
+                const riskFillPct = maxTotalRisk > 0 ? Math.min(100, (combinedVariantRisk / maxTotalRisk) * 100) : 0;
+
+                return (
+                  <div className="rounded-xl border border-border/60 bg-background/45 px-2.5 py-1.5 flex flex-col gap-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex flex-col gap-0">
+                        <div className="flex items-center gap-1.5 text-[10px] text-dim leading-none flex-wrap">
+                          <span>Active</span>
+                          <span aria-hidden="true" className="text-dim/45">·</span>
+                          <span className={cn(
+                            "font-medium",
+                            activeMode === 'live' ? "text-green" : activeMode === 'testnet' ? "text-cyan-400" : "text-dim"
+                          )}>
+                            {activeModeLabel}
+                          </span>
+                          {isDirty && (
+                            <>
+                              <span aria-hidden="true" className="text-dim/45">·</span>
+                              <span className="text-amber font-semibold">Modified</span>
+                            </>
+                          )}
+                        </div>
+                        <div className="text-xs sm:text-sm font-bold text-text truncate tracking-tight leading-snug">
+                          {loadedPresetName || cfg.strategy_label || 'Custom Strategy'}
+                        </div>
+                      </div>
+
+                      <div
+                        data-testid="presets-last-edited-nav"
+                        className="flex items-center gap-1 shrink-0"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => navigateToLastEdited('summary')}
+                          className="min-h-[34px] sm:min-h-0 sm:h-7 px-2.5 rounded-lg bg-accent/15 hover:bg-accent/25 text-accent border border-accent/35 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                          title={`Jump back to ${lastEditedLabel}`}
+                        >
+                          <Edit3 size={11} className="shrink-0" />
+                          <span>Resume: {lastEditedLabel}</span>
+                        </button>
+                        {lastEditedLocation?.tab !== 'summary' && (
+                          <button
+                            type="button"
+                            onClick={() => handleSectionChange('summary')}
+                            className="hidden sm:inline-flex min-h-[34px] sm:min-h-0 sm:h-7 px-2.5 rounded-lg text-[11px] font-semibold text-dim hover:text-text hover:bg-background/70 border border-border/50 transition-colors cursor-pointer whitespace-nowrap"
+                          >
+                            Overview
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pt-1 border-t border-border/30 flex items-center justify-between gap-2 text-[10.5px] flex-wrap">
+                      <div className="flex items-center gap-1.5 text-dim min-w-0">
+                        <Layers size={11} className="text-violet-400 shrink-0" />
+                        <span className="whitespace-nowrap">
+                          Var <strong className="font-mono tabular-nums text-violet-300">{activeVariants.length}/{CONFIG_LIMITS.MAX_VARIANTS}</strong>
+                        </span>
+                        <span aria-hidden="true" className="text-dim/45">·</span>
+                        <span className="whitespace-nowrap">
+                          Risk <strong className="font-mono tabular-nums text-text">{combinedVariantRisk.toFixed(1)}%</strong>
+                          <span className="font-mono tabular-nums text-dim/75">/{maxTotalRisk}%</span>
+                        </span>
+                        <div className="hidden xs:block w-12 h-1 rounded-full bg-surface-elevated overflow-hidden shrink-0">
+                          <div
+                            className="h-full rounded-full bg-violet-400 transition-all duration-300"
+                            style={{ width: `${riskFillPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {activeVariants.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={clearAllVariants}
+                            className="text-[11px] font-semibold text-red hover:text-red-400 transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-red/10"
+                          >
+                            Clear variants
+                          </button>
+                        )}
+                        {Array.isArray(presets) && presets.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleSelectAllPresets}
+                            className={cn(
+                              "text-[11px] font-semibold transition-colors cursor-pointer px-1.5 py-0.5 rounded inline-flex items-center gap-1",
+                              selectedPresetNames.size > 0
+                                ? "text-accent bg-accent/10"
+                                : "text-dim hover:text-text hover:bg-white/5"
+                            )}
+                          >
+                            <Check size={10} />
+                            <span>
+                              {selectedPresetNames.size === presets.length && presets.length > 0
+                                ? 'Deselect all'
+                                : selectedPresetNames.size > 0
+                                  ? `Select (${selectedPresetNames.size})`
+                                  : 'Select all'}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Mobile-First Usage & Progressive Mode Filter Controls */}
+              <div className="flex flex-col gap-1">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+                  {/* Segmented Usage Track: All | Active | Recently Used | Others */}
+                  <div
+                    role="group"
+                    aria-label="Filter presets by usage"
+                    data-testid="presets-usage-filter"
+                    className="flex-1 min-w-0 grid grid-cols-4 sm:flex sm:items-center gap-1 p-0.5 rounded-xl bg-background/65 border border-border/50"
+                  >
+                    {[
+                      { id: 'all', label: 'All', mobileLabel: 'All', count: presetPartition.counts.all },
+                      { id: 'active', label: 'Active', mobileLabel: 'Active', count: presetPartition.counts.active },
+                      { id: 'recent', label: 'Recently Used', mobileLabel: 'Recent', count: presetPartition.counts.recent },
+                      { id: 'other', label: 'Others', mobileLabel: 'Others', count: presetPartition.counts.other },
+                    ].map(f => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        aria-pressed={presetUsageFilter === f.id}
+                        onClick={() => setPresetUsageFilter(f.id)}
+                        className={cn(
+                          "min-h-[38px] sm:min-h-0 sm:h-8 px-1.5 sm:px-2.5 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap flex items-center justify-center gap-1 cursor-pointer sm:flex-1",
+                          presetUsageFilter === f.id
+                            ? f.id === 'active'
+                              ? "bg-green/15 text-green border border-green/35"
+                              : f.id === 'recent'
+                                ? "bg-amber/15 text-amber border border-amber/35"
+                                : "bg-surface-elevated text-text border border-border/80"
+                            : "text-dim hover:text-text hover:bg-surface/40 border border-transparent"
+                        )}
+                      >
+                        <span className="sm:hidden">{f.mobileLabel}</span>
+                        <span className="hidden sm:inline">{f.label}</span>
+                        <span className="text-[10px] font-mono tabular-nums opacity-80">
+                          ({f.count})
+                        </span>
+                      </button>
+                    ))}
                   </div>
 
-                  {/* Mobile-First Preset Filter Strip (grid/wrap on mobile, single row on sm+) */}
-                  <div className="grid grid-cols-3 xs:grid-cols-5 sm:flex sm:items-center gap-1 shrink-0 w-full sm:w-auto">
-                    {[
-                       { id: 'all', label: 'All', count: Array.isArray(presets) ? presets.length : 0 },
-                       { id: 'live', label: 'Live' },
-                       { id: 'testnet', label: 'Testnet' },
-                       { id: 'paper', label: 'Paper' },
-                       { id: 'variants', label: 'Variants', count: activeVariants.length, isVariantTab: true }
-                    ].map(f => (
-                       <button
+                  {/* Secondary Mode Filter Disclosure Row / Toggle */}
+                  <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                    <div className="sm:hidden flex items-center gap-1.5 text-[11px] font-mono text-dim px-0.5 min-w-0">
+                      <span>
+                        Mode:{' '}
+                        <strong className={cn("font-semibold", presetTabFilter !== 'all' ? "text-accent" : "text-text")}>
+                          {presetTabFilter === 'all' ? 'All' : presetTabFilter === 'live' ? 'Live' : presetTabFilter === 'testnet' ? 'Testnet' : presetTabFilter === 'paper' ? 'Paper' : 'Variants'}
+                        </strong>
+                      </span>
+                      {presetTabFilter !== 'all' && (
+                        <>
+                          <span aria-hidden="true" className="opacity-40">·</span>
+                          <button
+                            type="button"
+                            onClick={() => setPresetTabFilter('all')}
+                            className="text-red font-sans font-semibold hover:underline cursor-pointer"
+                          >
+                            Reset
+                          </button>
+                        </>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      data-testid="presets-filters-toggle"
+                      aria-expanded={presetFiltersExpanded}
+                      aria-label={presetFiltersExpanded ? 'Hide mode filters' : 'Show mode filters'}
+                      onClick={handleTogglePresetFilters}
+                      className={cn(
+                        "min-h-[34px] sm:min-h-0 sm:h-9 px-2.5 rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        presetFiltersExpanded || presetTabFilter !== 'all'
+                          ? "bg-accent/15 border-accent/40 text-accent"
+                          : "bg-background/65 border-border/50 text-dim hover:text-text hover:border-border"
+                      )}
+                    >
+                      <Filter size={11} className="shrink-0" />
+                      <span>Filters</span>
+                      {presetTabFilter !== 'all' && (
+                        <span className="font-mono text-[10px] tabular-nums">(1)</span>
+                      )}
+                      <ChevronDown size={12} className={cn("transition-transform duration-200", presetFiltersExpanded && "rotate-180")} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Desktop Quiet Active Mode Summary when Collapsed */}
+                {!presetFiltersExpanded && presetTabFilter !== 'all' && (
+                  <div className="hidden sm:flex items-center justify-between gap-2 text-[11px] font-mono text-dim px-1">
+                    <div className="flex items-center gap-1.5">
+                      <span>
+                        Mode:{' '}
+                        <strong className="text-accent font-semibold">
+                          {presetTabFilter === 'live' ? 'Live' : presetTabFilter === 'testnet' ? 'Testnet' : presetTabFilter === 'paper' ? 'Paper' : 'Variants'}
+                        </strong>
+                      </span>
+                      <span aria-hidden="true" className="opacity-40">·</span>
+                      <span className="tabular-nums">{filteredPresets.length} shown</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPresetTabFilter('all')}
+                      className="text-red font-sans font-semibold hover:underline cursor-pointer"
+                    >
+                      Reset mode
+                    </button>
+                  </div>
+                )}
+
+                {/* Progressive Disclosure: Mode Filter Tabs */}
+                <SmoothCollapse isOpen={presetFiltersExpanded}>
+                  <div className="pt-0.5">
+                    <div className="grid grid-cols-3 xs:grid-cols-5 sm:flex sm:items-center gap-1 overflow-x-auto no-scrollbar">
+                      {[
+                        { id: 'all', label: 'All', count: Array.isArray(presets) ? presets.length : 0 },
+                        { id: 'live', label: 'Live' },
+                        { id: 'testnet', label: 'Testnet' },
+                        { id: 'paper', label: 'Paper' },
+                        { id: 'variants', label: 'Variants', count: activeVariants.length, isVariantTab: true }
+                      ].map(f => (
+                        <button
                           key={f.id}
                           type="button"
                           aria-pressed={presetTabFilter === f.id}
                           onClick={() => setPresetTabFilter(f.id)}
                           className={cn(
-                             "min-h-[36px] sm:min-h-0 sm:h-7 px-2.5 text-[11px] font-bold rounded-lg sm:rounded-md transition-all whitespace-nowrap flex items-center justify-center gap-1 shrink-0 cursor-pointer",
-                             presetTabFilter === f.id
-                                ? f.isVariantTab
-                                   ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
-                                   : "bg-accent/15 text-accent border border-accent/30"
-                                : "bg-background/40 sm:bg-transparent text-dim hover:text-text hover:bg-surface/50 border border-border/40 sm:border-transparent"
+                            "min-h-[38px] sm:min-h-0 sm:h-8 px-2 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap flex items-center justify-center gap-1 shrink-0 cursor-pointer",
+                            presetTabFilter === f.id
+                              ? f.isVariantTab
+                                ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
+                                : "bg-accent/15 text-accent border border-accent/35"
+                              : "bg-background/45 sm:bg-transparent text-dim hover:text-text hover:bg-surface/50 border border-border/45 sm:border-transparent"
                           )}
-                       >
+                        >
                           <span>{f.label}</span>
                           {f.count !== undefined && (
-                             <span className={cn(
-                                "text-[10px] font-mono tabular-nums leading-tight opacity-85",
-                                presetTabFilter === f.id
-                                   ? (f.isVariantTab ? "text-violet-200" : "text-accent")
-                                   : "text-dim"
-                             )}>
-                                ({f.count})
-                             </span>
+                            <span className={cn(
+                              "text-[10px] font-mono tabular-nums opacity-85",
+                              presetTabFilter === f.id
+                                ? (f.isVariantTab ? "text-violet-200" : "text-accent")
+                                : "text-dim"
+                            )}>
+                              ({f.count})
+                            </span>
                           )}
-                       </button>
-                    ))}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-               </div>
+                </SmoothCollapse>
+              </div>
 
-               {/* Quick Edit Navigation Bar: jump back to last edited tab/section instead of only Active tab */}
-               <div
-                 data-testid="presets-last-edited-nav"
-                 className="flex items-center justify-between gap-2 flex-wrap pt-1 border-t border-border/25 text-[11px]"
-               >
-                 <div className="flex items-center gap-1.5 min-w-0">
-                   <span className="text-[10px] font-mono uppercase tracking-wider text-dim shrink-0">Edit Nav:</span>
-                   <button
-                     type="button"
-                     onClick={() => navigateToLastEdited('summary')}
-                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-accent/12 hover:bg-accent/20 text-accent border border-accent/35 font-semibold transition-colors cursor-pointer truncate max-w-full"
-                     title={`Jump back to ${lastEditedLabel}`}
-                   >
-                     <Edit3 size={11} className="shrink-0" />
-                     <span className="truncate">Resume: {lastEditedLabel}</span>
-                   </button>
-                 </div>
-                 {lastEditedLocation?.tab !== 'summary' && (
-                   <button
-                     type="button"
-                     onClick={() => handleSectionChange('summary')}
-                     className="px-2 py-1 rounded-md text-[10.5px] font-semibold text-dim hover:text-text hover:bg-background/60 border border-border/40 transition-colors cursor-pointer shrink-0"
-                   >
-                     Active Overview
-                   </button>
-                 )}
-               </div>
-
-               {/* Tools expansion */}
-               <AnimatePresence>
-                  {openSectionId === 'presets_tools' && (
-                     <motion.div
-                       initial={{ opacity: 0, height: 0 }}
-                       animate={{ opacity: 1, height: 'auto' }}
-                       exit={{ opacity: 0, height: 0 }}
-                       className="overflow-hidden"
-                     >
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 py-1.5">
-                          <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="h-8 border border-border hover:border-accent text-[11px] font-bold"><Copy size={11} className="mr-1"/> Copy active</Btn>
-                          <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="h-8 border border-border hover:border-accent text-[11px] font-bold"><ClipboardPaste size={11} className="mr-1"/> Paste active</Btn>
-                          <Btn variant="ghost" onClick={handleExportToFile} className="h-8 border border-border hover:border-accent text-[11px] font-bold"><Download size={11} className="mr-1"/> Export JSON</Btn>
-                          <label className="relative flex items-center justify-center border border-border hover:border-accent rounded-lg text-[11px] font-bold cursor-pointer text-text hover:text-accent transition-colors h-8">
-                            <input type="file" accept=".json" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer" />
-                            <Upload size={11} className="mr-1"/> Import File
-                          </label>
-                        </div>
-                     </motion.div>
-                  )}
-               </AnimatePresence>
-            </div>
-
-            {/* Presets List */}
-            <div className="flex flex-col">
-               {filteredPresets.length === 0 ? (
-                  <div className="py-6 px-4 text-center text-dim text-xs flex flex-col items-center gap-1.5">
-                     <p>No presets found matching your filter or search.</p>
-                     {presetSearch && (
+              {/* Presets Card Grid */}
+              <div className="flex flex-col gap-2">
+                {filteredPresets.length === 0 ? (
+                  <div className="py-10 px-4 rounded-2xl border border-border/45 bg-background/30 text-center text-dim text-xs flex flex-col items-center gap-3">
+                    <p className="max-w-xs leading-relaxed">
+                      {presetUsageFilter === 'active'
+                        ? 'No active base, variant, or running session presets match these filters.'
+                        : presetUsageFilter === 'recent'
+                          ? 'No recently used presets outside your active ones.'
+                          : presetUsageFilter === 'other'
+                            ? 'All matching presets are already active or recently used.'
+                            : 'No presets match your current search or mode filter.'}
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap justify-center">
+                      {presetUsageFilter !== 'all' && (
                         <button
-                           type="button"
-                           onClick={() => setPresetSearch('')}
-                           className="text-accent text-xs font-bold underline"
+                          type="button"
+                          onClick={() => setPresetUsageFilter('all')}
+                          className="min-h-[38px] sm:min-h-0 sm:h-8 px-3.5 rounded-xl bg-accent/15 text-accent border border-accent/35 text-xs font-semibold cursor-pointer"
                         >
-                           Clear search query
+                          Show all groups
                         </button>
-                     )}
+                      )}
+                      {presetTabFilter !== 'all' && (
+                        <button
+                          type="button"
+                          onClick={() => setPresetTabFilter('all')}
+                          className="min-h-[38px] sm:min-h-0 sm:h-8 px-3.5 rounded-xl bg-background border border-border text-text text-xs font-semibold cursor-pointer"
+                        >
+                          Reset mode filter
+                        </button>
+                      )}
+                      {presetSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setPresetSearch('')}
+                          className="min-h-[38px] sm:min-h-0 sm:h-8 px-3.5 rounded-xl bg-background border border-border text-text text-xs font-semibold cursor-pointer"
+                        >
+                          Clear search query
+                        </button>
+                      )}
+                    </div>
                   </div>
-               ) : (
-                  filteredPresets.map(p => {
-                     const variantIndex = activeVariants.findIndex(v => v?.strategy_label === p.name);
-                     const isVariant = variantIndex !== -1;
-                     const isEditingVariant = editingVariantIdx === variantIndex && isVariant;
-                     const isLoaded = (activeBasePresetName === p.name) && !isVariant;
-                     return (
-                        <PresetItem
-                           key={p.name}
-                           preset={p}
-                           variantIndex={variantIndex}
-                           isLoaded={isLoaded}
-                           isDirty={isDirty}
-                           onLoad={loadPreset}
-                           onToggleVariant={toggleVariant}
-                           onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                           isVariant={isVariant}
-                           isEditingVariant={isEditingVariant}
-                           onEditVariant={() => startEditingVariant(p, variantIndex)}
-                           onPromoteVariant={() => promoteVariantToBaseByIndex(variantIndex)}
-                           sessionActive={sessionActive}
-                           isSelected={selectedPresetNames.has(p.name)}
-                           onToggleSelect={toggleSelectPreset}
-                           currentCfg={cfg}
-                           onSave={(name) => savePreset(name)}
-                           onSaveAsNew={() => handleOpenSaveAsNew(p)}
-                           onRevert={() => {
-                              const original = (Array.isArray(presets) ? presets : []).find(x => x.name === loadedPresetName);
-                              if (original) loadPreset(original);
-                           }}
-                           onDuplicate={() => duplicatePreset(p)}
-                           onEditBase={() => navigateToLastEdited('summary')}
-                           lastEditedLabel={lastEditedLabel}
-                        />
-                     );
-                  })
-               )}
-            </div>
+                ) : (() => {
+                  const renderPresetRow = (p) => {
+                    const variantIndex = activeVariants.findIndex(v => v?.strategy_label === p.name);
+                    const isVariant = variantIndex !== -1;
+                    const isEditingVariant = editingVariantIdx === variantIndex && isVariant;
+                    const isLoaded = (activeBasePresetName === p.name) && !isVariant;
+                    return (
+                      <PresetItem
+                        key={p.name}
+                        preset={p}
+                        variantIndex={variantIndex}
+                        isLoaded={isLoaded}
+                        isDirty={isDirty}
+                        onLoad={loadPreset}
+                        onToggleVariant={toggleVariant}
+                        onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                        isVariant={isVariant}
+                        isEditingVariant={isEditingVariant}
+                        onEditVariant={() => startEditingVariant(p, variantIndex)}
+                        onPromoteVariant={() => promoteVariantToBaseByIndex(variantIndex)}
+                        sessionActive={sessionActive}
+                        isSelected={selectedPresetNames.has(p.name)}
+                        onToggleSelect={toggleSelectPreset}
+                        currentCfg={cfg}
+                        onSave={(name) => savePreset(name)}
+                        onSaveAsNew={() => handleOpenSaveAsNew(p)}
+                        onRevert={() => {
+                          const original = (Array.isArray(presets) ? presets : []).find(x => x.name === loadedPresetName);
+                          if (original) loadPreset(original);
+                        }}
+                        onDuplicate={() => duplicatePreset(p)}
+                        onEditBase={() => navigateToLastEdited('summary')}
+                        lastEditedLabel={lastEditedLabel}
+                        usageMeta={presetPartition.metaByName.get(p.name) || null}
+                      />
+                    );
+                  };
 
-            {/* In-flow Variants & Batch Summary Bar — Docked in content, never overlaps sticky modal footer */}
-            {(!isInputFocused || selectedPresetNames.size > 0) && (
-            <div className="mt-2.5 px-3 sm:px-4 pb-2">
-               {selectedPresetNames.size > 0 ? (
-                  <div className="p-2.5 rounded-xl bg-surface border border-accent/40 shadow-lg flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                     <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                           <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                           <span className="text-xs font-bold text-text">
-                              {selectedPresetNames.size} preset{selectedPresetNames.size === 1 ? '' : 's'} selected
-                           </span>
+                  if (presetUsageFilter !== 'all') {
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-2.5">
+                        {filteredPresets.map(renderPresetRow)}
+                      </div>
+                    );
+                  }
+
+                  const groupSections = [
+                    {
+                      id: 'active',
+                      title: 'Active',
+                      subtitle: 'Loaded base, active variants & running sessions',
+                      list: presetPartition.groups.active,
+                      accentClass: 'text-green',
+                    },
+                    {
+                      id: 'recent',
+                      title: 'Recently Used',
+                      subtitle: 'Recent sessions & loaded configs',
+                      list: presetPartition.groups.recent,
+                      accentClass: 'text-amber',
+                    },
+                    {
+                      id: 'other',
+                      title: 'Others',
+                      subtitle: 'Saved library',
+                      list: presetPartition.groups.other,
+                      accentClass: 'text-dim',
+                    },
+                  ].filter(g => g.list.length > 0);
+
+                  const showHeaders = groupSections.length > 1 || (groupSections.length === 1 && groupSections[0].id !== 'other');
+                  if (!showHeaders) {
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-2.5">
+                        {filteredPresets.map(renderPresetRow)}
+                      </div>
+                    );
+                  }
+
+                  return groupSections.map((group) => (
+                    <div key={group.id} data-preset-group={group.id} className="flex flex-col gap-1.5">
+                      <div className="pb-1 border-b border-border/35 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold">
+                          <span className={group.accentClass}>{group.title}</span>
+                          <span aria-hidden="true" className="text-dim/45">·</span>
+                          <span className="font-mono tabular-nums text-dim">{group.list.length}</span>
                         </div>
-                        <button
-                           type="button"
-                           onClick={() => setSelectedPresetNames(new Set())}
-                           className="text-xs font-semibold text-dim hover:text-text sm:hidden px-2 py-0.5"
-                        >
-                           Clear
-                        </button>
-                     </div>
-                     <div className="flex items-center gap-1.5 flex-wrap">
-                        <button
-                           type="button"
-                           onClick={() => setSelectedPresetNames(new Set())}
-                           className="text-xs font-semibold text-dim hover:text-text hidden sm:inline-block px-2 py-1"
-                        >
-                           Clear
-                        </button>
-                        <Btn
-                           variant="primary"
-                           onClick={() => {
-                              const currentBaseLabel = (editingVariantIdx !== null && baseConfigBackup)
-                                ? (baseConfigBackup.strategy_label || loadedPresetName)
-                                : (loadedPresetName || cfg.strategy_label);
-                              let addedCount = 0;
-                              updateVariantsList(existing => {
-                                const newVariants = [...existing];
-                                Array.from(selectedPresetNames).forEach(name => {
-                                   if (name !== currentBaseLabel && !newVariants.some(v => v?.strategy_label === name)) {
-                                      const p = (Array.isArray(presets) ? presets : []).find(x => x.name === name);
-                                      if (p && newVariants.length < CONFIG_LIMITS.MAX_VARIANTS) {
-                                         newVariants.push(coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name }, true));
-                                         addedCount++;
-                                      }
-                                   }
-                                });
-                                return newVariants;
-                              });
-                              setSelectedPresetNames(new Set());
-                              if (addedCount > 0) {
-                                addAlert({ level: 'success', title: 'Variants Updated', message: `Added ${addedCount} preset${addedCount === 1 ? '' : 's'} to active variants.` });
+                        <span className="hidden sm:inline text-[11px] text-dim/80">{group.subtitle}</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-2.5">
+                        {group.list.map(renderPresetRow)}
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+
+              {/* In-flow Variants & Batch Summary Bar — Docked in content, never overlaps sticky modal footer */}
+              {selectedPresetNames.size > 0 && (
+                <div className="p-3 rounded-2xl bg-surface border border-accent/45 shadow-lg flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-text font-mono tabular-nums">
+                      {selectedPresetNames.size} preset{selectedPresetNames.size === 1 ? '' : 's'} selected
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPresetNames(new Set())}
+                      className="min-h-[36px] px-2.5 rounded-lg text-xs font-semibold text-dim hover:text-text sm:hidden cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 sm:flex sm:items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPresetNames(new Set())}
+                      className="text-xs font-semibold text-dim hover:text-text hidden sm:inline-block px-2.5 py-1.5 cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                    <Btn
+                      variant="primary"
+                      onClick={() => {
+                        const currentBaseLabel = (editingVariantIdx !== null && baseConfigBackup)
+                          ? (baseConfigBackup.strategy_label || loadedPresetName)
+                          : (loadedPresetName || cfg.strategy_label);
+                        let addedCount = 0;
+                        updateVariantsList(existing => {
+                          const newVariants = [...existing];
+                          Array.from(selectedPresetNames).forEach(name => {
+                            if (name !== currentBaseLabel && !newVariants.some(v => v?.strategy_label === name)) {
+                              const p = (Array.isArray(presets) ? presets : []).find(x => x.name === name);
+                              if (p && newVariants.length < CONFIG_LIMITS.MAX_VARIANTS) {
+                                newVariants.push(coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name }, true));
+                                recordRecentlyUsed(p.name);
+                                addedCount++;
                               }
-                           }}
-                           className="flex-1 sm:flex-none h-8 px-3 bg-accent hover:bg-accent/90 text-white text-[11px] font-bold"
-                        >
-                           Set as variants
-                        </Btn>
-                        <Btn
-                           variant="ghost"
-                           onClick={handleExportSelectedPresets}
-                           className="h-8 px-3 border border-border/70 hover:border-accent/40 text-text text-[11px] font-bold"
-                        >
-                           Export
-                        </Btn>
-                        <Btn
-                           variant="ghost"
-                           onClick={handleDeleteSelectedPresets}
-                           disabled={sessionActive}
-                           className={cn("h-8 px-3 text-[11px] font-bold", sessionActive ? "text-red/40 cursor-not-allowed" : "text-red hover:bg-red/10")}
-                        >
-                           {sessionActive ? "Delete (locked)" : "Delete"}
-                        </Btn>
-                     </div>
+                            }
+                          });
+                          return newVariants;
+                        });
+                        setSelectedPresetNames(new Set());
+                        if (addedCount > 0) {
+                          addAlert({ level: 'success', title: 'Variants Updated', message: `Added ${addedCount} preset${addedCount === 1 ? '' : 's'} to active variants.` });
+                        }
+                      }}
+                      className="col-span-2 sm:col-span-1 min-h-[40px] sm:min-h-0 sm:h-8 px-3 bg-accent hover:bg-accent/90 text-white text-xs font-semibold"
+                    >
+                      Set as variants
+                    </Btn>
+                    <Btn
+                      variant="ghost"
+                      onClick={handleCopySelectedPresets}
+                      className="min-h-[40px] sm:min-h-0 sm:h-8 px-3 border border-border/70 hover:border-accent/40 text-text text-xs font-semibold"
+                    >
+                      Copy
+                    </Btn>
+                    <Btn
+                      variant="ghost"
+                      onClick={handleExportSelectedPresets}
+                      className="min-h-[40px] sm:min-h-0 sm:h-8 px-3 border border-border/70 hover:border-accent/40 text-text text-xs font-semibold"
+                    >
+                      Export
+                    </Btn>
+                    <Btn
+                      variant="ghost"
+                      onClick={handleDeleteSelectedPresets}
+                      disabled={sessionActive}
+                      className={cn(
+                        "col-span-2 sm:col-span-1 min-h-[40px] sm:min-h-0 sm:h-8 px-3 text-xs font-semibold border",
+                        sessionActive ? "border-border/30 text-red/40 cursor-not-allowed" : "border-red/25 text-red hover:bg-red/10"
+                      )}
+                    >
+                      {sessionActive ? "Delete (locked)" : "Delete"}
+                    </Btn>
                   </div>
-               ) : (
-                  <div className="px-3 py-2 rounded-lg bg-background/50 border border-border/50 flex items-center justify-between gap-2 text-[11px] text-dim flex-wrap">
-                     <div className="flex items-center gap-1.5 flex-wrap">
-                        <Layers size={12} className="text-violet-400 shrink-0" />
-                        <span className="font-medium text-text/80">
-                           Variants: <strong className="text-violet-400 font-bold">{activeVariants.length}</strong>/{CONFIG_LIMITS.MAX_VARIANTS}
-                        </span>
-                        <span className="text-dim/40">·</span>
-                        <span className="text-dim">
-                           Combined: <strong className="text-text font-bold">{(activeVariants.reduce((acc, v) => acc + (Number(v?.risk_pct_per_trade) || 0), 0)).toFixed(1)}%</strong>/{cfg.max_total_risk_pct || CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT}%
-                        </span>
-                     </div>
-                     {activeVariants.length > 0 && (
-                        <button
-                           type="button"
-                           onClick={clearAllVariants}
-                           className="text-[11px] font-bold text-red hover:text-red-400 transition-colors cursor-pointer"
-                        >
-                           Clear variants
-                        </button>
-                     )}
-                  </div>
-               )}
+                </div>
+              )}
             </div>
-            )}
           </div>
         )}
       </div>

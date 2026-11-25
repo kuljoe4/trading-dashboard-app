@@ -11,6 +11,7 @@ import { Briefcase, Zap } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
 import { lazyWithRetry } from '../lib/lazy'
+import { formatStopLossDescriptor, formatTakeProfitDescriptor } from '../utils/strategySummary.js'
 
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 const preloadTradeDetailModal = () => {
@@ -184,7 +185,7 @@ const TradesView = () => {
           label="Active Risk"
           value={`${Number(totalRiskPct || 0).toFixed(2)}%`}
           color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
-          subValue={`Cap: ${config.max_total_risk_pct || 5}% · SL: ${config.sl_distance_pct || 2}%`}
+          subValue={`Cap: ${config.max_total_risk_pct || 5}% · SL: ${formatStopLossDescriptor(config).compactText}`}
           tooltipText="Combined stop-loss risk across all active trades relative to account balance."
         />
         <StatCard
@@ -192,7 +193,7 @@ const TradesView = () => {
           label="Peak RR"
           value={`+${Number(peakRr || 0).toFixed(2)}`}
           color="text-accent"
-          subValue={`Target: +${Number(config.tp_ratio || 2).toFixed(1)}R (${config.tp_mode || 'fixed'})`}
+          subValue={`Exit: ${formatTakeProfitDescriptor(config).compactText}`}
           tooltipText="Maximum Reward-to-Risk ratio achieved across currently open positions."
         />
         <StatCard

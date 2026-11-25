@@ -18,38 +18,13 @@ import { cn } from '../ui/primitives';
 import { DraggableSectionList } from './DraggableSectionList';
 import { SmartStrategyNameControl, WatchlistScopeSelector } from './SmartNamingAndScope';
 import { getWatchlistScopeDescriptor } from '../../utils/smartStrategyNaming.js';
+import { formatStopLossDescriptor, formatTakeProfitDescriptor } from '../../utils/strategySummary.js';
 import { loadPersistedSectionOrders, savePersistedSectionOrders } from '../../utils/configSectionOrder.js';
 
 const TIMEFRAME_OPTIONS = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d'];
 
 const formatUSD = (v) =>
   `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const formatSlTypeLabel = (slType) => {
-  switch (slType) {
-    case 'lookback_low/high':
-      return 'High/Low Lookback';
-    case 'streak_extreme':
-      return 'Streak Extreme';
-    case 'supertrend':
-      return 'Supertrend Line';
-    case 'pct':
-    default:
-      return 'Fixed %';
-  }
-};
-
-const formatTpModeLabel = (tpMode) => {
-  switch (tpMode) {
-    case 'exp_rr_seq':
-      return 'RR Milestone Ladder';
-    case 'exp_rr_seq_switch':
-      return 'Adaptive RR Ladder';
-    case 'fixed':
-    default:
-      return 'Fixed Ratio';
-  }
-};
 
 const formatDelayShort = (delayVal) => {
   if (!delayVal) return '0s';
@@ -400,9 +375,9 @@ export const ActiveSummaryPanel = React.memo(({
     'martingale_post_reset_behavior',
   ]);
 
-  const slSummary = slType === 'pct'
-    ? `${formatSlTypeLabel(slType)} · ${Number(cfg.sl_distance_pct ?? 1.5)}% · Risk ${Number(cfg.risk_pct_per_trade ?? 1)}%`
-    : `${formatSlTypeLabel(slType)} · ${Number(cfg.sl_min_pct ?? 0.3)}%–${Number(cfg.sl_max_pct ?? 3)}%`;
+  const slDesc = formatStopLossDescriptor(cfg);
+  const tpDesc = formatTakeProfitDescriptor(cfg);
+  const slSummary = `${slDesc.fullText} · Risk ${Number(cfg.risk_pct_per_trade ?? 1)}%`;
 
   const watchlistScope = useMemo(() => getWatchlistScopeDescriptor(cfg), [cfg]);
 
@@ -762,7 +737,7 @@ export const ActiveSummaryPanel = React.memo(({
         id="summary_exit"
         icon={Target}
         title="Exit & Profit Protection"
-        summary={`${formatTpModeLabel(tpMode)} · ${cfg.trailing_stop_enabled ? 'Trailing On' : 'No Trailing'}${exitSignals.length > 0 ? ` · ${exitSignals.length} exit` : ''}`}
+        summary={`${tpDesc.fullText}${exitSignals.length > 0 ? ` · ${exitSignals.length} exit` : ''}`}
         isOpen={openSectionId === 'summary_exit'}
         onToggle={() => toggleSection('summary_exit')}
         headerActions={<SectionJumpButton label="TP & Trailing" onClick={() => onOpenFullSection('risk', 'risk_tp')} />}

@@ -1,26 +1,34 @@
-import React, { useMemo } from 'react';
-import { ShieldCheck, Zap, Activity, AlertTriangle } from 'lucide-react';
+import React from 'react';
+import { ShieldCheck, Activity, AlertTriangle } from 'lucide-react';
 import { cn, Tooltip } from './ui/primitives';
+import { formatStopLossDescriptor } from '../utils/strategySummary.js';
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export const RiskSummary = React.memo(({ cfg, balance }) => {
   const riskPct = Number(cfg.risk_pct_per_trade || 0);
-  const slPct = Number(cfg.sl_distance_pct || 0.8);
+  const slType = cfg.sl_type || 'pct';
+  const slDesc = formatStopLossDescriptor(cfg);
+  const minBound = Number(cfg.sl_min_pct ?? 0.3);
+  const maxBound = Number(cfg.sl_max_pct ?? 3.0);
+  const slPct = slType === 'pct'
+    ? Number(cfg.sl_distance_pct || 0.8)
+    : ((minBound > 0 && maxBound > 0) ? (minBound + maxBound) / 2 : Number(cfg.sl_distance_pct || 0.8));
   const maxTrades = Number(cfg.max_open_trades || 1);
 
   const riskAmount = balance * (riskPct / 100);
   const notional = slPct > 0 ? (riskAmount / (slPct / 100)) : 0;
   const totalExposure = notional * maxTrades;
 
-  const isAggressive = riskPct > 4 || slPct > 5;
+  const isAggressive = riskPct > 4 || (slType === 'pct' ? slPct : maxBound) > 5;
   const isTooSmall = notional > 0 && notional < 5.05 && cfg.auto_scale_min_notional !== false;
 
   return (
     <div className="px-5 py-4 bg-accent/5 border-t border-accent/10 flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-wider text-accent font-mono">
-          <ShieldCheck size={13} /> Live Risk Projection
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-wider text-accent font-mono min-w-0 truncate">
+          <ShieldCheck size={13} className="shrink-0" />
+          <span className="truncate">Live Risk Projection · {slDesc.compactText}</span>
         </div>
         {isAggressive && (
           <Tooltip content="Risk per trade exceeds 4% or Stop Loss distance exceeds 5%">
@@ -28,7 +36,7 @@ export const RiskSummary = React.memo(({ cfg, balance }) => {
               tabIndex={0}
               role="region"
               aria-label="Aggressive Risk Profile: Risk per trade exceeds 4% or Stop Loss distance exceeds 5%"
-              className="flex items-center gap-1 text-[8.5px] font-bold text-amber font-mono uppercase tracking-wider cursor-help focus-visible:ring-2 focus-visible:ring-amber focus-visible:outline-none"
+              className="flex items-center gap-1 text-[8.5px] font-bold text-amber font-mono uppercase tracking-wider cursor-help focus-visible:ring-2 focus-visible:ring-amber focus-visible:outline-none shrink-0"
             >
               <AlertTriangle size={11} /> Aggressive Profile
             </div>
@@ -42,7 +50,9 @@ export const RiskSummary = React.memo(({ cfg, balance }) => {
           <span className="text-xs font-mono font-bold tabular-nums text-text">{fmtUSD(riskAmount)}</span>
         </div>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider">Est. Notional</span>
+          <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider">
+            {slType === 'pct' ? 'Est. Notional' : 'Mid Notional'}
+          </span>
           <span className={cn("text-xs font-mono font-bold tabular-nums", isTooSmall ? "text-amber" : "text-text")}>
             {fmtUSD(isTooSmall ? 5.05 : notional)}
           </span>

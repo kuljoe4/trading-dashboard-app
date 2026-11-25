@@ -11,9 +11,11 @@ import {
   Globe,
   TrendingUp,
   Filter,
+  ChevronDown,
 } from 'lucide-react';
 import { useTradingStore } from '../store/trading';
 import { cn, Tooltip } from './ui/primitives';
+import { SmoothCollapse } from './ui/SmoothMotion';
 import {
   extractHtfEmaCross,
   matchesHtfCrossFilters,
@@ -472,7 +474,7 @@ export const SymbolCatalogPicker = React.memo(({
                   </div>
                   <button
                     type="button"
-                    aria-expanded={showHtfFilters || sortBy === 'ema_cross' || hasActiveHtfFilter}
+                    aria-expanded={showHtfFilters}
                     onClick={() => setShowHtfFilters((prev) => !prev)}
                     className={cn(
                       'min-h-[38px] sm:min-h-[26px] px-2.5 py-1 rounded-lg border text-[11px] font-medium flex items-center gap-1 cursor-pointer shrink-0 transition-colors',
@@ -487,6 +489,7 @@ export const SymbolCatalogPicker = React.memo(({
                     {activeHtfFilterCount > 0 && (
                       <span className="font-mono text-[10px] font-bold tabular-nums">{activeHtfFilterCount}</span>
                     )}
+                    <ChevronDown size={12} className={cn('transition-transform duration-200', showHtfFilters && 'rotate-180')} />
                   </button>
                   {!defaultExpanded && (
                     <button
@@ -501,7 +504,62 @@ export const SymbolCatalogPicker = React.memo(({
                 </div>
               </div>
 
-              {isHtfMode && (
+              {isHtfMode && !showHtfFilters && (
+                <div className="px-3 py-1.5 border-b border-border/40 bg-background/30 flex items-center justify-between gap-2 text-[11px] font-mono text-muted">
+                  <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap min-w-0">
+                    <span>
+                      EMA:{' '}
+                      <strong className="text-text font-semibold">
+                        {htfFreshnessFilter === 'all' ? 'All states' : htfFreshnessFilter}
+                      </strong>
+                    </span>
+                    {htfDirectionFilter !== 'all' && (
+                      <>
+                        <span aria-hidden="true" className="opacity-40">·</span>
+                        <span className={htfDirectionFilter === 'LONG' ? 'text-green font-semibold' : 'text-red font-semibold'}>
+                          {htfDirectionFilter}
+                        </span>
+                      </>
+                    )}
+                    {htfMinScoreFilter > 0 && (
+                      <>
+                        <span aria-hidden="true" className="opacity-40">·</span>
+                        <span className="text-accent font-semibold tabular-nums">Score {htfMinScoreFilter}+</span>
+                      </>
+                    )}
+                    {htfEvaluatedCount > 0 && (
+                      <>
+                        <span aria-hidden="true" className="opacity-40">·</span>
+                        <span className="text-accent tabular-nums">{htfEvaluatedCount} scored · {filteredCatalog.length} shown</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {hasActiveHtfFilter && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHtfFreshnessFilter('all');
+                          setHtfDirectionFilter('all');
+                          setHtfMinScoreFilter(0);
+                        }}
+                        className="text-red font-sans font-semibold hover:underline cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowHtfFilters(true)}
+                      className="text-accent font-sans font-semibold hover:underline cursor-pointer"
+                    >
+                      Adjust
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <SmoothCollapse isOpen={showHtfFilters}>
                 <div className="px-3 py-2.5 border-b border-border/40 bg-background/30 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
                     <span className="leading-snug">
@@ -615,7 +673,7 @@ export const SymbolCatalogPicker = React.memo(({
                     </div>
                   </div>
                 </div>
-              )}
+              </SmoothCollapse>
 
               {/* Symbol Grid (Fixed height eliminates CLS during async catalog load and category switches) */}
               <div className={cn('p-2 overflow-y-auto no-scrollbar', compact ? 'h-52' : 'h-64')}>

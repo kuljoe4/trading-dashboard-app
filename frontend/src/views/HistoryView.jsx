@@ -1,3 +1,4 @@
+import { engineStorageKey } from '../utils/engineMode.js'
 import React, { useEffect, useMemo, useState } from 'react'
 import { shallow } from 'zustand/shallow'
 import * as Dialog from '@radix-ui/react-dialog'
@@ -2224,7 +2225,7 @@ export const HistoryView = () => {
             await sessionAPI.update(strategyId, activeResult.patch)
           } else if (typeof sessionStorage !== 'undefined') {
             try {
-              sessionStorage.setItem('config_draft', JSON.stringify(activeResult.updatedConfig))
+              sessionStorage.setItem(engineStorageKey('config_draft'), JSON.stringify(activeResult.updatedConfig))
             } catch (_) {}
           }
           updateConfig(activeResult.patch)

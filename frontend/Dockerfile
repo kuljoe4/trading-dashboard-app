@@ -11,9 +11,11 @@ RUN pnpm install --frozen-lockfile || pnpm install
 COPY . .
 ARG VITE_WS_URL
 ARG VITE_API_URL
+ARG VITE_DUAL_ENGINE
 # ARG VITE_ADMIN_API_KEY (SEC-01: Removed from build-time args to prevent embedding in bundle)
 ENV VITE_WS_URL=$VITE_WS_URL \
-    VITE_API_URL=$VITE_API_URL
+    VITE_API_URL=$VITE_API_URL \
+    VITE_DUAL_ENGINE=$VITE_DUAL_ENGINE
 
 RUN pnpm run build
 
@@ -76,7 +78,7 @@ server {
     proxy_temp_file_write_size 256k;
 
     # SRE P0: WebSocket endpoint — dedicated 24h timeouts, connection upgrade, and backend SNI
-    location = /session/ws {
+    location ~ ^/(paper-engine/)?session/ws$ {
         proxy_pass ${BACKEND_URL};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -93,7 +95,7 @@ server {
     }
 
     # SRE P0: REST API endpoints — set Host: ${BACKEND_HOST} to avoid routing loop on Railway public edge
-    location ~ ^/(session|presets|auth|settings|monitoring|healthz|startup-checklist) {
+    location ~ ^/(paper-engine/)?(session|presets|auth|settings|monitoring|healthz|startup-checklist) {
         proxy_pass ${BACKEND_URL};
         proxy_http_version 1.1;
         proxy_set_header Host ${BACKEND_HOST};

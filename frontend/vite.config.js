@@ -48,6 +48,7 @@ export default defineConfig({
     port: 3000,
     hmr: false,
     proxy: disableProxy ? false : {
+      '/paper-engine': { target, ws: true, changeOrigin: true },
       '/session': { target, ws: true, changeOrigin: true, bypass: htmlBypass },
       '/settings': { target, changeOrigin: true, bypass: htmlBypass },
       '/monitoring': { target, changeOrigin: true, bypass: htmlBypass },

@@ -1,6 +1,10 @@
+import { ENGINE_EVENTS } from '../engine/events';
 import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Repository } from 'typeorm';
+import { SHARED_MARKET_DATA, SharedMarketData } from '../engine/shared-market-data';
+import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { Log as LogEntity } from '../models/entities/Log.entity';
@@ -54,12 +58,29 @@ import { SmartOptimizerService } from '../engine/smart-optimizer.service';
     OrderManagerService,
     OrderFilterService,
     TradingSessionService,
-    TickerCacheService,
+    {
+      provide: TickerCacheService,
+      inject: [EventEmitter2, SHARED_MARKET_DATA],
+      useFactory: (events: EventEmitter2, shared: SharedMarketData | null) => {
+        if (!shared) return new TickerCacheService(events);
+        shared.events.on(ENGINE_EVENTS.TICKER_PRICE_UPDATED, price => {
+          events.emit(ENGINE_EVENTS.TICKER_PRICE_UPDATED, price);
+        });
+        return shared.tickerCache;
+      },
+    },
     MarketFeedService,
     ExecutionService,
     SessionLifecycleService,
     MomentumScannerService,
-    KlineStoreService,
+    {
+      provide: KlineStoreService,
+      inject: [getRepositoryToken(KlineEntity), SHARED_MARKET_DATA],
+      useFactory: (repository: Repository<KlineEntity>, shared: SharedMarketData | null) => {
+        if (!shared) return new KlineStoreService(repository);
+        return shared.klineStore ??= new KlineStoreService(repository);
+      },
+    },
     BroadcastService,
     SessionStateService,
     SessionService,

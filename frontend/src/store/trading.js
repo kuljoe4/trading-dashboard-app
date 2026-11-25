@@ -1,3 +1,4 @@
+import { enginePath, engineStorageKey, selectedEngine } from '../utils/engineMode.js'
 import { createWithEqualityFn } from 'zustand/traditional'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { sessionAPI, normalizeUrl } from '../api/client.js'
@@ -744,7 +745,7 @@ const defaultConfig = {
   sl_include_forming_candle: false,
   sl_min_pct: 0.3,
   sl_max_pct: 3,
-  trading_mode: localStorage.getItem('global_trading_mode') || 'paper',
+  trading_mode: selectedEngine || localStorage.getItem('global_trading_mode') || 'paper',
   risk_pct_per_trade: CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT,
   martingale_enabled: false,
   martingale_multiplier: 2.0,
@@ -1082,8 +1083,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       get().disconnectWS();
       // Clear active config drafts and loaded preset names from storage when deactivating/closing a session
       if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.removeItem('config_draft');
-        sessionStorage.removeItem('loaded_preset_name');
+        sessionStorage.removeItem(engineStorageKey('config_draft'));
+        sessionStorage.removeItem(engineStorageKey('loaded_preset_name'));
       }
       // Proactively clear ephemeral state on termination while preserving user strategy configuration
       set(st => ({
@@ -1536,7 +1537,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   updateConfig: (c) => {
     console.log('[Config Trace] updateConfig called with:', c);
     if (c.trading_mode) {
-      localStorage.setItem('global_trading_mode', c.trading_mode);
+      localStorage.setItem(engineStorageKey('global_trading_mode'), c.trading_mode);
     }
     if (c.debug_mode !== undefined && typeof localStorage !== 'undefined') {
       localStorage.setItem('global_debug_mode', String(c.debug_mode));
@@ -1560,7 +1561,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     const prevSessionList = st.sessionList;
     console.log('[Config Trace] patchConfig initiating:', patch);
     if (patch.trading_mode && typeof localStorage !== 'undefined') {
-      localStorage.setItem('global_trading_mode', patch.trading_mode);
+      localStorage.setItem(engineStorageKey('global_trading_mode'), patch.trading_mode);
     }
     if (patch.debug_mode !== undefined && typeof localStorage !== 'undefined') {
       localStorage.setItem('global_debug_mode', String(patch.debug_mode));
@@ -1571,7 +1572,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     if (!st.sessionActive) {
       try {
         if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.setItem('config_draft', JSON.stringify(newConfig));
+          sessionStorage.setItem(engineStorageKey('config_draft'), JSON.stringify(newConfig));
         }
       } catch (e) {}
     }
@@ -1608,7 +1609,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         if (!st.sessionActive) {
           try {
             if (typeof sessionStorage !== 'undefined' && prevConfig) {
-              sessionStorage.setItem('config_draft', JSON.stringify(prevConfig));
+              sessionStorage.setItem(engineStorageKey('config_draft'), JSON.stringify(prevConfig));
             }
           } catch (_) {}
         }
@@ -1956,7 +1957,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        window.location.hostname === '127.0.0.1');
 
     let u;
-    if (isDevPreview || !import.meta.env.VITE_WS_URL) {
+    if (selectedEngine) {
+      u = `${wsProto}://${window.location.host}${enginePath(selectedEngine)}/session/ws?engine=${selectedEngine}`;
+    } else if (isDevPreview || !import.meta.env.VITE_WS_URL) {
       u = `${wsProto}://${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.host}/session/ws`;
     } else {
       u = normalizeUrl(import.meta.env.VITE_WS_URL, wsProto);
@@ -2688,7 +2691,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
   },
 }), {
-  name: 'momentum_trading_store',
+  name: engineStorageKey('momentum_trading_store'),
   storage: createJSONStorage(() => localStorage),
   partialize: (state) => ({
     // Whitelist only essential data to keep storage size under control and avoid stale session control bits.

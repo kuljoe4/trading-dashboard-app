@@ -1,3 +1,4 @@
+import { SessionController } from '../trading/session.controller';
 import { Test, TestingModule } from '@nestjs/testing';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
@@ -232,6 +233,35 @@ describe('BacktestService', () => {
 
       realService = module.get<BacktestService>(BacktestService);
       realSignalEngine = module.get<SignalEngineService>(SignalEngineService);
+    });
+
+    it.each([false, true])('replays real momentum entries with scanner enabled=%s', async (useGlobalScanner) => {
+      const barMs = 5 * 60 * 1000;
+      const klines = buildWaveKlines(340, barMs, Date.UTC(2024, 0, 1), 32);
+      proxyFetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => klines });
+
+      const config = Object.assign(new SessionConfig(), {
+        symbols: ['BTCUSDT'],
+        scan_interval: '5m',
+        scan_lookback: 3,
+        scan_pct_threshold: 2,
+        enabled_signals: ['momentum_pct'],
+        entry_side: 'long',
+        sl_type: 'pct',
+        sl_distance_pct: 3,
+        tp_mode: 'fixed',
+        tp_ratio: 2,
+      });
+
+      const controller = new SessionController(null as any, realService, null as any);
+      const result = await controller.runBacktest({
+        config, useGlobalScanner, days: 1, startingBalance: 10000,
+      });
+
+      expect(proxyFetchMock).toHaveBeenCalled();
+      expect(result.symbolPerformance.map(row => row.symbol)).toEqual(['BTCUSDT']);
+      expect(result.totalTrades).toBeGreaterThan(0);
+      expect(result.trades.every(trade => trade.direction === 'LONG' && trade.exit_ts >= trade.entry_ts)).toBe(true);
     });
 
     it('runs solo-symbol ema_dual_cross on 1d over 365 days via single_symbol_configs and isolates live caches', async () => {

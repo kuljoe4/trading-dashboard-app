@@ -1,3 +1,4 @@
+import { getEngineDatabaseUrl } from '../lib/engine-mode';
 import { SessionService } from './session.service';
 import { BinanceRequestQueue } from '../lib/binanceClientFactory';
 import { SessionConfig } from '../models/SessionConfig';
@@ -79,6 +80,81 @@ describe('SessionService Validation', () => {
       mockAuditLogService,
       { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any // ConfigService
     );
+  });
+
+  it('keeps Live running when the independently started Paper session stops', async () => {
+    const originalEnv = process.env;
+    const buildEngine = (mode: 'live' | 'paper', balance: number) => {
+      process.env = { ...originalEnv, TRADING_ENGINE_MODE: mode, ENCRYPTION_KEY: 'fixture-encryption-key' };
+      const repository = {
+        create: jest.fn(record => ({ ...record, id: `${mode}-session` })),
+        save: jest.fn(async record => record),
+        update: jest.fn(),
+        findOne: jest.fn().mockResolvedValue({
+          live_balance: balance,
+          paper_balance: balance,
+          binance_api_key: 'fixture-key',
+          binance_api_secret: 'fixture-secret',
+        }),
+      };
+      const runtime = {
+        start: jest.fn(), stop: jest.fn(), setBinanceClient: jest.fn(),
+        startUds: jest.fn(), startBuffering: jest.fn(), replayBuffer: jest.fn(),
+      };
+      const factory = { createClient: jest.fn().mockReturnValue({}) };
+      const session = new SessionService(
+        repository as any, mockTradeRepository, mockLogRepository, repository as any,
+        repository as any, runtime as any, mockOrderManagerService,
+        { fetchExchangeInfo: jest.fn() } as any, { emit: jest.fn() } as any,
+        mockAnalyticsService, {} as any, factory as any, mockAuditLogService,
+        { get: jest.fn() } as any,
+      );
+      return { session, runtime, factory, repository };
+    };
+
+    try {
+      const live = buildEngine('live', 2500);
+      const paper = buildEngine('paper', 10000);
+      const liveConfig = Object.assign(new SessionConfig(), { trading_mode: 'live', paper_mode: false });
+      const paperConfig = Object.assign(new SessionConfig(), { trading_mode: 'paper', paper_mode: true });
+
+      await expect(paper.session.startSession(liveConfig, false)).rejects.toThrow('only runs paper');
+      await expect(live.session.startSession(paperConfig, true)).rejects.toThrow('only runs live');
+      const liveStart = live.session.startSession(liveConfig, false);
+      const paperStart = paper.session.startSession(paperConfig, true);
+      await expect(paper.session.startSession(paperConfig, true)).rejects.toThrow('already running or starting');
+      await expect(Promise.all([liveStart, paperStart])).resolves.toEqual([
+        { strategyId: 'live-session', status: 'started' },
+        { strategyId: 'paper-session', status: 'started' },
+      ]);
+
+      expect(live.session.isSessionRunning()).toBe(true);
+      expect(paper.session.isSessionRunning()).toBe(true);
+      expect(live.runtime.start.mock.calls[0][4]).toBe(2500);
+      expect(paper.runtime.start.mock.calls[0][4]).toBe(10000);
+      expect(live.runtime.startUds).toHaveBeenCalledTimes(1);
+      expect(paper.factory.createClient).not.toHaveBeenCalled();
+      expect(paper.runtime.startUds).not.toHaveBeenCalled();
+
+      await expect(paper.session.stopSession()).resolves.toEqual({ status: 'stopped' });
+      expect(paper.runtime.stop).toHaveBeenCalledTimes(1);
+      expect(paper.session.isSessionRunning()).toBe(false);
+      expect(live.session.isSessionRunning()).toBe(true);
+      expect(live.runtime.stop).not.toHaveBeenCalled();
+      expect(live.repository.update).not.toHaveBeenCalled();
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  it('requires a distinct Paper database', () => {
+    const live = 'postgres://localhost/live';
+    const paper = 'postgres://localhost/paper';
+    expect(getEngineDatabaseUrl('live', live, paper)).toBe(live);
+    expect(getEngineDatabaseUrl('paper', live, paper)).toBe(paper);
+    expect(() => getEngineDatabaseUrl('paper', live)).toThrow('PAPER_DATABASE_URL');
+    expect(() => getEngineDatabaseUrl('paper', live, 'postgres://other@localhost/%6cive'))
+      .toThrow('different PostgreSQL database names');
   });
 
   describe('validateConfig', () => {

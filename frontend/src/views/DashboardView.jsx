@@ -1,3 +1,4 @@
+import { engineStorageKey, selectedEngine } from '../utils/engineMode.js'
 import React, { useEffect, useMemo, useState, lazy, Suspense, useRef } from 'react'
 import { resolveStrategyConfig } from '../utils/strategyConfig.js'
 import { shallow } from 'zustand/shallow'
@@ -142,6 +143,64 @@ const TemporalRiskGrid = React.memo(() => {
 
 // Lazy Load heavy components
 const DecisionLog = lazyWithRetry(() => import('../components/DecisionLog').then(module => ({ default: module.DecisionLog })))
+const EngineSwitch = ({ running }) => {
+  const [otherRunning, setOtherRunning] = useState(null);
+  const otherEngine = selectedEngine === 'live' ? 'paper' : 'live';
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let pending = false;
+    const refresh = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const { data } = await sessionAPI.engineStatus(otherEngine, controller.signal);
+        if (!controller.signal.aborted) {
+          setOtherRunning(data.mode === otherEngine && typeof data.running === 'boolean' ? data.running : null);
+        }
+      } catch {
+        if (!controller.signal.aborted) setOtherRunning(null);
+      } finally {
+        pending = false;
+      }
+    };
+    refresh();
+    const timer = setInterval(refresh, 15000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [otherEngine]);
+
+  return (
+    <nav aria-label="Trading engine" className="inline-flex items-center gap-1 rounded-xl border border-border bg-surface p-1">
+      {['live', 'paper'].map(mode => {
+        const active = mode === selectedEngine;
+        const status = active ? running : otherRunning;
+        const label = mode === 'live' ? 'Live' : 'Paper';
+        const statusLabel = status === null ? 'Status unavailable' : status ? 'Running' : 'Stopped';
+        const url = new URL(window.location.href);
+        url.searchParams.set('engine', mode);
+        url.hash = '#/';
+        return (
+          <a
+            key={mode}
+            href={url.href}
+            aria-current={active ? 'page' : undefined}
+            aria-label={`${label} · ${statusLabel}`}
+            title={statusLabel}
+            className={cn('inline-flex min-h-8 items-center gap-2 rounded-lg px-3 text-xs font-semibold focus-visible:ring-2 focus-visible:ring-accent',
+              active ? 'bg-accent/15 text-accent' : 'text-dim hover:text-text')}
+          >
+            <span aria-hidden="true" className={cn('h-2 w-2 rounded-full', status === null ? 'bg-amber' : status ? 'bg-green' : 'bg-dim/50')} />
+            {label}
+          </a>
+        );
+      })}
+    </nav>
+  );
+};
+
 const ConfigModal = lazyWithRetry(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
 const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
 const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
@@ -589,7 +648,7 @@ const ModalLoadingFallback = () => (
 export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, hideEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratMetrics = null, viewMode = 'detailed' }) => {
   const analytics = useTradingStore(state => state.analytics);
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
-  const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+  const tradingMode = selectedEngine || config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
   const storeBalance = useTradingStore(state => state.balance);
   const totalSessionPnl = useTradingStore(state => state.totalPnl || 0);
@@ -1834,6 +1893,9 @@ export function DashboardView({ initialStrategy }) {
           });
           return false;
         }
+        if (selectedEngine) {
+          finalConfig = { ...finalConfig, trading_mode: selectedEngine, paper_mode: selectedEngine === 'paper' };
+        }
         const res = await sessionAPI.start(finalConfig, finalConfig.paper_mode)
         updateConfig(finalConfig)
         setSessionActive(true, res.data.strategyId || res.data.strategy_id || res.data.sessionId || 'default-session')
@@ -1944,18 +2006,13 @@ export function DashboardView({ initialStrategy }) {
       await sessionAPI.stop()
       setSessionActive(false, null)
       if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.removeItem('config_draft');
-        sessionStorage.removeItem('loaded_preset_name');
+        sessionStorage.removeItem(engineStorageKey('config_draft'));
+        sessionStorage.removeItem(engineStorageKey('loaded_preset_name'));
       }
-      addAlert({ level: 'info', title: 'Session Terminated', message: 'Engine stopped and all positions closed at market.' });
+      addAlert({ level: 'info', title: 'Session Terminated', message: 'Engine stopped.' });
       await fetchSessions()
     } catch (e) {
-      setSessionActive(false, null)
-      if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.removeItem('config_draft');
-        sessionStorage.removeItem('loaded_preset_name');
-      }
-      addAlert({ level: 'warn', title: 'Session Stopped', message: 'Engine halted, but some cleanup tasks might have failed.' });
+      addAlert({ level: 'error', title: 'Stop could not be confirmed', message: formatApiErrorMessage(e) });
       await fetchSessions()
     } finally {
       setLoading(false)
@@ -2073,7 +2130,7 @@ export function DashboardView({ initialStrategy }) {
     };
   }, [selected, currentStrategy, safeVariantStats, lastKnownPnl, stratMetricsMap, config?.strategy_variants, activePnlMap, activeRiskMap, activeTradeCountsMap, activeEstPnlToRealizeMap, balance, totalRiskPct, sessionActive, isResuming]);
 
-  const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+  const tradingMode = selectedEngine || config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
   return (
     <div className={cn(
@@ -2105,9 +2162,9 @@ export function DashboardView({ initialStrategy }) {
           isOpen={confirmStop}
           onClose={() => setConfirmStop(false)}
           onConfirm={handleStop}
-          title="Terminate Trading Session?"
-          message="This will immediately close all open positions at market price and stop the engine. This action cannot be undone."
-          confirmText="Terminate Everything"
+          title={selectedEngine ? `Stop ${selectedEngine === 'live' ? 'Live' : 'Paper'} session?` : "Terminate Trading Session?"}
+          message="The engine will attempt to close its positions at market and stop."
+          confirmText={selectedEngine ? `Stop ${selectedEngine === 'live' ? 'Live' : 'Paper'}` : "Terminate Everything"}
           loading={loading}
         />
 
@@ -2163,7 +2220,7 @@ export function DashboardView({ initialStrategy }) {
                       onClick={() => setConfirmStop(true)}
                       disabled={loading}
                       className="h-8 w-8 inline-flex items-center justify-center bg-red/10 border border-red/20 text-red rounded-xl hover:bg-red/20 active:scale-90 transition-colors focus-visible:ring-2 focus-visible:ring-red outline-none cursor-pointer"
-                      aria-label="Terminate Session"
+                      aria-label={selectedEngine ? `Stop ${selectedEngine === 'live' ? 'Live' : 'Paper'}` : "Terminate Session"}
                     >
                       <XCircle size={14} />
                     </button>
@@ -2171,6 +2228,8 @@ export function DashboardView({ initialStrategy }) {
                 )}
               </div>
             </ViewHeader>
+
+        {selectedEngine && <div className="mb-3"><EngineSwitch running={sessionActive ? true : initialStatusLoaded ? false : null} /></div>}
 
         {/* Unified Portfolio & Risk Limits Strip */}
         <div className="flex flex-col gap-2.5 mb-3">
@@ -2621,7 +2680,7 @@ export function DashboardView({ initialStrategy }) {
                     <Plus size={16} />
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-widest">
-                    {apiStatus?.isGeoBlocked ? 'Disabled (Geo-Restricted)' : (apiStatus?.isBanned ? 'Strategy Launch Disabled (API Ban)' : 'New Strategy')}
+                    {apiStatus?.isGeoBlocked ? 'Disabled (Geo-Restricted)' : (apiStatus?.isBanned ? 'Strategy Launch Disabled (API Ban)' : (selectedEngine ? `Start ${selectedEngine === 'live' ? 'Live' : 'Paper'}` : 'New Strategy'))}
                   </span>
                 </button>
 

@@ -601,8 +601,10 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.appliedPnL.clear();
     this.minimizeMemoryUsage();
     this.sessionState.minimize();
-    this.tickerCache.clear();
-    this.klineStore.clear();
+    if (!this.marketFeed.usesSharedMarketData?.()) {
+      this.tickerCache.clear();
+      this.klineStore.clear();
+    }
 
     this.broadcastSnapshot("stopped");
     return { status: "stopped" };

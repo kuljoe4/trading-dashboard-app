@@ -101,7 +101,7 @@ export class GatingService {
 
       // BOLT: In LIGHT sleep, we MUST preserve tickerCache so the background scanner
       // can continue to evaluate symbols and wake the bot up on a signal.
-      if (!isLight) {
+      if (!isLight && !this.marketFeed.usesSharedMarketData?.()) {
         this.tickerCache.clear();
       }
     }

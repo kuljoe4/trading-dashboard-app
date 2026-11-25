@@ -1,6 +1,9 @@
+import { EngineMode, getEngineMode } from "./lib/engine-mode";
 import { NestFactory, HttpAdapterHost } from "@nestjs/core";
 import { ValidationPipe, LogLevel, Logger } from "@nestjs/common";
-import { Request, Response, NextFunction, json, urlencoded } from "express";
+import express, { Request, Response, NextFunction, json, urlencoded } from "express";
+import { createServer } from "node:http";
+import { SharedMarketData } from "./engine/shared-market-data";
 import { DynamicLogger } from "./lib/logger";
 import { ConfigService } from "@nestjs/config";
 import { getDataSourceToken } from "@nestjs/typeorm";
@@ -30,7 +33,7 @@ process.on("uncaughtException", (err: Error) => {
   processLogger.error(`Uncaught Exception caught: ${err.stack || err.message}`);
 });
 
-async function bootstrap() {
+async function createEngine(engineMode: EngineMode | undefined, sharedMarket?: SharedMarketData) {
   const isProduction = process.env.NODE_ENV === "production";
   const forceDebug = process.env.DEBUG === "true";
 
@@ -43,13 +46,14 @@ async function bootstrap() {
   const logger = DynamicLogger.getInstance();
   logger.setLogLevels(logLevels);
 
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create(AppModule.register(engineMode, sharedMarket), {
     logger,
+    abortOnError: !sharedMarket,
     bodyParser: false, // Disable default body parser to configure limits manually
   });
 
   // Enable graceful shutdown hooks so that onApplicationShutdown is called
-  app.enableShutdownHooks(['SIGTERM', 'SIGINT', 'SIGQUIT']);
+  if (!sharedMarket) app.enableShutdownHooks(['SIGTERM', 'SIGINT', 'SIGQUIT']);
 
   // Security: Enable 'trust proxy' for accurate client IP detection behind load balancers/reverse proxies
   const expressInstance = app.getHttpAdapter().getInstance();
@@ -128,6 +132,14 @@ async function bootstrap() {
   serverLogger.log(`   - Allowed Origins (${allowedOrigins.length}): ${allowedOrigins.join(", ")}`);
   serverLogger.log(`=======================================================`);
 
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const expectedMode = req.get("X-Trading-Engine");
+    if (expectedMode && expectedMode !== engineMode) {
+      return res.status(409).json({ message: "Request routed to the wrong trading engine." });
+    }
+    next();
+  });
 
   // Security Headers Middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -237,6 +249,10 @@ async function bootstrap() {
       threshold: 1024,
     },
     verifyClient: (info, done) => {
+      const expectedMode = new URLSearchParams(info.req.url?.split("?")[1]).get("engine");
+      if (expectedMode && expectedMode !== engineMode) {
+        return done(false, 409, "Wrong trading engine");
+      }
       const origin = info.origin ? info.origin.replace(/\/$/, "") : null;
       const isOriginAllowed = !origin || checkOrigin(info.origin, allowedOrigins);
       const isDevFallback = !isOriginAllowed && nodeEnv !== "production";
@@ -594,10 +610,79 @@ async function bootstrap() {
     );
   });
 
-  await app.listen(port, "0.0.0.0");
+  return { app, port, httpServer, wss };
+}
 
-  serverLogger.log(`✨ Trading Dashboard Backend running on port ${port}`);
-  serverLogger.log(`📡 WebSocket endpoint: ws://0.0.0.0:${port}/session/ws`);
+async function bootstrap() {
+  if (process.env.TRADING_SHARED_MARKET !== "true") {
+    const { app, port } = await createEngine(getEngineMode());
+    await app.listen(port, "0.0.0.0");
+    new Logger("Server").log(`Trading Dashboard Backend running on port ${port}`);
+    return;
+  }
+
+  const shared = new SharedMarketData(process.env.PROXY_URL || process.env.HTTPS_PROXY);
+  // Initialize Live first so the shared candle store uses the established market history.
+  const live = await createEngine("live", shared);
+  let paper: Awaited<ReturnType<typeof createEngine>> | undefined;
+  const router = express();
+  router.disable("x-powered-by");
+  router.use("/paper-engine", (req, res, next) => {
+    if (!paper) return res.status(503).json({ message: "Paper engine is unavailable." });
+    return paper.app.getHttpAdapter().getInstance()(req, res, next);
+  });
+  router.use(live.app.getHttpAdapter().getInstance());
+  const server = createServer(router);
+  server.on("upgrade", (request, socket, head) => {
+    const paperPrefix = "/paper-engine";
+    const isPaper = request.url?.startsWith(paperPrefix + "/");
+    if (isPaper) request.url = request.url!.slice(paperPrefix.length);
+    const engine = isPaper ? paper : live;
+    if (!engine) {
+      socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    engine.httpServer.emit("upgrade", request, socket, head);
+  });
+
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    server.close();
+    for (const engine of [paper, live]) {
+      if (!engine) continue;
+      for (const socket of engine.wss.clients) socket.terminate();
+      engine.wss.close();
+    }
+    try {
+      await paper?.app.close();
+    } finally {
+      await live.app.close();
+    }
+  };
+  for (const signal of ["SIGTERM", "SIGINT", "SIGQUIT"] as const) {
+    process.once(signal, () => void shutdown().catch(error => {
+      new Logger("Server").error(error);
+      process.exitCode = 1;
+    }));
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(live.port, "0.0.0.0", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const logger = new Logger("Server");
+  logger.log(`Trading Dashboard Backend running on port ${live.port} with shared market data`);
+  try {
+    const paperEngine = await createEngine("paper", shared);
+    if (shuttingDown) await paperEngine.app.close();
+    else paper = paperEngine;
+  } catch (error) {
+    logger.error("Paper engine failed to initialize. Live remains available.", error instanceof Error ? error.message : String(error));
+  }
 }
 
 process.on('uncaughtException', (err) => {

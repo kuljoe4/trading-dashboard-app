@@ -1,3 +1,4 @@
+import { ENGINE_MODE, EngineMode, getEngineMode } from "../lib/engine-mode";
 import {
   Injectable,
   Logger,
@@ -7,11 +8,12 @@ import {
   NotFoundException,
   ConflictException,
   Inject,
+  Optional,
   forwardRef,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, In, Like } from "typeorm";
+import { Repository, In, Like, IsNull } from "typeorm";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { Session as SessionEntity } from "../models/entities/Session.entity";
@@ -976,7 +978,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
   private sanitizeSavedConfigForResume(rawConfig: any, mode: string, paperMode: boolean) {
     const clean = rawConfig && typeof rawConfig === "object" ? { ...rawConfig } : {};
-    clean.trading_mode = clean.trading_mode || mode;
+    clean.trading_mode = mode;
     clean.paper_mode = paperMode;
     clean.scan_interval = clean.scan_interval || "5m";
     clean.strategy_label = clean.strategy_label || "Momentum Strategy";
@@ -1004,6 +1006,19 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     return clean;
   }
 
+  @Optional() @Inject(ENGINE_MODE)
+  private readonly engineMode: EngineMode | null | undefined = getEngineMode();
+
+  getEngineMode() {
+    return this.engineMode ?? undefined;
+  }
+
+  isSessionRunning() {
+    return this.sessionRunning && !this.startingSession;
+  }
+
+  private startingSession = false;
+
   async startSession(
     config: SessionConfig,
     paperMode: boolean,
@@ -1011,10 +1026,30 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     ip?: string,
     userAgent?: string,
   ) {
-    if (this.sessionRunning) {
-      throw new ConflictException("Session already running");
+    if (this.sessionRunning || this.startingSession) {
+      throw new ConflictException("Session already running or starting");
     }
+    this.startingSession = true;
+    try {
+      return await this.startSessionInternal(config, paperMode, sessionId, ip, userAgent);
+    } finally {
+      this.startingSession = false;
+    }
+  }
 
+  private assertEngineMode(mode: string) {
+    if (this.engineMode && mode !== this.engineMode) {
+      throw new ConflictException(`This engine only runs ${this.engineMode} sessions.`);
+    }
+  }
+
+  private async startSessionInternal(
+    config: SessionConfig,
+    paperMode: boolean,
+    sessionId?: string,
+    ip?: string,
+    userAgent?: string,
+  ) {
     let mode = config.trading_mode || (paperMode ? "paper" : "live");
     let session: any;
 
@@ -1025,6 +1060,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       if (!session) throw new NotFoundException("Session not found");
 
       mode = session.tradingMode || session.config?.trading_mode || (session.paperMode ? "paper" : "live");
+      this.assertEngineMode(mode);
       paperMode = mode === "paper";
 
       if (mode !== "paper" && !process.env.ENCRYPTION_KEY) {
@@ -1060,6 +1096,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           roundEight(Number(session.balance) - Number(session.totalPnl));
       }
     } else {
+      this.assertEngineMode(mode);
       if (mode !== "paper" && !process.env.ENCRYPTION_KEY) {
         throw new ConfigValidationException(
           "ENCRYPTION_KEY must be set to start a session in live or testnet mode.",
@@ -1243,6 +1280,9 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         const tSession = await this.sessionRepository.findOne({
           where: { id: trade.sessionId },
         });
+        if (this.engineMode && (!tSession || (tSession.tradingMode || tSession.config?.trading_mode || (tSession.paperMode ? "paper" : "live")) !== mode)) {
+          continue;
+        }
         if (!tSession) {
           isOrphaned = true;
           orphanReason = `Session ${trade.sessionId} not found`;
@@ -1251,6 +1291,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           orphanReason = `Session ${trade.sessionId} is no longer running`;
         }
       } else {
+        if (this.engineMode) continue;
         const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
         const entryTime = trade.entry_ts
           ? new Date(trade.entry_ts).getTime()
@@ -2936,7 +2977,10 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     // WISP OPTIMIZATION: Sparse column selection prevents loading unused columns, while adaptive limits + SQL counts avoid truncating older sessions or over-fetching.
     const takeLimit = typeof limit === "number" && limit > 0 ? Math.min(limit, 500) : 20;
 
+    const mode = this.engineMode;
+    const where = mode ? [{ tradingMode: mode }, { tradingMode: IsNull(), paperMode: mode === "paper" }] : undefined;
     const findPromise = this.sessionRepository.find({
+      ...(where ? { where } : {}),
       select: [
         "id",
         "running",
@@ -2955,8 +2999,9 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
     let countPromise: Promise<any> = Promise.resolve(null);
     if (includeCounts && typeof (this.sessionRepository as any).createQueryBuilder === "function") {
-      countPromise = (this.sessionRepository as any)
-        .createQueryBuilder("session")
+      const counts = this.sessionRepository.createQueryBuilder("session");
+      if (where) counts.where(where);
+      countPromise = counts
         .select("COUNT(*)", "total")
         .addSelect("SUM(CASE WHEN (session.tradingMode = 'paper' OR (session.tradingMode IS NULL AND session.paperMode = true)) THEN 1 ELSE 0 END)", "paper")
         .addSelect("SUM(CASE WHEN session.tradingMode = 'testnet' THEN 1 ELSE 0 END)", "testnet")
@@ -3007,6 +3052,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
   }
 
   async stopSession(ip?: string, userAgent?: string) {
+    if (this.startingSession) throw new ConflictException("Session is still starting");
     if (!this.sessionRunning || !this.currentSessionId) {
       throw new ConflictException("No session running");
     }
@@ -3063,7 +3109,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
         // Determine which balance to show based on last session mode, defaulting to paper
         const mode =
-          lastSession?.tradingMode ||
+          this.engineMode || lastSession?.tradingMode ||
           (lastSession?.paperMode === false ? "live" : "paper");
         let balance = 10000;
         if (settings) {
@@ -3078,7 +3124,9 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           balance,
           tradingMode: mode,
           paperMode: mode === "paper",
-          config: lastSession?.config || null,
+          config: lastSession && (!this.engineMode || lastSession.tradingMode === this.engineMode)
+            ? lastSession.config
+            : null,
         };
       }
     }
@@ -4070,7 +4118,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       total: symbols.length,
       tradfi_count: tradFiCount,
       crypto_count: symbols.length - tradFiCount,
-      htf_cross_included: Boolean(includeHtfCross || this.sessionState?.config?.htf_ema_cross_catalog_enabled),
+      htf_cross_included: Boolean(includeHtfCross || this.tradingSessionService.sessionState?.config?.htf_ema_cross_catalog_enabled),
       cached_at: Date.now(),
     };
   }

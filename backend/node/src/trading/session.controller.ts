@@ -367,6 +367,14 @@ export class SessionController {
     );
   }
 
+  @Get("engine-status")
+  async getEngineStatus() {
+    return {
+      mode: this.sessionService.getEngineMode(),
+      running: this.sessionService.isSessionRunning(),
+    };
+  }
+
   @Get("status")
   async getStatus() {
     return this.sessionService.getStatus(false);

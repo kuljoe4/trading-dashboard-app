@@ -1,5 +1,6 @@
+import { SHARED_MARKET_DATA, SharedMarketData } from './shared-market-data';
 import { resolveStrategyConfig } from './strategyConfig';
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
@@ -61,6 +62,9 @@ export class MarketFeedService {
   private ensureKlinesCooldownMap: Map<string, number> = new Map();
   private inFlightBackfills: Map<string, Promise<void>> = new Map();
   private binanceClient: any = null;
+
+  @Optional() @Inject(SHARED_MARKET_DATA)
+  private readonly sharedMarket?: SharedMarketData;
 
   public isBackfillShortHistory(symbol: string, interval: string): boolean {
     const resolved = this.resolveInterval(interval, this.sessionState.config) || interval;
@@ -140,9 +144,10 @@ export class MarketFeedService {
   private lastWatchlistLogTs = 0;
 
   async start(config: SessionConfig, bc?: any) {
-    if (bc) this.binanceClient = bc;
+    this.binanceClient = this.sharedMarket ? null : bc ?? null;
     if (this.running) await this.stop();
     this.running = true;
+    this.sharedMarket?.attach(this);
     this.forceRawDiscovery = false;
     this.consecutiveDiscoveryFailures = 0;
     this.currentConfig = config;
@@ -160,7 +165,9 @@ export class MarketFeedService {
       const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
       if (settings?.proxy_url) this.currentProxyUrl = settings.proxy_url.trim();
     } catch (_) {}
-    if (!this.currentProxyUrl) {
+    if (this.sharedMarket) {
+      this.currentProxyUrl = this.sharedMarket.proxyUrl;
+    } else if (!this.currentProxyUrl) {
       this.currentProxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || undefined;
     }
 
@@ -577,7 +584,13 @@ export class MarketFeedService {
    * Throttled/guarded: single in-flight request, minimum 5-minute re-seed
    * cadence once populated, and routed through the centralized Binance queue.
    */
-  private async seedMarketDataFromRest(): Promise<void> {
+  private seedMarketDataFromRest(): Promise<void> {
+    return this.sharedMarket
+      ? this.sharedMarket.seedTickers(() => this.loadTickerSeed())
+      : this.loadTickerSeed();
+  }
+
+  private async loadTickerSeed(): Promise<void> {
     // P0 FIX: Fail-fast ban guard - do not dispatch REST calls while IP is banned
     if (this.sessionState.isBanned()) {
       this.logger.debug(`[MarketFeed] REST seed skipped: IP is currently banned.`);
@@ -633,6 +646,10 @@ export class MarketFeedService {
     }
   }
 
+  usesSharedMarketData() {
+    return Boolean(this.sharedMarket);
+  }
+
   async stop() {
     this.running = false;
     this.discoveredSymbolsCache = null;
@@ -640,6 +657,8 @@ export class MarketFeedService {
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
 
     await this.stopGlobalDiscovery();
+    await this.sharedMarket?.klines.unsubscribe(this);
+    this.sharedMarket?.releaseCandles(this);
 
     for (const manager of this.klineManagers) {
         await manager.stop();
@@ -1297,7 +1316,9 @@ export class MarketFeedService {
           }
         }
         if (!suppressScanner) {
-          if (typeof (this.klineStore as any).pruneExcept === 'function') {
+          if (this.sharedMarket) {
+            this.sharedMarket.retainCandles(this, activeKeys);
+          } else if (typeof (this.klineStore as any).pruneExcept === 'function') {
             (this.klineStore as any).pruneExcept(activeKeys);
           }
           if (typeof (this.signalEngine as any).pruneCaches === 'function') {
@@ -1390,7 +1411,7 @@ export class MarketFeedService {
   }
 
   private async startGlobalDiscovery() {
-    this.stopGlobalDiscovery();
+    if (!this.sharedMarket) await this.stopGlobalDiscovery();
 
     // SRE: Critical guard - do not attempt to open new streams if the IP is currently banned
     if (this.sessionState.isBanned()) {
@@ -1420,6 +1441,13 @@ export class MarketFeedService {
       this.logger.warn(`[MarketFeed] RAW discovery fallback active: subscribing to ${topics.length} symbol-scoped streams (aggregate stream starved).`);
     } else {
       topics = ['!miniTicker@arr', '!markPrice@arr@1s'];
+    }
+
+    if (this.sharedMarket && !isTestnet) {
+      this.globalDiscoveryOpenedAt = Date.now();
+      this._globalDiscoveryConfirmed = false;
+      await this.sharedMarket.discovery.subscribe(this, this.sharedSubscriber(topics));
+      return;
     }
 
     // Testnet still serves the SUBSCRIBE method on /stream, so keep method-based there.
@@ -1502,7 +1530,22 @@ export class MarketFeedService {
     return topics;
   }
 
+  private sharedSubscriber(topics: string[]) {
+    return {
+      topics: new Set(topics),
+      onMessage: (message: any, writeCache: boolean) => this.processStreamMessage(message, undefined, writeCache),
+      onBan: (message: string) => {
+        const match = message.match(/banned until (\d+)/i);
+        let until = match ? Number(match[1]) : Date.now() + 24 * 60 * 60 * 1000;
+        if (until < 9999999999) until *= 1000;
+        BinanceRequestQueue.setCooldownUntil(until);
+        this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message, until });
+      },
+    };
+  }
+
   private async stopGlobalDiscovery() {
+    await this.sharedMarket?.discovery.unsubscribe(this);
     for (const manager of this.discoveryManagers.values()) {
         await manager.stop();
     }
@@ -1513,7 +1556,7 @@ export class MarketFeedService {
   private _firstMsgLogged = false;
   private lastHeartbeatTs = 0;
 
-  private processStreamMessage(msg: any, defaultStream?: string) {
+  private processStreamMessage(msg: any, defaultStream?: string, writeCache = true) {
     try {
       // SRE: Handle both combined ({stream, data}) and single-stream (raw payload) formats.
       const stream = msg.stream || defaultStream || '';
@@ -1553,34 +1596,36 @@ export class MarketFeedService {
       if (stream.includes('!miniTicker@arr')) {
         this.lastMiniTickerMsgTs = Date.now();
         const tickers: any[] = Array.isArray(payload) ? payload : [];
-        if (tickers.length > 0) {
+        if (writeCache && tickers.length > 0) {
           this.tickerCache.bulkUpdate(tickers);
         }
       } else if (stream.includes('@miniTicker')) {
         // Symbol-scoped miniTicker (RAW discovery fallback). Payload is a single ticker object.
         this.lastMiniTickerMsgTs = Date.now();
-        if (payload && (payload.s || payload.symbol)) {
+        if (writeCache && payload && (payload.s || payload.symbol)) {
           this.tickerCache.updateTicker(payload.s || payload.symbol, payload.c, payload.q, payload.o);
         }
       } else if (stream.includes('!markPrice@arr')) {
         this.lastMarkTickerMsgTs = Date.now();
         const updates: any[] = Array.isArray(payload) ? payload : [];
-        for (const u of updates) {
+        for (const u of writeCache ? updates : []) {
           this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
         }
       } else if (stream.includes('@kline')) {
         const kline = payload.k;
         if (kline) {
-          this.klineStore.upsertCandle(kline.s, kline.i, kline);
-          this.tickerCache.updateTicker(kline.s, kline.c);
+          if (writeCache) {
+            this.klineStore.upsertCandle(kline.s, kline.i, kline);
+            this.tickerCache.updateTicker(kline.s, kline.c);
+          }
           if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
         }
       } else if (stream.includes('@ticker')) {
         // Seed ticker cache from symbol-specific ticker stream
-        this.tickerCache.updateTicker(payload.s, payload.c, payload.q, payload.o);
+        if (writeCache) this.tickerCache.updateTicker(payload.s, payload.c, payload.q, payload.o);
       } else if (stream.includes('@markPrice')) {
         // Authoritative real-time mark price for PnL
-        this.tickerCache.updateTicker(payload.s, undefined, undefined, undefined, payload.p);
+        if (writeCache) this.tickerCache.updateTicker(payload.s, undefined, undefined, undefined, payload.p);
       }
     } catch (err) {
       this.logger.error(`Error processing stream message: ${err instanceof Error ? err.message : String(err)}`);
@@ -1614,6 +1659,13 @@ export class MarketFeedService {
       for (const interval of intervals) {
         allStreams.push(`${s}@kline_${interval}`);
       }
+    }
+
+    if (this.sharedMarket && !isTestnet) {
+      if (!this.running) return;
+      if (!allStreams.length) await this.sharedMarket.klines.unsubscribe(this);
+      else await this.sharedMarket.klines.subscribe(this, this.sharedSubscriber(allStreams));
+      return;
     }
 
     if (allStreams.length === 0) {
@@ -1927,7 +1979,15 @@ export class MarketFeedService {
     };
   }
 
-  private async backfillKlines(symbol: string, interval: string) {
+  private backfillKlines(symbol: string, interval: string) {
+    return this.sharedMarket
+      ? this.sharedMarket.backfill(async () => {
+          if (this.running) await this.loadKlines(symbol, interval);
+        })
+      : this.loadKlines(symbol, interval);
+  }
+
+  private async loadKlines(symbol: string, interval: string) {
     const resolvedInterval = this.resolveInterval(interval, this.sessionState.config);
     if (!resolvedInterval) {
       this.logger.error(`[MarketFeed] Skipping backfill for ${symbol} ${interval}: Invalid interval that cannot be resolved.`);

@@ -1,3 +1,4 @@
+import { engineStorageKey, selectedEngine } from '../utils/engineMode.js'
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -2004,7 +2005,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
     const unique = Array.from(new Set(combined.map(s => String(s).trim().toUpperCase()).filter(s => s.endsWith('USDT'))));
     return unique.length > 0 ? unique.join(', ') : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT';
   });
-  const [useGlobalScanner, setUseGlobalScanner] = useState(false);
+  const [useGlobalScanner, setUseGlobalScanner] = useState(() => cfg?.global_scanner_enabled !== false);
   const [isRunning, setIsRunning] = useState(false);
   const [progressPct, setProgressPct] = useState(0);
   const [progressStatus, setProgressStatus] = useState('');
@@ -3745,7 +3746,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [initialDraftData] = useState(() => {
     if (isEdit || initialEditingVariantIndex !== null) return null;
     try {
-      const savedDraft = sessionStorage.getItem('config_draft');
+      const savedDraft = sessionStorage.getItem(engineStorageKey('config_draft'));
       if (!savedDraft) return null;
       const parsed = JSON.parse(savedDraft);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -3849,7 +3850,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (initialEditingVariantIndex !== null) {
       return baseConfig?.strategy_label || null;
     }
-    const stored = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('loaded_preset_name') : null;
+    const stored = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(engineStorageKey('loaded_preset_name')) : null;
     if (isEdit) {
       return stored && stored === initialConfig?.strategy_label ? stored : null;
     }
@@ -3874,7 +3875,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [setPresetFiltersExpanded]);
   const [recentlyUsedNames, setRecentlyUsedNames] = useState(() => {
     try {
-      const stored = localStorage.getItem('recently_used_presets');
+      const stored = localStorage.getItem(engineStorageKey('recently_used_presets'));
       return stored ? JSON.parse(stored) : [];
     } catch (e) {
       return [];
@@ -3886,7 +3887,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setRecentlyUsedNames((prev) => {
       const updated = [name, ...prev.filter(n => n !== name)].slice(0, 10);
       try {
-        localStorage.setItem('recently_used_presets', JSON.stringify(updated));
+        localStorage.setItem(engineStorageKey('recently_used_presets'), JSON.stringify(updated));
       } catch (e) {}
       return updated;
     });
@@ -4028,11 +4029,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const persistDraft = React.useCallback((nextCfg, nextLoadedName) => {
     if (isEdit || typeof sessionStorage === 'undefined' || suppressDraftSaveRef.current) return;
     try {
-      sessionStorage.setItem('config_draft', JSON.stringify(nextCfg));
+      sessionStorage.setItem(engineStorageKey('config_draft'), JSON.stringify(nextCfg));
       if (nextLoadedName) {
-        sessionStorage.setItem('loaded_preset_name', nextLoadedName);
+        sessionStorage.setItem(engineStorageKey('loaded_preset_name'), nextLoadedName);
       } else {
-        sessionStorage.removeItem('loaded_preset_name');
+        sessionStorage.removeItem(engineStorageKey('loaded_preset_name'));
       }
     } catch (e) {
       console.error('[ConfigModal] Failed to persist draft:', e);
@@ -4596,7 +4597,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const resetToLastSaved = React.useCallback(() => {
     suppressDraftSaveRef.current = true;
     if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.removeItem('config_draft');
+      sessionStorage.removeItem(engineStorageKey('config_draft'));
     }
     const restoredIdx = initialEditingVariantIndex ?? null;
     setEditingVariantIdx(restoredIdx);
@@ -5522,7 +5523,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       if (loadedPresetName === name) {
         setLoadedPresetName(null);
         if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.removeItem('loaded_preset_name');
+          sessionStorage.removeItem(engineStorageKey('loaded_preset_name'));
         }
       }
       if (presetName === name) {
@@ -5604,8 +5605,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setPresetName('');
     setPresetLoaded(false);
     if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.removeItem('config_draft');
-      sessionStorage.removeItem('loaded_preset_name');
+      sessionStorage.removeItem(engineStorageKey('config_draft'));
+      sessionStorage.removeItem(engineStorageKey('loaded_preset_name'));
     }
     setHasPendingSessionChanges(false);
     setIsDirty(false);
@@ -5782,7 +5783,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         setPresets(prev => (Array.isArray(prev) ? prev.filter(p => p && !deletedSet.has(p.name)) : []));
         if (loadedPresetName && deletedSet.has(loadedPresetName)) {
           setLoadedPresetName(null);
-          if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('loaded_preset_name');
+          if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(engineStorageKey('loaded_preset_name'));
         }
         if (presetName && deletedSet.has(presetName)) {
           setPresetName('');
@@ -8241,9 +8242,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <EnvironmentButton
                     key={m}
                     mode={m}
-                    isSelected={cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)}
+                    isSelected={selectedEngine ? selectedEngine === m : cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)}
                     onClick={handleModeSelect}
-                    disabled={isEdit && m !== cfg.trading_mode}
+                    disabled={selectedEngine ? m !== selectedEngine : isEdit && m !== cfg.trading_mode}
                   />
                 ))}
               </div>
@@ -8356,7 +8357,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     ref={presetSearchInputRef}
                     type="text"
                     inputMode="search"
-                    placeholder="Search presets by name or mode... (/)"
+                    placeholder="Search presets"
+                    aria-label="Search presets by name or mode"
                     value={presetSearch}
                     onChange={(e) => setPresetSearch(e.target.value)}
                     className="w-full bg-background/75 border border-border/70 hover:border-border rounded-xl min-h-[42px] sm:min-h-0 sm:h-9 pl-8 pr-8 text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus:bg-background focus:outline-none transition-all"
@@ -8393,7 +8395,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   )}
                 >
                   <SlidersHorizontal size={13} className="shrink-0" />
-                  <span className="hidden xs:inline">Tools</span>
+                  <span>Tools</span>
                 </button>
               </div>
 
@@ -8437,7 +8439,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 const riskFillPct = maxTotalRisk > 0 ? Math.min(100, (combinedVariantRisk / maxTotalRisk) * 100) : 0;
 
                 return (
-                  <div className="rounded-xl border border-border/60 bg-background/45 px-2.5 py-1.5 flex flex-col gap-1">
+                  <div className="rounded-xl border border-border/60 bg-background/45 px-2.5 py-1.5 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0 flex flex-col gap-0">
                         <div className="flex items-center gap-1.5 text-[10px] text-dim leading-none flex-wrap">
@@ -8486,7 +8488,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       </div>
                     </div>
 
-                    <div className="pt-1 border-t border-border/30 flex items-center justify-between gap-2 text-[10.5px] flex-wrap">
+                    <div className="pt-1 border-t border-border/30 flex items-center justify-between gap-2 text-[10.5px] flex-wrap sm:border-t-0 sm:pt-0">
                       <div className="flex items-center gap-1.5 text-dim min-w-0">
                         <Layers size={11} className="text-violet-400 shrink-0" />
                         <span className="whitespace-nowrap">
@@ -8541,24 +8543,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </div>
                 );
               })()}
-
-              {/* Past 7 Days Winner Promotion (2x Risk) */}
-              <PastWeekPromotionPanel
-                trades={tradeHistory}
-                sessions={sessionList}
-                activeConfig={canonicalModalConfig}
-                presets={presets}
-                mode={
-                  presetTabFilter === 'live' || presetTabFilter === 'testnet' || presetTabFilter === 'paper'
-                    ? presetTabFilter
-                    : (cfg.trading_mode || (cfg.paper_mode ? 'paper' : 'live'))
-                }
-                sessionActive={sessionActive}
-                promotingLabel={promotingStrategyLabel}
-                onPromoteStrategy={handlePromotePastWeekFromModal}
-                compact
-                storageKey="presets_past_week_promotion_expanded"
-              />
 
               {/* Mobile-First Usage & Progressive Mode Filter Controls */}
               <div className="flex flex-col gap-1">
@@ -8934,6 +8918,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </div>
                 </div>
               )}
+
+              {/* Past 7 Days Winner Promotion (2x Risk) */}
+              <PastWeekPromotionPanel
+                trades={tradeHistory}
+                sessions={sessionList}
+                activeConfig={canonicalModalConfig}
+                presets={presets}
+                mode={
+                  presetTabFilter === 'live' || presetTabFilter === 'testnet' || presetTabFilter === 'paper'
+                    ? presetTabFilter
+                    : (cfg.trading_mode || (cfg.paper_mode ? 'paper' : 'live'))
+                }
+                sessionActive={sessionActive}
+                promotingLabel={promotingStrategyLabel}
+                onPromoteStrategy={handlePromotePastWeekFromModal}
+                compact
+                storageKey="presets_past_week_promotion_expanded"
+              />
+
             </div>
           </div>
         )}
@@ -9004,7 +9007,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 addAlert?.({ level: 'error', title: 'Action Blocked', message: 'Cannot start session while API ban / geo-restriction is active.' });
                 return;
               }
-              const errs = getValidationErrors(cfg);
+              const launchConfig = selectedEngine && !isEdit
+                ? { ...cfg, trading_mode: selectedEngine, paper_mode: selectedEngine === 'paper' }
+                : cfg;
+              const errs = getValidationErrors(launchConfig);
               const blockingKeys = Object.keys(errs).filter(k => !k.endsWith('_warn'));
               if (blockingKeys.length === 0) {
                  const payload = { ...buildConfigToSave(), _presetLoaded: presetLoaded, _isMergedRootConfig: true };
@@ -9018,7 +9024,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  }
                  suppressDraftSaveRef.current = true;
                  if (typeof sessionStorage !== 'undefined') {
-                   sessionStorage.removeItem('config_draft');
+                   sessionStorage.removeItem(engineStorageKey('config_draft'));
                  }
                  hasUserLocalOverrideRef.current = false;
                  setHasPendingSessionChanges(false);
@@ -9056,7 +9062,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               !isEdit && apiStatus?.isBanned && "opacity-50 cursor-not-allowed"
             )}
           >
-            {!isEdit && apiStatus?.isBanned ? 'Disabled (API Ban)' : (isEdit ? 'Apply Changes' : 'Start Session')}
+            {!isEdit && apiStatus?.isBanned ? 'Disabled (API Ban)' : (isEdit ? 'Apply Changes' : selectedEngine === 'live' ? 'Start Live' : selectedEngine === 'paper' ? 'Start Paper' : 'Start Session')}
             {(isDirty || hasPendingSessionChanges) && <span className="w-1.5 h-1.5 rounded-full bg-white/80 animate-pulse" />}
           </Btn>
         </div>

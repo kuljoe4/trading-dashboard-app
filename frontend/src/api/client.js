@@ -1,3 +1,4 @@
+import { enginePath, selectedEngine } from '../utils/engineMode.js'
 import axios from 'axios'
 
 export const normalizeUrl = (url, forceProtocol = null) => {
@@ -28,7 +29,7 @@ const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env 
 // When running inside AI Studio dev/preview environment (Cloud Run / run.app / localhost),
 // the backend Express server co-hosts the routes on the same origin (port 3000).
 // In standalone production environments (such as Railway or custom domains), VITE_API_URL is fully honored.
-const initialBaseURL = (!isDevPreview && baseUrlEnv ? normalizeUrl(baseUrlEnv) : '') || '';
+const initialBaseURL = selectedEngine ? enginePath(selectedEngine) : (!isDevPreview && baseUrlEnv ? normalizeUrl(baseUrlEnv) : '') || '';
 let currentBaseURL = initialBaseURL;
 
 const api = axios.create({
@@ -100,7 +101,7 @@ api.interceptors.response.use(
   async (error) => {
     // Failover: If an external API URL failed (e.g. network failure, CORS error, DNS error, or 404 from defunct staging host),
     // and we haven't tried same-origin yet, automatically retry once against same-origin ('')
-    if (currentBaseURL && (!error.response || error.response.status === 404 || error.response.status >= 500 || error.code === 'ERR_NETWORK')) {
+    if (!selectedEngine && currentBaseURL && (!error.response || error.response.status === 404 || error.response.status >= 500 || error.code === 'ERR_NETWORK')) {
       if (error.config && !error.config._retriedSameOrigin) {
         error.config._retriedSameOrigin = true;
         error.config.baseURL = '';
@@ -138,6 +139,9 @@ api.interceptors.response.use(
 );
 
 api.interceptors.request.use(async (config) => {
+  if (selectedEngine && !config.headers['X-Trading-Engine']) {
+    config.headers['X-Trading-Engine'] = selectedEngine;
+  }
   // If we haven't fetched the key yet, wait until it is set.
   // Note: auth/config should not be protected by this, or it will deadlock.
   if (config.url !== '/auth/config') {
@@ -371,6 +375,11 @@ export const createSessionAPI = (apiInstance = api) => ({
   }, { timeout: 60000 }),
   stop: () => apiInstance.post('/session/stop'),
   status: (config) => apiInstance.get('/session/status', config),
+  engineStatus: (mode, signal) => apiInstance.get('/session/engine-status', {
+    baseURL: enginePath(mode),
+    headers: { 'X-Trading-Engine': mode },
+    signal,
+  }),
   getSymbols: (includeNonUsdt = false, includeHtfCross = false) => {
     const params = {};
     if (includeNonUsdt) params.includeNonUsdt = '1';

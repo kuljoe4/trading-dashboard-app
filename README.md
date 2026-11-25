@@ -275,3 +275,22 @@ npm run build
 - Disable health metrics from the UI if you do not need runtime charts.
 - Use `ALLOWED_ORIGINS` and `ADMIN_API_KEY` outside local development.
 - Use testnet keys before live mode and monitor exchange API weight through the rate-limit endpoint.
+
+### Run Live and Paper together
+
+Run a single Nest backend with `TRADING_SHARED_MARKET=true`. Set `DATABASE_URL`
+for Live and `PAPER_DATABASE_URL` for Paper. Both can point to different databases
+on the same PostgreSQL instance. The engines share Binance public market streams,
+ticker prices and candle history. Each engine keeps its own sessions, balances,
+positions, risk state, order execution, and saved presets. Only Live connects to a
+Binance trading account. Set `PROXY_URL` on the backend if the shared public feed
+requires a proxy.
+
+Build the frontend with `VITE_DUAL_ENGINE=true`. The frontend origin must forward
+the standard API paths and `/paper-engine/*` to the same backend, preserving the
+prefix and WebSocket upgrades. For Vite development, set `VITE_PROXY_TARGET` to
+that backend. Use one backend replica per trading account.
+
+The dashboard opens on Live. Select Paper to manage the simulation while Live
+continues running. Start and Stop operate on the selected engine. Export and
+import preset JSON to copy a strategy between engines.

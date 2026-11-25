@@ -3,7 +3,7 @@ import { shallow } from 'zustand/shallow'
 import * as Dialog from '@radix-ui/react-dialog'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, getRrRecommendationStatus, calculatePerformanceMetrics } from '../lib/analytics'
-import { sessionAPI } from '../api/client'
+import { sessionAPI, presetsAPI } from '../api/client'
 import { useTradingStore, normalizeTrade } from '../store/trading'
 import { usePersistedFilter } from '../hooks/usePersistedFilter'
 import { resolveAdaptiveHistoryTradeLimit, resolveAdaptiveSessionLimit, filterHistorySessions, getNextAdaptiveTradeStep } from '../utils/periodicPerformance'
@@ -11,6 +11,8 @@ import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader
 import { SmoothHeightContainer, SmoothSwap } from '../components/ui/SmoothMotion'
 import { ChartPanelSkeleton, HistorySessionsSkeleton, SkeletonBlock, ModalDrawerSkeleton } from '../components/ui/Skeletons'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { PastWeekPromotionPanel } from '../components/PastWeekPromotionPanel'
+import { buildActiveConfigPromotionUpdate, buildPromotedPresetPayload, formatRiskPct } from '../utils/strategyPromotion'
 import { formatDuration } from '../lib/formatters'
 import { lazyWithRetry } from '../lib/lazy'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -2165,6 +2167,114 @@ export const HistoryView = () => {
     }
   }, [sessionActive, strategyId, updateConfig, addAlert])
 
+  const [promotionPresets, setPromotionPresets] = useState([])
+  const [promotingLabel, setPromotingLabel] = useState(null)
+
+  useEffect(() => {
+    let mounted = true
+    presetsAPI.list()
+      .then((res) => {
+        if (!mounted) return
+        let rawData = res?.data
+        if (rawData && !Array.isArray(rawData)) {
+          if (Array.isArray(rawData.presets)) rawData = rawData.presets
+          else if (Array.isArray(rawData.data)) rawData = rawData.data
+        }
+        if (Array.isArray(rawData)) {
+          setPromotionPresets(rawData.filter((p) => p && typeof p.name === 'string'))
+        }
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const handlePromotePastWeekStrategy = React.useCallback(async (item, options = {}) => {
+    if (!item) return false
+    const {
+      updateActive = false,
+      activateIfInactive = false,
+      activationMode = 'variant',
+      savePreset = true,
+    } = options
+    const { strategyLabel: targetLabel, riskPlan, effectiveConfig, locationFlags } = item
+    setPromotingLabel(targetLabel)
+
+    const actionsTaken = []
+    try {
+      if (updateActive || activateIfInactive) {
+        const activeResult = buildActiveConfigPromotionUpdate({
+          activeConfig: config || {},
+          strategyLabel: targetLabel,
+          riskPlan,
+          fallbackConfig: effectiveConfig,
+          activateIfInactive,
+          activationMode,
+        })
+        if (activeResult.cappedVariants) {
+          addAlert?.({
+            level: 'warn',
+            title: 'Variant Limit Reached',
+            message: `Cannot add "${targetLabel}" because active variants reached the maximum limit.`,
+          })
+          if (!savePreset) return false
+        } else if (activeResult.patch && activeResult.appliedAs !== 'none') {
+          if (sessionActive && strategyId) {
+            await sessionAPI.update(strategyId, activeResult.patch)
+          } else if (typeof sessionStorage !== 'undefined') {
+            try {
+              sessionStorage.setItem('config_draft', JSON.stringify(activeResult.updatedConfig))
+            } catch (_) {}
+          }
+          updateConfig(activeResult.patch)
+          actionsTaken.push(
+            sessionActive && strategyId
+              ? (activeResult.appliedAs === 'variant' || activeResult.appliedAs === 'activated_variant'
+                  ? 'active variant'
+                  : 'running session')
+              : 'active draft'
+          )
+        }
+      }
+
+      if (savePreset) {
+        const { name, payload } = buildPromotedPresetPayload({
+          preset: locationFlags?.matchedPreset || null,
+          fallbackConfig: effectiveConfig,
+          strategyLabel: targetLabel,
+          riskPlan,
+        })
+        const res = await presetsAPI.save(name, payload, { overwrite: true })
+        const savedPreset = res?.data?.preset || res?.data
+        setPromotionPresets((prev) => {
+          const list = Array.isArray(prev) ? prev : []
+          const nextObj = (savedPreset && typeof savedPreset === 'object' && savedPreset.name)
+            ? savedPreset
+            : { name, config: payload }
+          return [...list.filter((p) => p && p.name !== name), nextObj].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+        })
+        actionsTaken.push(`preset "${name}"`)
+      }
+
+      addAlert?.({
+        level: 'success',
+        title: 'Strategy Promoted (2× Risk)',
+        message: `"${targetLabel}" scaled to ${formatRiskPct(riskPlan.nextRiskPerTrade)}/trade · ${formatRiskPct(riskPlan.nextMaxTotalRisk)} max (${actionsTaken.join(' & ')}).`,
+      })
+      return true
+    } catch (err) {
+      addAlert?.({
+        level: 'error',
+        title: 'Promotion Failed',
+        message: err?.response?.data?.message || err?.message || 'Could not persist doubled strategy risk limits.',
+      })
+      return false
+    } finally {
+      setPromotingLabel(null)
+    }
+  }, [config, sessionActive, strategyId, updateConfig, addAlert])
+
   const [lifetimeMode, setLifetimeMode] = useState(() => localStorage.getItem('history_trade_mode') || 'paper')
   const [timeRange, setTimeRange] = useState(() => localStorage.getItem('history_time_range') || 'ALL') // '24H', '7D', '30D', 'ALL'
   const [tradeLimit, setTradeLimit] = useState(() => {
@@ -2977,6 +3087,20 @@ export const HistoryView = () => {
             </div>
           );
         })()}
+
+        {/* Past 7 Days Strategy Promotion (2x Risk) */}
+        <PastWeekPromotionPanel
+          trades={tradeHistory}
+          sessions={sessionList}
+          activeConfig={config}
+          presets={promotionPresets}
+          mode={lifetimeMode}
+          sessionActive={sessionActive}
+          promotingLabel={promotingLabel}
+          onPromoteStrategy={handlePromotePastWeekStrategy}
+          storageKey="history_past_week_promotion_expanded"
+          className="mb-5"
+        />
 
         {/* Modern Collapsible Analytics & Optimization Section */}
         <div className="mb-8">

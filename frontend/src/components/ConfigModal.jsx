@@ -8,11 +8,17 @@ import { usePersistedFilter } from '../hooks/usePersistedFilter'
 import * as Switch from '@radix-ui/react-switch'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { ConfirmationModal } from './ConfirmationModal'
+import { PastWeekPromotionPanel } from './PastWeekPromotionPanel'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI, sessionAPI, smartOptimizerAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { isSignalLayer } from '../utils/signalIdentity.js'
 import { resolveStrategyConfig } from '../utils/strategyConfig.js'
+import {
+  buildActiveConfigPromotionUpdate,
+  buildPromotedPresetPayload,
+  formatRiskPct,
+} from '../utils/strategyPromotion.js'
 import { EntrySignalCard, ExitSignalCard } from './config/SignalCards'
 import { ActiveSummaryPanel } from './config/ActiveSummaryPanel'
 import { DraggableSectionList } from './config/DraggableSectionList'
@@ -3472,7 +3478,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
   }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false, initialEditingVariantIndex = null, baseConfig = null }) => {
-  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics, apiStatus, sessionList } = useTradingStore(state => ({
+  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics, apiStatus, sessionList, tradeHistory, fetchTradeHistory, strategyId, updateConfig } = useTradingStore(state => ({
     addAlert: state.addAlert,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
@@ -3482,6 +3488,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
     apiStatus: state.apiStatus,
     sessionList: state.sessionList,
+    tradeHistory: state.tradeHistory,
+    fetchTradeHistory: state.fetchTradeHistory,
+    strategyId: state.strategyId,
+    updateConfig: state.updateConfig,
   }));
 
   const presetSearchInputRef = useRef(null);
@@ -5196,6 +5206,150 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const promoteVariantToBase = React.useCallback(() => {
     promoteVariantToBaseByIndex(editingVariantIdx);
   }, [promoteVariantToBaseByIndex, editingVariantIdx]);
+
+  const [promotingStrategyLabel, setPromotingStrategyLabel] = useState(null);
+  const hasFetchedPromoHistoryRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      section === 'presets' &&
+      !hasFetchedPromoHistoryRef.current &&
+      (!Array.isArray(tradeHistory) || tradeHistory.length === 0)
+    ) {
+      hasFetchedPromoHistoryRef.current = true;
+      fetchTradeHistory?.('all', 250);
+    }
+  }, [section, tradeHistory, fetchTradeHistory]);
+
+  const canonicalModalConfig = useMemo(() => {
+    if (section !== 'presets') return cfg;
+    return buildConfigToSave();
+  }, [section, buildConfigToSave, cfg]);
+
+  const handlePromotePastWeekFromModal = React.useCallback(async (item, options = {}) => {
+    if (!item) return false;
+    const {
+      updateActive = false,
+      activateIfInactive = false,
+      activationMode = 'variant',
+      savePreset = true,
+    } = options;
+    const { strategyLabel: targetLabel, riskPlan, effectiveConfig, locationFlags } = item;
+    setPromotingStrategyLabel(targetLabel);
+
+    const actionsTaken = [];
+    try {
+      if (updateActive || activateIfInactive) {
+        const canonicalBase = buildConfigToSave();
+        const activeResult = buildActiveConfigPromotionUpdate({
+          activeConfig: canonicalBase,
+          strategyLabel: targetLabel,
+          riskPlan,
+          fallbackConfig: effectiveConfig,
+          activateIfInactive,
+          activationMode,
+        });
+
+        if (activeResult.cappedVariants) {
+          addAlert({
+            level: 'warn',
+            title: 'Variant Limit Reached',
+            message: `Cannot add "${targetLabel}" because active variants reached the maximum (${CONFIG_LIMITS.MAX_VARIANTS}).`,
+          });
+          if (!savePreset) return false;
+        } else if (activeResult.patch && activeResult.appliedAs !== 'none') {
+          hasUserLocalOverrideRef.current = true;
+          suppressDraftSaveRef.current = false;
+
+          let nextFlattenedForDraft = null;
+          let nextLoadedLabel = loadedPresetName;
+
+          if (editingVariantIdx !== null && baseConfigBackup) {
+            const updatedBackup = flattenConfig(activeResult.updatedConfig);
+            setBaseConfigBackup(updatedBackup);
+            setCfg((prev) => {
+              const next = {
+                ...prev,
+                strategy_variants: activeResult.updatedConfig.strategy_variants || [],
+              };
+              if (activeResult.appliedAs === 'variant' && activeResult.variantIndex === editingVariantIdx) {
+                next.risk_pct_per_trade = riskPlan.nextRiskPerTrade;
+                next.max_total_risk_pct = riskPlan.nextMaxTotalRisk;
+              }
+              return next;
+            });
+            nextFlattenedForDraft = updatedBackup;
+          } else {
+            const flattenedUpdated = flattenConfig(activeResult.updatedConfig);
+            setCfg(flattenedUpdated);
+            nextFlattenedForDraft = flattenedUpdated;
+            if (activeResult.appliedAs === 'activated_base') {
+              setLoadedPresetName(targetLabel);
+              setPresetName(targetLabel);
+              nextLoadedLabel = targetLabel;
+            }
+          }
+
+          if (isEdit && sessionActive && strategyId) {
+            await sessionAPI.update(strategyId, activeResult.patch);
+            updateConfig(activeResult.patch);
+            actionsTaken.push(
+              activeResult.appliedAs === 'variant' || activeResult.appliedAs === 'activated_variant'
+                ? 'running variant'
+                : 'running session'
+            );
+          } else {
+            updateConfig(activeResult.patch);
+            if (!isEdit && nextFlattenedForDraft) {
+              persistDraft(nextFlattenedForDraft, nextLoadedLabel);
+            }
+            setIsDirty(true);
+            setHasPendingSessionChanges(true);
+            actionsTaken.push('active config');
+          }
+          recordRecentlyUsed(targetLabel);
+        }
+      }
+
+      if (savePreset) {
+        const { name, payload } = buildPromotedPresetPayload({
+          preset: locationFlags?.matchedPreset || null,
+          fallbackConfig: effectiveConfig,
+          strategyLabel: targetLabel,
+          riskPlan,
+        });
+        const res = await presetsAPI.save(name, payload, { overwrite: true });
+        if (res?.data) {
+          const savedPreset = res.data?.preset || res.data;
+          setPresets((prev) => {
+            const safePrev = Array.isArray(prev) ? prev : [];
+            const nextObj = (savedPreset && typeof savedPreset === 'object' && savedPreset.name)
+              ? savedPreset
+              : { name, config: payload };
+            return [...safePrev.filter((p) => p && p.name !== name), nextObj].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          });
+          recordRecentlyUsed(name);
+          actionsTaken.push(`preset "${name}"`);
+        }
+      }
+
+      addAlert({
+        level: 'success',
+        title: 'Strategy Promoted (2× Risk)',
+        message: `"${targetLabel}" scaled to ${formatRiskPct(riskPlan.nextRiskPerTrade)}/trade · ${formatRiskPct(riskPlan.nextMaxTotalRisk)} max (${actionsTaken.join(' & ')}).`,
+      });
+      return true;
+    } catch (err) {
+      addAlert({
+        level: 'error',
+        title: 'Promotion Failed',
+        message: err?.response?.data?.message || err?.message || 'Could not persist doubled risk limits.',
+      });
+      return false;
+    } finally {
+      setPromotingStrategyLabel(null);
+    }
+  }, [buildConfigToSave, editingVariantIdx, baseConfigBackup, loadedPresetName, isEdit, sessionActive, strategyId, updateConfig, persistDraft, recordRecentlyUsed, addAlert]);
 
   const handleOpenSaveAsNew = React.useCallback((presetToCopy = null) => {
     const targetConfig = presetToCopy ? presetToCopy.config : cfg;
@@ -8377,6 +8531,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </div>
                 );
               })()}
+
+              {/* Past 7 Days Winner Promotion (2x Risk) */}
+              <PastWeekPromotionPanel
+                trades={tradeHistory}
+                sessions={sessionList}
+                activeConfig={canonicalModalConfig}
+                presets={presets}
+                mode={
+                  presetTabFilter === 'live' || presetTabFilter === 'testnet' || presetTabFilter === 'paper'
+                    ? presetTabFilter
+                    : (cfg.trading_mode || (cfg.paper_mode ? 'paper' : 'live'))
+                }
+                sessionActive={sessionActive}
+                promotingLabel={promotingStrategyLabel}
+                onPromoteStrategy={handlePromotePastWeekFromModal}
+                compact
+                storageKey="presets_past_week_promotion_expanded"
+              />
 
               {/* Mobile-First Usage & Progressive Mode Filter Controls */}
               <div className="flex flex-col gap-1">

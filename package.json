@@ -49,6 +49,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@nestjs/testing": "10.4.15",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",

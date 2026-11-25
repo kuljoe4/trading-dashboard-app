@@ -24,15 +24,29 @@ export const BacktestPanel = ({ onApplyConfig }) => {
   const [selectedPresetName, setSelectedPresetName] = useState('')
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0)
 
+  // Resolve symbols from static watchlist + enabled solo single_symbol_configs
+  const resolveStrategySymbols = useCallback((cfg) => {
+    const out = []
+    if (Array.isArray(cfg?.symbols)) {
+      cfg.symbols.forEach(s => { if (s) out.push(String(s).trim().toUpperCase()) })
+    }
+    if (Array.isArray(cfg?.single_symbol_configs)) {
+      cfg.single_symbol_configs.forEach(sc => {
+        if (sc && sc.enabled !== false && sc.symbol) {
+          out.push(String(sc.symbol).trim().toUpperCase())
+        }
+      })
+    }
+    const unique = Array.from(new Set(out.filter(s => s.endsWith('USDT'))))
+    return unique.length > 0 ? unique : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT']
+  }, [])
+
   // Simulation Horizon Controls
-  const [days, setDays] = useState(14)
+  const [days, setDays] = useState(() => (config?.scan_interval === '1d' ? 180 : 14))
   const [startingBalance, setStartingBalance] = useState(10000)
   const [scanInterval, setScanInterval] = useState(config?.scan_interval || '5m')
-  const [symbolsInput, setSymbolsInput] = useState(() => {
-    const list = config?.symbols && config.symbols.length > 0 ? config.symbols : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT']
-    return list.join(', ')
-  })
-  const [useGlobalScanner, setUseGlobalScanner] = useState(true)
+  const [symbolsInput, setSymbolsInput] = useState(() => resolveStrategySymbols(config).join(', '))
+  const [useGlobalScanner, setUseGlobalScanner] = useState(() => config?.global_scanner_enabled !== false)
 
   // Execution & Output State
   const [isExecuting, setIsExecuting] = useState(false)
@@ -80,6 +94,18 @@ export const BacktestPanel = ({ onApplyConfig }) => {
     return config
   }, [config, strategyType, presets, selectedPresetName, selectedVariantIndex])
 
+  // Sync interval, symbols, scanner gate, and sensible horizon when switching strategy source
+  useEffect(() => {
+    if (!targetStrategyConfig || Object.keys(targetStrategyConfig).length === 0) return
+    const nextInterval = targetStrategyConfig.scan_interval || '5m'
+    setScanInterval(nextInterval)
+    setSymbolsInput(resolveStrategySymbols(targetStrategyConfig).join(', '))
+    setUseGlobalScanner(targetStrategyConfig.global_scanner_enabled !== false)
+    if (nextInterval === '1d' || nextInterval === '3d' || nextInterval === '1w') {
+      setDays(prev => (prev < 180 ? 365 : prev))
+    }
+  }, [strategyType, selectedPresetName, selectedVariantIndex, targetStrategyConfig, resolveStrategySymbols])
+
   // Current Strategy Display Title & Meta
   const strategyTitle = useMemo(() => {
     if (strategyType === 'preset') {
@@ -103,6 +129,18 @@ export const BacktestPanel = ({ onApplyConfig }) => {
       .filter(s => s.length >= 3 && s.endsWith('USDT'))
   }, [symbolsInput])
 
+  // Active signal badges with resolved per-signal timeframes
+  const signalBadges = useMemo(() => {
+    const sigs = Array.isArray(targetStrategyConfig?.enabled_signals) ? targetStrategyConfig.enabled_signals : []
+    const tfs = targetStrategyConfig?.signal_timeframes || {}
+    return sigs.map(sig => {
+      const base = sig.replace(/_\d+$/, '')
+      const rawTf = tfs[sig] || tfs[base]
+      const tf = (!rawTf || rawTf === 'default') ? scanInterval : rawTf
+      return { sig, tf }
+    })
+  }, [targetStrategyConfig, scanInterval])
+
   // Execute Backtest
   const handleRunBacktest = useCallback(async () => {
     setIsExecuting(true)
@@ -116,6 +154,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
 
       const payload = {
         config: effectiveConfig,
+        scanInterval,
         symbols: parsedSymbols,
         days: Number(days) || 14,
         startingBalance: Number(startingBalance) || 10000,
@@ -340,7 +379,18 @@ export const BacktestPanel = ({ onApplyConfig }) => {
               <span>·</span>
               <span>TP: <strong className="text-text">{formatTakeProfitDescriptor(targetStrategyConfig).fullText}</strong></span>
               <span>·</span>
-              <span>Interval: <strong className="text-text">{targetStrategyConfig.scan_interval || '5m'}</strong></span>
+              <span>Interval: <strong className="text-text">{scanInterval}</strong></span>
+              {signalBadges.length > 0 && (
+                <>
+                  <span>·</span>
+                  <span>
+                    Signals ({targetStrategyConfig.signal_logic || 'all'}):{' '}
+                    <strong className="text-text">
+                      {signalBadges.map(b => `${b.sig}@${b.tf}`).join(', ')}
+                    </strong>
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -360,6 +410,9 @@ export const BacktestPanel = ({ onApplyConfig }) => {
               <option value={30}>30 Days</option>
               <option value={60}>60 Days</option>
               <option value={90}>90 Days</option>
+              <option value={180}>180 Days (6M)</option>
+              <option value={365}>365 Days (1Y)</option>
+              <option value={730}>730 Days (2Y)</option>
             </select>
           </div>
 
@@ -379,14 +432,29 @@ export const BacktestPanel = ({ onApplyConfig }) => {
             <label className="text-[10px] font-bold uppercase tracking-wider text-dim">Scan Interval</label>
             <select
               value={scanInterval}
-              onChange={(e) => setScanInterval(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value
+                setScanInterval(next)
+                if ((next === '1d' || next === '3d' || next === '1w') && days < 180) {
+                  setDays(365)
+                }
+              }}
               className="bg-background border border-border/40 rounded-xl px-3 py-1.5 text-xs font-mono font-semibold text-text focus:border-accent focus-visible:outline-none"
             >
               <option value="1m">1 minute</option>
               <option value="3m">3 minutes</option>
               <option value="5m">5 minutes</option>
               <option value="15m">15 minutes</option>
+              <option value="30m">30 minutes</option>
               <option value="1h">1 hour</option>
+              <option value="2h">2 hours</option>
+              <option value="4h">4 hours</option>
+              <option value="6h">6 hours</option>
+              <option value="8h">8 hours</option>
+              <option value="12h">12 hours</option>
+              <option value="1d">1 day</option>
+              <option value="3d">3 days</option>
+              <option value="1w">1 week</option>
             </select>
           </div>
 
@@ -396,7 +464,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
               type="text"
               value={symbolsInput}
               onChange={(e) => setSymbolsInput(e.target.value)}
-              placeholder="BTCUSDT, ETHUSDT, SOLUSDT"
+              placeholder="BTCUSDT (solo) or BTCUSDT, ETHUSDT"
               className="bg-background border border-border/40 rounded-xl px-3 py-1.5 text-xs font-mono font-semibold text-text focus:border-accent focus-visible:outline-none"
             />
           </div>
@@ -426,6 +494,30 @@ export const BacktestPanel = ({ onApplyConfig }) => {
               )}
             </button>
           </div>
+        </div>
+
+        {/* Scanner Pre-Filter Toggle for Solo vs Momentum-Gated Backtests */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/15">
+          <div className="flex items-center gap-2 text-[11px] text-dim">
+            <span className="font-semibold text-text">Momentum Scanner Pre-Filter</span>
+            <span className="hidden sm:inline">
+              (Gate entries by {targetStrategyConfig.scan_pct_threshold ?? 2.0}% move over {targetStrategyConfig.scan_lookback || 3} bars; disable for pure solo-symbol signal testing)
+            </span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={useGlobalScanner}
+            onClick={() => setUseGlobalScanner(v => !v)}
+            className={cn(
+              "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
+              useGlobalScanner
+                ? "bg-accent/15 border-accent/40 text-accent"
+                : "bg-background border-border/40 text-dim hover:text-text"
+            )}
+          >
+            {useGlobalScanner ? 'Enabled' : 'Disabled (Direct Signals)'}
+          </button>
         </div>
       </div>
 

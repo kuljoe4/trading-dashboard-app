@@ -411,6 +411,7 @@ export class SignalEngineService {
     minimal: boolean = false,
     passedCandles?: Candle[],
     trade?: any,
+    candlesByInterval?: Map<string, Candle[]>,
   ): { allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> } {
     const evaluatedAtMs = Date.now();
     // BOLT OPTIMIZATION: Dynamically select correct active signals depending on purpose.
@@ -459,11 +460,13 @@ export class SignalEngineService {
       }
     }
 
-    const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
+    const candles = candlesByInterval
+      ? (candlesByInterval.get(interval) || passedCandles || [])
+      : (passedCandles || this.klineStore.getRawCandles(symbol, interval));
 
-    // Warm-up check scoped strictly to signals evaluating on the base interval when reading from klineStore,
+    // Warm-up check scoped strictly to signals evaluating on the base interval when reading from klineStore or candlesByInterval,
     // so multi-timeframe indicators (e.g. ema_dual on 1h with MACD=70) never falsely block shorter-history base pairs (e.g. 1d with 60 candles).
-    const requiredWarmup = passedCandles
+    const requiredWarmup = (passedCandles && !candlesByInterval)
       ? activeSignals.reduce((m, s) => {
           const bType = this.resolveBaseSignalType(s);
           if (bType === 'htf_breakout' || bType === 'prev_day_breakout') {
@@ -545,9 +548,11 @@ export class SignalEngineService {
         if (signalInterval === 'default') {
           signalInterval = interval;
         }
-        const signalCandles = passedCandles || ((signalInterval !== interval)
-          ? this.klineStore.getRawCandles(symbol, signalInterval)
-          : candles);
+        const signalCandles = candlesByInterval
+          ? (candlesByInterval.get(signalInterval) || (signalInterval === interval ? candles : []))
+          : (passedCandles || ((signalInterval !== interval)
+            ? this.klineStore.getRawCandles(symbol, signalInterval)
+            : candles));
 
         const isCrossTfSplit = baseSignalType === 'htf_breakout' || baseSignalType === 'prev_day_breakout';
         if (!isCrossTfSplit) {
@@ -578,7 +583,10 @@ export class SignalEngineService {
           }
         }
 
-        const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal, signalType, trade);
+        const effectiveConfig = candlesByInterval
+          ? ({ ...config, _bt_candles_by_interval: candlesByInterval } as any)
+          : config;
+        const result = handler(symbol, effectiveConfig, signalInterval, side, purpose, signalCandles, minimal, signalType, trade);
         const fired = typeof result === 'boolean' ? result : result.fired;
 
         if (fired) firedSignals.push(signalType);
@@ -1101,8 +1109,15 @@ export class SignalEngineService {
         return { fired: false, value: candles[candles.length - 1]?.close || 0, threshold: 0, unit: 'price', metric: 'EMA Cross', description: 'Insufficient data', insufficientData: true, threshold_is_price: true };
       }
 
-      const emaRes = this.calculateEMA(candles, period, interval, symbol, `EMA(${period})`);
+      const emaTwo = this.calculateEMALastTwo(candles, period, interval, symbol);
+      const emaRes = emaTwo
+        ? { value: emaTwo.values[1], prevValue: emaTwo.values[0], insufficientData: emaTwo.insufficientData }
+        : (() => {
+            const fallback = this.calculateEMA(candles, period, interval, symbol, `EMA(${period})`);
+            return { value: fallback.value, prevValue: fallback.value, insufficientData: fallback.insufficientData };
+          })();
       const ema = emaRes.value;
+      const prevEma = emaRes.prevValue;
       const prevClose = candles[candles.length - 2].close;
       const currClose = candles[candles.length - 1].close;
 
@@ -1111,21 +1126,21 @@ export class SignalEngineService {
 
       if (purpose === 'entry') {
         if (side === 'LONG') {
-          fired = prevClose <= ema && currClose > ema;
+          fired = prevClose <= prevEma && currClose > ema;
           isOnSatisfiedSide = currClose > ema;
         } else if (side === 'SHORT') {
-          fired = prevClose >= ema && currClose < ema;
+          fired = prevClose >= prevEma && currClose < ema;
           isOnSatisfiedSide = currClose < ema;
         } else {
-          fired = (prevClose <= ema && currClose > ema) || (prevClose >= ema && currClose < ema);
+          fired = (prevClose <= prevEma && currClose > ema) || (prevClose >= prevEma && currClose < ema);
           isOnSatisfiedSide = true;
         }
       } else {
         if (side === 'LONG') {
-          fired = prevClose >= ema && currClose < ema;
+          fired = prevClose >= prevEma && currClose < ema;
           isOnSatisfiedSide = currClose < ema;
         } else if (side === 'SHORT') {
-          fired = prevClose <= ema && currClose > ema;
+          fired = prevClose <= prevEma && currClose > ema;
           isOnSatisfiedSide = currClose > ema;
         } else {
           fired = false;
@@ -1137,7 +1152,7 @@ export class SignalEngineService {
 
       return {
         fired,
-        status: fired ? 'fired' : 'approaching',
+        status: fired ? 'fired' : isOnSatisfiedSide ? 'stale' : 'approaching',
         value: roundTo(currClose, 8),
         threshold: roundTo(ema, 8),
         insufficientData: emaRes.insufficientData,
@@ -1852,8 +1867,10 @@ export class SignalEngineService {
     const len = index + 1;
     if (len < period + 1) return null;
 
+    const firstCandleTime = candles[0]?.time ?? 0;
     const targetCandle = candles[index];
-    const cacheKey = symbol ? `${symbol}:${interval}:${period}:${targetCandle.time}:${targetCandle.close}:${len}:dual` : null;
+    const isBacktestKey = Boolean(symbol && symbol.startsWith('__bt__:'));
+    const cacheKey = symbol ? `${symbol}:${interval}:${period}:${firstCandleTime}:${targetCandle.time}:${targetCandle.close}:${len}:dual` : null;
     if (cacheKey) {
       const cached = this.emaDualCache.get(cacheKey);
       if (cached) return cached;
@@ -1873,7 +1890,7 @@ export class SignalEngineService {
 
     const isLiveUpdate = index === candles.length - 1;
     const isCompletedUpdate = index === candles.length - 2;
-    const stableKey = symbol ? `${symbol}:${interval}:${period}` : null;
+    const stableKey = (symbol && !isBacktestKey) ? `${symbol}:${interval}:${period}` : null;
     const stable = (stableKey && (isLiveUpdate || isCompletedUpdate)) ? this.emaStableCache.get(stableKey) : null;
 
     if (isLiveUpdate && stable && stable.time === candles[index - 1].time && stable.count === index) {
@@ -1956,7 +1973,8 @@ export class SignalEngineService {
 
     // BOLT OPTIMIZATION: Try stable cache if we are scanning up to the last completed candle
     const isCompletedUpdate = end === candles.length - 1;
-    const stableKey = (symbol && interval && period && isCompletedUpdate) ? `${symbol}:${interval}:${period}` : null;
+    const isBacktestKey = Boolean(symbol && symbol.startsWith('__bt__:'));
+    const stableKey = (symbol && !isBacktestKey && interval && period && isCompletedUpdate) ? `${symbol}:${interval}:${period}` : null;
     if (stableKey) {
       const targetCandle = candles[end - 1];
       const stable = this.smaStableCache.get(stableKey);
@@ -2009,8 +2027,10 @@ export class SignalEngineService {
     const len = index + 1;
     if (len <= 0) return { value: 0, insufficientData: true };
 
+    const firstCandleTime = candles[0]?.time ?? 0;
     const targetCandle = candles[index];
-    const cacheKey = symbol ? `${symbol}:${interval}:${period}:${targetCandle.time}:${targetCandle.close}:${len}` : null;
+    const isBacktestKey = Boolean(symbol && symbol.startsWith('__bt__:'));
+    const cacheKey = symbol ? `${symbol}:${interval}:${period}:${firstCandleTime}:${targetCandle.time}:${targetCandle.close}:${len}` : null;
     if (cacheKey) {
       const cached = this.emaCache.get(cacheKey);
       if (cached) return cached;
@@ -2047,7 +2067,7 @@ export class SignalEngineService {
     // BOLT OPTIMIZATION: Try incremental path for the most common case (last or second-to-last candle)
     const isLiveUpdate = index === candles.length - 1;
     const isCompletedUpdate = index === candles.length - 2;
-    const stableKey = symbol ? `${symbol}:${interval}:${period}` : null;
+    const stableKey = (symbol && !isBacktestKey) ? `${symbol}:${interval}:${period}` : null;
     const stable = (stableKey && (isLiveUpdate || isCompletedUpdate)) ? this.emaStableCache.get(stableKey) : null;
 
     // Case 1: Calculating for the live candle using the stable prefix
@@ -3422,7 +3442,10 @@ export class SignalEngineService {
       )) || 0);
 
       // 3. Retrieve Reference Candles (Higher Timeframe, e.g. 1d)
-      const refCandles = this.klineStore.getRawCandles(symbol, refTf);
+      const btCandlesByInterval: Map<string, Candle[]> | undefined = (config as any)?._bt_candles_by_interval;
+      const refCandles = btCandlesByInterval
+        ? (btCandlesByInterval.get(refTf) || [])
+        : this.klineStore.getRawCandles(symbol, refTf);
       // Need at least 1 completed candle + 1 active forming candle (or lookback + 1)
       if (!refCandles || refCandles.length < lookback + 1) {
         if (minimal) return false;
@@ -3439,9 +3462,11 @@ export class SignalEngineService {
       }
 
       // 4. Retrieve Trigger Candles (e.g. 1h)
-      const trigCandles = (passedCandles && effectiveTrigTf === interval)
-        ? passedCandles
-        : this.klineStore.getRawCandles(symbol, effectiveTrigTf);
+      const trigCandles = btCandlesByInterval
+        ? (btCandlesByInterval.get(effectiveTrigTf) || (effectiveTrigTf === interval ? passedCandles : []) || [])
+        : ((passedCandles && effectiveTrigTf === interval)
+          ? passedCandles
+          : this.klineStore.getRawCandles(symbol, effectiveTrigTf));
 
       const minTrigCandles = mode === 'closed_candle_confirm' ? 2 : 1;
       if (!trigCandles || trigCandles.length < minTrigCandles) {
@@ -3744,9 +3769,12 @@ export class SignalEngineService {
       ? configuredTf
       : (activeTrade.trigger_candle_timeframe || config.htf_breakout_trigger_timeframe || interval || '1h');
 
-    const tfCandles = (targetTf === interval && candles && candles.length > 0)
-      ? candles
-      : (this.klineStore ? this.klineStore.getRawCandles(symbol, targetTf) : (candles || []));
+    const btCandlesByInterval: Map<string, Candle[]> | undefined = (config as any)?._bt_candles_by_interval;
+    const tfCandles = btCandlesByInterval
+      ? (btCandlesByInterval.get(targetTf) || (targetTf === interval ? candles : []) || [])
+      : ((targetTf === interval && candles && candles.length > 0)
+        ? candles
+        : (this.klineStore ? this.klineStore.getRawCandles(symbol, targetTf) : (candles || [])));
 
     if (!tfCandles || tfCandles.length < 1) {
       if (minimal) return false;
@@ -3906,5 +3934,24 @@ export class SignalEngineService {
     this.smaStableCache.clear();
     this.macdCache.clear();
     this.supertrendCache.clear();
+  }
+
+  /**
+   * Removes backtest-namespaced (`__bt__:`) cache entries without disturbing live/paper caches.
+   */
+  public clearBacktestCaches() {
+    const purgeBacktestKeys = (map: Map<string, any>) => {
+      for (const key of Array.from(map.keys())) {
+        if (key.startsWith('__bt__:')) {
+          map.delete(key);
+        }
+      }
+    };
+    purgeBacktestKeys(this.emaCache);
+    purgeBacktestKeys(this.emaDualCache);
+    purgeBacktestKeys(this.emaStableCache);
+    purgeBacktestKeys(this.smaStableCache);
+    purgeBacktestKeys(this.macdCache);
+    purgeBacktestKeys(this.supertrendCache);
   }
 }

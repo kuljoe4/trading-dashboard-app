@@ -1990,9 +1990,20 @@ const EnvironmentButton = React.memo(({ mode, isSelected, onClick, disabled = fa
 EnvironmentButton.displayName = 'EnvironmentButton'
 
 const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, onSave, onOpenSaveAsNew }) => {
-  const [days, setDays] = useState(14);
+  const [days, setDays] = useState(() => (cfg?.scan_interval === '1d' || cfg?.scan_interval === '3d' || cfg?.scan_interval === '1w' ? 365 : 14));
   const [startingBalance, setStartingBalance] = useState(10000);
-  const [symbolText, setSymbolSearchText] = useState(() => (Array.isArray(cfg?.symbols) && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : typeof cfg?.symbols === 'string' ? cfg.symbols : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
+  const [symbolText, setSymbolSearchText] = useState(() => {
+    const combined = [];
+    if (Array.isArray(cfg?.symbols)) combined.push(...cfg.symbols);
+    else if (typeof cfg?.symbols === 'string' && cfg.symbols.trim()) combined.push(...cfg.symbols.split(','));
+    if (Array.isArray(cfg?.single_symbol_configs)) {
+      cfg.single_symbol_configs.forEach(sc => {
+        if (sc && sc.enabled !== false && sc.symbol) combined.push(sc.symbol);
+      });
+    }
+    const unique = Array.from(new Set(combined.map(s => String(s).trim().toUpperCase()).filter(s => s.endsWith('USDT'))));
+    return unique.length > 0 ? unique.join(', ') : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT';
+  });
   const [useGlobalScanner, setUseGlobalScanner] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [progressPct, setProgressPct] = useState(0);
@@ -2192,6 +2203,9 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
               <option value={30}>30 Days (1 Month)</option>
               <option value={60}>60 Days (2 Months)</option>
               <option value={90}>90 Days (3 Months)</option>
+              <option value={180}>180 Days (6 Months)</option>
+              <option value={365}>365 Days (1 Year)</option>
+              <option value={730}>730 Days (2 Years)</option>
             </select>
           </div>
 
@@ -2216,23 +2230,19 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
               type="text"
               autoCapitalize="characters"
               autoCorrect="off"
-              placeholder="BTCUSDT, ETHUSDT..."
-              disabled={useGlobalScanner}
+              placeholder="BTCUSDT (solo) or BTCUSDT, ETHUSDT..."
               value={symbolText}
               onChange={(e) => setSymbolSearchText(e.target.value)}
-              className={cn(
-                "w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold text-text outline-none focus:border-accent",
-                useGlobalScanner && "opacity-50 cursor-not-allowed"
-              )}
+              className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold text-text outline-none focus:border-accent"
             />
           </div>
         </div>
 
         <div className="flex items-center justify-between gap-3 p-3 bg-surface/40 border border-border/30 rounded-xl">
           <CollapsibleHelpTitle
-            title="Market-Wide Global Scanner"
+            title="Momentum Scanner Pre-Filter"
             titleClassName="text-[10px] font-black uppercase tracking-widest text-text"
-            helpText="Filter & rank candidate opportunities across candidate symbols dynamically during historical simulation."
+            helpText="Require candidate bars to meet the configured momentum % threshold before evaluating entry signals. Disable for direct solo-symbol signal testing."
           />
           <Toggle value={useGlobalScanner} onChange={setUseGlobalScanner} color="bg-accent" />
         </div>

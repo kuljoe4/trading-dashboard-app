@@ -161,5 +161,222 @@ describe('BacktestService', () => {
       expect(errors.length).toBeGreaterThan(0);
       expect(errors.some(e => e.property === 'startingBalance')).toBe(true);
     });
+
+    it('should accept extended 365/730 day horizons and 1d scanInterval', async () => {
+      const dto = plainToInstance(RunBacktestDto, {
+        symbols: ['BTCUSDT'],
+        days: 365,
+        scanInterval: '1d',
+        startingBalance: 10000,
+        useGlobalScanner: false,
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+  });
+
+  describe('End-to-End Solo Symbol & Multi-Timeframe Parity (Real SignalEngineService)', () => {
+    let realService: BacktestService;
+    let realSignalEngine: SignalEngineService;
+    let proxyFetchMock: jest.Mock;
+
+    const buildWaveKlines = (
+      count: number,
+      intervalMs: number,
+      startTs: number,
+      wavePeriodBars: number,
+      amplitude = 18,
+    ): any[][] => {
+      const rows: any[][] = [];
+      for (let i = 0; i < count; i++) {
+        const openTime = startTs + i * intervalMs;
+        const close = 100 + Math.sin((i / wavePeriodBars) * Math.PI * 2) * amplitude + i * 0.05;
+        const prevClose = i === 0 ? close : 100 + Math.sin(((i - 1) / wavePeriodBars) * Math.PI * 2) * amplitude + (i - 1) * 0.05;
+        const high = Math.max(openTime ? prevClose : close, close) * 1.008;
+        const low = Math.min(prevClose, close) * 0.992;
+        rows.push([
+          openTime,
+          prevClose.toFixed(4),
+          high.toFixed(4),
+          low.toFixed(4),
+          close.toFixed(4),
+          '1500',
+          openTime + intervalMs - 1,
+        ]);
+      }
+      return rows;
+    };
+
+    beforeEach(async () => {
+      proxyFetchMock = jest.fn();
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          BacktestService,
+          SignalEngineService,
+          {
+            provide: KlineStoreService,
+            useValue: {
+              candlesMap: new Map(),
+              getRawCandles: jest.fn().mockReturnValue([]),
+            },
+          },
+          {
+            provide: BinanceClientFactory,
+            useValue: {
+              genericRequest: jest.fn(),
+              proxyFetch: proxyFetchMock,
+            },
+          },
+        ],
+      }).compile();
+
+      realService = module.get<BacktestService>(BacktestService);
+      realSignalEngine = module.get<SignalEngineService>(SignalEngineService);
+    });
+
+    it('runs solo-symbol ema_dual_cross on 1d over 365 days via single_symbol_configs and isolates live caches', async () => {
+      const dayMs = 24 * 60 * 60 * 1000;
+      const startTs = Date.UTC(2024, 0, 1);
+      const dailyKlines = buildWaveKlines(430, dayMs, startTs, 32, 22);
+
+      proxyFetchMock.mockImplementation(async (url: string) => {
+        expect(url).toContain('symbol=BTCUSDT');
+        expect(url).toContain('interval=1d');
+        return { ok: true, status: 200, json: async () => dailyKlines };
+      });
+
+      const config = new SessionConfig();
+      config.symbols = [];
+      config.single_symbol_configs = [{ symbol: 'BTCUSDT', enabled: true, follow_schedule: true, use_custom_config: false }];
+      config.global_scanner_enabled = false;
+      config.scan_interval = '1d';
+      config.enabled_signals = ['ema_dual_cross'];
+      config.exit_signals = ['ema_dual_cross'];
+      config.signal_params = { entry_ema_fast: 5, entry_ema_slow: 12, exit_ema_fast: 5, exit_ema_slow: 12 };
+      config.sl_type = 'pct';
+      config.sl_distance_pct = 5.0;
+      config.tp_mode = 'fixed';
+      config.tp_ratio = 2.0;
+      config.risk_pct_per_trade = 1.0;
+
+      const result = await realService.runBacktest({
+        config,
+        days: 365,
+        startingBalance: 10000,
+      });
+
+      expect(proxyFetchMock).toHaveBeenCalled();
+      expect(result.symbolPerformance.map(s => s.symbol)).toEqual(['BTCUSDT']);
+      expect(result.totalTrades).toBeGreaterThanOrEqual(2);
+
+      // Verify backtest cleaned up all __bt__: cache entries
+      const emaCacheKeys = Array.from((realSignalEngine as any).emaCache.keys()) as string[];
+      const emaDualKeys = Array.from((realSignalEngine as any).emaDualCache.keys()) as string[];
+      const stableKeys = Array.from((realSignalEngine as any).emaStableCache.keys()) as string[];
+      expect(emaCacheKeys.some(k => k.startsWith('__bt__:'))).toBe(false);
+      expect(emaDualKeys.some(k => k.startsWith('__bt__:'))).toBe(false);
+      expect(stableKeys.some(k => k.startsWith('__bt__:'))).toBe(false);
+    });
+
+    it('runs solo-symbol macd_impulse with EMA cross on 1h and honors multi-timeframe signal_timeframes', async () => {
+      const hourMs = 60 * 60 * 1000;
+      const fourHourMs = 4 * hourMs;
+      const startTs = Date.UTC(2025, 0, 1);
+
+      // Macro uptrend with 24h pullback waves so 4h EMA(5)>EMA(12) stays bullish while 1h MACD impulse fires on pullback bounces
+      const hourlyKlines: any[][] = [];
+      let prevClose = 100;
+      for (let i = 0; i < 420; i++) {
+        const ts = startTs + i * hourMs;
+        const close = 100 + i * 0.18 + Math.sin((i * 2 * Math.PI) / 24) * 5;
+        const open = prevClose;
+        const high = Math.max(open, close) * 1.004;
+        const low = Math.min(open, close) * 0.996;
+        hourlyKlines.push([ts, String(open), String(high), String(low), String(close), '250', ts + hourMs - 1]);
+        prevClose = close;
+      }
+
+      // Aggregate matching 4h candles directly from the 1h series
+      const fourHourKlines: any[][] = [];
+      for (let i = 0; i < hourlyKlines.length; i += 4) {
+        const group = hourlyKlines.slice(i, i + 4);
+        if (group.length < 4) break;
+        const ts = group[0][0];
+        const open = group[0][1];
+        const high = String(Math.max(...group.map(g => parseFloat(g[2]))));
+        const low = String(Math.min(...group.map(g => parseFloat(g[3]))));
+        const close = group[group.length - 1][4];
+        fourHourKlines.push([ts, open, high, low, close, '1000', ts + fourHourMs - 1]);
+      }
+
+      const requestedIntervals = new Set<string>();
+      proxyFetchMock.mockImplementation(async (url: string) => {
+        const match = url.match(/interval=([^&]+)/);
+        const tf = match ? match[1] : '1h';
+        requestedIntervals.add(tf);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => (tf === '4h' ? fourHourKlines : hourlyKlines),
+        };
+      });
+
+      const config = new SessionConfig();
+      config.symbols = ['ETHUSDT'];
+      config.global_scanner_enabled = false;
+      config.scan_interval = '1h';
+      config.enabled_signals = ['macd_impulse', 'ema_dual'];
+      config.signal_logic = 'all';
+      config.signal_timeframes = {
+        macd_impulse: '1h',
+        ema_dual: '4h',
+      };
+      config.signal_params = {
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+        macd_strict_expansion: false,
+        macd_impulse_max_entry_candle: 2,
+        entry_ema_fast: 5,
+        entry_ema_slow: 12,
+      };
+      config.sl_type = 'pct';
+      config.sl_distance_pct = 2.0;
+      config.tp_mode = 'fixed';
+      config.tp_ratio = 1.5;
+
+      const result = await realService.runBacktest({
+        config,
+        symbols: ['ETHUSDT'],
+        days: 10,
+        startingBalance: 10000,
+        useGlobalScanner: false,
+      });
+
+      expect(requestedIntervals.has('1h')).toBe(true);
+      expect(requestedIntervals.has('4h')).toBe(true);
+      expect(result.symbolPerformance.map(s => s.symbol)).toEqual(['ETHUSDT']);
+      expect(result.totalTrades).toBeGreaterThanOrEqual(1);
+    });
+
+    it('surfaces HTTP 451 geo-restriction errors clearly when proxyFetch returns 451', async () => {
+      proxyFetchMock.mockResolvedValue({
+        ok: false,
+        status: 451,
+      });
+
+      const config = new SessionConfig();
+      config.scan_interval = '1d';
+      config.enabled_signals = ['ema_dual_cross'];
+
+      await expect(
+        realService.runBacktest({
+          config,
+          symbols: ['BTCUSDT'],
+          days: 90,
+          useGlobalScanner: false,
+        })
+      ).rejects.toThrow(/HTTP 451.*Geo-Restriction/i);
+    });
   });
 });

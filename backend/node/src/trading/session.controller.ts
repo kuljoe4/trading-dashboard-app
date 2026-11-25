@@ -164,19 +164,24 @@ export class SessionController {
       });
     }
 
-    const config = plainToInstance(SessionConfig, backtestDto.config || {});
-    // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
-    const errors = await validate(config, { whitelist: true, forbidNonWhitelisted: true });
-    if (errors.length > 0) {
-      const detailedErrors = formatValidationErrors(errors);
-      throw new BadRequestException({
-        message: "Invalid strategy configuration in backtest",
-        detail: detailedErrors,
-      });
+    let validatedConfig: SessionConfig | undefined = undefined;
+    if (backtestDto.config && Object.keys(backtestDto.config).length > 0) {
+      const config = plainToInstance(SessionConfig, backtestDto.config);
+      // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
+      const errors = await validate(config, { whitelist: true, forbidNonWhitelisted: true });
+      if (errors.length > 0) {
+        const detailedErrors = formatValidationErrors(errors);
+        throw new BadRequestException({
+          message: "Invalid strategy configuration in backtest",
+          detail: detailedErrors,
+        });
+      }
+      validatedConfig = config;
     }
+
     return this.backtestService.runBacktest({
       ...backtestDto,
-      config,
+      config: validatedConfig,
     });
   }
 

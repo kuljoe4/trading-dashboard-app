@@ -1505,8 +1505,8 @@ export function DashboardView({ initialStrategy }) {
 
   const currentStrategy = useMemo(() => ({
     sessionActive, sessionPaused, strategyId, totalPnl: effectiveTotalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount,
-    strategy_label: config.strategy_label || 'Momentum Strategy'
-  }), [sessionActive, sessionPaused, strategyId, effectiveTotalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount, config.strategy_label])
+    strategy_label: config?.strategy_label || 'Momentum Strategy'
+  }), [sessionActive, sessionPaused, strategyId, effectiveTotalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount, config?.strategy_label])
 
   const validTradeHistory = useMemo(() => {
     const hist = tradeHistory || [];
@@ -1623,7 +1623,7 @@ export function DashboardView({ initialStrategy }) {
     const estPnlMap = { [strategyLabel]: 0 };
     const countMap = { [strategyLabel]: 0 };
 
-    const variants = config.strategy_variants || [];
+    const variants = (config?.strategy_variants || []).filter(Boolean);
     for (let i = 0; i < variants.length; i++) {
       const label = variants[i].strategy_label || 'Variant';
       pnlMap[label] = 0;

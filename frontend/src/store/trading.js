@@ -1330,7 +1330,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     const merged = { ...st };
     Object.entries(updates).forEach(([key, value]) => {
       if (key === '_authoritative') return;
-      if (value !== undefined) merged[key] = value;
+      if (value !== undefined && (key !== 'config' || (value && typeof value === 'object' && !Array.isArray(value)))) merged[key] = value;
     });
 
     // Handle key variations
@@ -2734,6 +2734,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
       // Force collections to arrays to avoid TypeError: B is undefined
       state.activeTrades = Array.isArray(state.activeTrades) ? state.activeTrades : [];
+      state.config = state.config && typeof state.config === 'object' && !Array.isArray(state.config)
+        ? state.config
+        : { ...defaultConfig };
       state.scannerResults = Array.isArray(state.scannerResults) ? state.scannerResults : [];
       state.variantScannerResults = state.variantScannerResults && typeof state.variantScannerResults === 'object' ? state.variantScannerResults : {};
       state.tradeHistory = Array.isArray(state.tradeHistory) ? state.tradeHistory : [];

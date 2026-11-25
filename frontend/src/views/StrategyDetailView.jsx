@@ -31,6 +31,7 @@ import {
   Pin, RotateCw, SkipForward, SlidersHorizontal, RotateCcw
 } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
+import { usePersistedFilter } from '../hooks/usePersistedFilter'
 import { useNow } from '../hooks/useNow'
 import { sessionAPI } from '../api/client'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
@@ -353,8 +354,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
   const [autoHeldSymbol, setAutoHeldSymbol] = useState(null)
   const [rotationNextSwitchAt, setRotationNextSwitchAt] = useState(() => Date.now() + ROTATION_INTERVAL_SEC * 1000)
   const [lastRotationReason, setLastRotationReason] = useState('Top proximity #1')
-  const [inspectScope, setInspectScope] = useState('live') // 'live' | 'snapshots'
-  const [snapshotStatusFilter, setSnapshotStatusFilter] = useState('all') // 'all' | 'open' | 'closed'
+  const [inspectScope, setInspectScope] = usePersistedFilter('strategy_inspect_scope', 'live', ['live', 'snapshots']) // 'live' | 'snapshots'
+  const [snapshotStatusFilter, setSnapshotStatusFilter] = usePersistedFilter('strategy_snapshot_status_filter', 'all', ['all', 'open', 'closed']) // 'all' | 'open' | 'closed'
   const [showPnl, setShowPnl] = useState(true)
   const [showHitRate, setShowHitRate] = useState(true)
   const [showPf, setShowPf] = useState(false)
@@ -365,7 +366,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
   const [syncingTfMap, setSyncingTfMap] = useState({})
   const [isBatchSyncing, setIsBatchSyncing] = useState(false)
   const [activeTab, setActiveTab] = useState('pipeline') // 'pipeline' | 'decisions' | 'performance'
-  const [rulesMobileSection, setRulesMobileSection] = useState('all') // 'all' | 'entry' | 'exit' | 'risk'
+  const [rulesMobileSection, setRulesMobileSection] = usePersistedFilter('strategy_rules_mobile_section', 'all', ['all', 'entry', 'exit', 'risk']) // 'all' | 'entry' | 'exit' | 'risk'
   const [showAllStaticSymbols, setShowAllStaticSymbols] = useState(false)
   const [showWarmupDebug, setShowWarmupDebug] = useState(null)
   const [showScannerPreview, setShowScannerPreview] = useState(false)
@@ -400,30 +401,18 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
 
   // Journey Map & Faceted Decision Log State
   const [activeJourneyMilestone, setActiveJourneyMilestone] = useState(null)
-  const [reasonsOutcome, setReasonsOutcome] = useState('all') // 'all' | 'allowed' | 'rejected' | 'waiting'
-  const [reasonsStage, setReasonsStage] = useState('all') // 'all' | '1'..'6'
-  const [reasonsSymbol, setReasonsSymbol] = useState('all')
-  const [hideRoutineMisses, setHideRoutineMisses] = useState(true)
-  const [reasonsViewMode, setReasonsViewMode] = useState('timeline') // 'timeline' | 'story'
+  const [reasonsOutcome, setReasonsOutcome] = usePersistedFilter('strategy_decision_outcome', 'all', ['all', 'allowed', 'rejected', 'waiting']) // 'all' | 'allowed' | 'rejected' | 'waiting'
+  const [reasonsStage, setReasonsStage] = usePersistedFilter('strategy_decision_stage', 'all', ['all', '1', '2', '3', '4', '5', '6']) // 'all' | '1'..'6'
+  const [reasonsSymbol, setReasonsSymbol] = usePersistedFilter('strategy_decision_symbol', 'all')
+  const [hideRoutineMisses, setHideRoutineMisses] = usePersistedFilter('strategy_decision_hide_misses', true)
+  const [reasonsViewMode, setReasonsViewMode] = usePersistedFilter('strategy_decision_view_mode', 'timeline', ['timeline', 'story']) // 'timeline' | 'story'
   const [reasonsSearch, setReasonsSearch] = useState('')
   const [copiedReasonId, setCopiedReasonId] = useState(null)
   const [copiedLogScope, setCopiedLogScope] = useState(null)
-  const [decisionFiltersExpanded, setDecisionFiltersExpanded] = useState(() => {
-    try {
-      return localStorage.getItem('strategy_decision_filters_expanded') === 'true';
-    } catch {
-      return false;
-    }
-  })
+  const [decisionFiltersExpanded, setDecisionFiltersExpanded] = usePersistedFilter('strategy_decision_filters_expanded', false)
   const handleToggleDecisionFilters = useCallback(() => {
-    setDecisionFiltersExpanded(prev => {
-      const next = !prev;
-      try {
-        localStorage.setItem('strategy_decision_filters_expanded', String(next));
-      } catch {}
-      return next;
-    });
-  }, [])
+    setDecisionFiltersExpanded(prev => !prev);
+  }, [setDecisionFiltersExpanded])
 
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
   const strategyConfig = useMemo(() => {
@@ -3323,6 +3312,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                           className="w-full min-h-[40px] sm:min-h-[34px] px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-xl text-xs font-mono text-text focus:outline-none focus:border-accent"
                         >
                           <option value="all">All Pairs ({availableReasonSymbols.length})</option>
+                          {reasonsSymbol !== 'all' && !availableReasonSymbols.includes(reasonsSymbol) && (
+                            <option value={reasonsSymbol}>{reasonsSymbol} (0)</option>
+                          )}
                           {availableReasonSymbols.map(sym => (
                             <option key={sym} value={sym}>{sym}</option>
                           ))}

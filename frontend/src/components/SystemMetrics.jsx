@@ -4,6 +4,7 @@ import { Activity, Zap, Leaf, ShieldAlert, Cpu, Rocket, Search, CheckCircle2, Co
 import { cn, PulseDot, Tooltip, Btn, VisuallyHidden } from './ui/primitives';
 import { healthAPI, sessionAPI } from '../api/client';
 import { useTradingStore } from '../store/trading';
+import { usePersistedFilter } from '../hooks/usePersistedFilter';
 
 const SignalBars = React.memo(({ latency }) => {
   if (latency === null || latency === undefined) {
@@ -178,8 +179,8 @@ const LoopVisualizer = ({ pipeline }) => {
 export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, apiStatus, wsStatus, gateState, isEcoMode, activeTrades = [], config = {}, compact = false }) => {
   const [copiedDiag, setCopiedDiag] = React.useState(false);
   const [isMobileDiagOpen, setIsMobileDiagOpen] = React.useState(false);
-  const [selectedEndpoint, setSelectedEndpoint] = React.useState('all');
-  const [selectedStatus, setSelectedStatus] = React.useState('all');
+  const [selectedEndpoint, setSelectedEndpoint] = usePersistedFilter('metrics_rest_endpoint_filter', 'all');
+  const [selectedStatus, setSelectedStatus] = usePersistedFilter('metrics_rest_status_filter', 'all');
   const [now, setNow] = React.useState(() => Date.now());
   const { healthData, lastProbeTs, probeLoading, fetchHealth } = useSharedBinanceHealth();
 
@@ -212,8 +213,12 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, apiSta
   const telemetryEnabled = app.telemetry_enabled !== false && config?.track_binance_rate_limits !== false;
 
   const endpointOptions = React.useMemo(() => {
-    return ['all', ...Object.keys(breakdown)];
-  }, [breakdown]);
+    const keys = Object.keys(breakdown);
+    if (selectedEndpoint !== 'all' && !keys.includes(selectedEndpoint)) {
+      keys.push(selectedEndpoint);
+    }
+    return ['all', ...keys];
+  }, [breakdown, selectedEndpoint]);
 
   const filteredLogs = React.useMemo(() => {
     return rawLogs.filter(log => {

@@ -5,6 +5,7 @@ import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, getRrRecommendationStatus, calculatePerformanceMetrics } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore, normalizeTrade } from '../store/trading'
+import { usePersistedFilter } from '../hooks/usePersistedFilter'
 import { resolveAdaptiveHistoryTradeLimit, resolveAdaptiveSessionLimit, filterHistorySessions, getNextAdaptiveTradeStep } from '../utils/periodicPerformance'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader, Btn } from '../components/ui/primitives'
 import { SmoothHeightContainer, SmoothSwap } from '../components/ui/SmoothMotion'
@@ -1253,7 +1254,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle, onInspec
   const [showAllTrades, setShowAllTrades] = useState(false);
   const [sessionStrategyFilter, setSessionStrategyFilter] = useState('ALL');
   const [sessionSymbolFilter, setSessionSymbolFilter] = useState('ALL');
-  const [sessionFilterTab, setSessionFilterTab] = useState('strategy'); // 'strategy' | 'symbol' | 'combo'
+  const [sessionFilterTab, setSessionFilterTab] = usePersistedFilter('history_session_filter_tab', 'strategy', ['strategy', 'symbol', 'combo']); // 'strategy' | 'symbol' | 'combo'
   const [sessionFilterQuery, setSessionFilterQuery] = useState('');
 
   const handleToggleClick = React.useCallback(() => {

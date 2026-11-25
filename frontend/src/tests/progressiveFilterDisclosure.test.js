@@ -3,18 +3,72 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  readPersistedFilter,
+  writePersistedFilter,
+  readPersistedJson,
+  writePersistedJson,
+  sanitizeLogFilters,
+} from '../utils/filterPersistence.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const readSrc = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf-8');
 
-test('ConfigModal Presets panel progressively discloses secondary mode filters with persisted state & quiet summary', () => {
+test('filterPersistence helpers validate booleans, numbers, allowlists, and JSON safely', () => {
+  const backing = new Map();
+  const prevStorage = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (k) => (backing.has(k) ? backing.get(k) : null),
+    setItem: (k, v) => backing.set(k, String(v)),
+    removeItem: (k) => backing.delete(k),
+  };
+
+  try {
+    writePersistedFilter('mode', 'variants');
+    assert.equal(readPersistedFilter('mode', 'all', ['all', 'live', 'variants']), 'variants');
+    writePersistedFilter('mode', 'bogus');
+    assert.equal(readPersistedFilter('mode', 'all', ['all', 'live', 'variants']), 'all');
+
+    writePersistedFilter('flag', true);
+    assert.equal(readPersistedFilter('flag', false), true);
+    writePersistedFilter('flag', false);
+    assert.equal(readPersistedFilter('flag', true), false);
+    backing.set('flag', 'corrupt');
+    assert.equal(readPersistedFilter('flag', true), true);
+
+    writePersistedFilter('score', 70);
+    assert.equal(readPersistedFilter('score', 0, [0, 55, 70, 80]), 70);
+    backing.set('score', '999');
+    assert.equal(readPersistedFilter('score', 0, [0, 55, 70, 80]), 0);
+
+    writePersistedJson('logs', { info: false, warn: true, error: true });
+    assert.deepEqual(
+      readPersistedJson('logs', { info: true, warn: true, error: true }, sanitizeLogFilters),
+      { info: false, warn: true, error: true }
+    );
+    backing.set('logs', '{bad json');
+    assert.deepEqual(
+      readPersistedJson('logs', { info: true, warn: true, error: true }, sanitizeLogFilters),
+      { info: true, warn: true, error: true }
+    );
+  } finally {
+    globalThis.localStorage = prevStorage;
+  }
+});
+
+test('ConfigModal Presets panel progressively discloses & persists usage and mode filter selections', () => {
   const src = readSrc('components/ConfigModal.jsx');
 
   assert.ok(
-    src.includes("localStorage.getItem('presets_filters_expanded') === 'true'"),
+    src.includes("usePersistedFilter('presets_filters_expanded', false)"),
     'ConfigModal presets filter disclosure defaults collapsed and persists in localStorage'
+  );
+  assert.ok(
+    src.includes("usePersistedFilter('presets_mode_filter', 'all'") &&
+      src.includes("usePersistedFilter('presets_usage_filter', 'all'"),
+    'ConfigModal persists both mode and usage filter selections'
   );
   assert.ok(
     src.includes('data-testid="presets-filters-toggle"') && src.includes('aria-expanded={presetFiltersExpanded}'),
@@ -30,33 +84,51 @@ test('ConfigModal Presets panel progressively discloses secondary mode filters w
   );
 });
 
-test('DecisionLog progressively discloses level toggles and limit controls behind a Filters toggle', () => {
-  const src = readSrc('components/DecisionLog.jsx');
+test('DecisionLog & trading store persist level toggles, limit selection, and disclosure state', () => {
+  const logSrc = readSrc('components/DecisionLog.jsx');
+  const storeSrc = readSrc('store/trading.js');
 
   assert.ok(
-    src.includes("localStorage.getItem('decision_log_filters_expanded') === 'true'"),
-    'DecisionLog filter disclosure defaults collapsed and persists in localStorage'
+    storeSrc.includes("readPersistedJson('decision_log_filters'") &&
+      storeSrc.includes("writePersistedJson('decision_log_filters'"),
+    'trading store persists Info/Warnings/Errors level filter selection in localStorage'
   );
   assert.ok(
-    src.includes('data-testid="decision-log-filters-toggle"') && src.includes('aria-expanded={filtersExpanded}'),
+    logSrc.includes("localStorage.getItem('decision_log_filters_expanded') === 'true'") &&
+      logSrc.includes("localStorage.getItem('decision_log_limit')"),
+    'DecisionLog filter disclosure and limit persist in localStorage'
+  );
+  assert.ok(
+    logSrc.includes('data-testid="decision-log-filters-toggle"') && logSrc.includes('aria-expanded={filtersExpanded}'),
     'DecisionLog exposes accessible Filters toggle button with active count and aria-expanded'
   );
   assert.ok(
-    src.includes('!filtersExpanded') && src.includes('Levels:') && src.includes('Limit:'),
+    logSrc.includes('!filtersExpanded') && logSrc.includes('Levels:') && logSrc.includes('Limit:'),
     'DecisionLog shows a quiet 1-line summary of levels and limit when collapsed'
   );
   assert.ok(
-    src.includes('<SmoothCollapse isOpen={filtersExpanded}>') && src.includes('handleResetFilters'),
+    logSrc.includes('<SmoothCollapse isOpen={filtersExpanded}>') && logSrc.includes('handleResetFilters'),
     'DecisionLog wraps level toggles & limit selector in SmoothCollapse with unified reset'
   );
 });
 
-test('StrategyDetailView Decision Log progressively discloses secondary facets and bulk copy controls', () => {
+test('StrategyDetailView persists all decision log, snapshot, and rule filter selections', () => {
   const src = readSrc('views/StrategyDetailView.jsx');
 
   assert.ok(
-    src.includes("localStorage.getItem('strategy_decision_filters_expanded') === 'true'"),
-    'StrategyDetailView decision log filter disclosure defaults collapsed and persists in localStorage'
+    src.includes("usePersistedFilter('strategy_decision_filters_expanded', false)") &&
+      src.includes("usePersistedFilter('strategy_decision_outcome', 'all'") &&
+      src.includes("usePersistedFilter('strategy_decision_stage', 'all'") &&
+      src.includes("usePersistedFilter('strategy_decision_symbol', 'all')") &&
+      src.includes("usePersistedFilter('strategy_decision_hide_misses', true)") &&
+      src.includes("usePersistedFilter('strategy_decision_view_mode', 'timeline'"),
+    'StrategyDetailView persists all decision log filter selections'
+  );
+  assert.ok(
+    src.includes("usePersistedFilter('strategy_inspect_scope', 'live'") &&
+      src.includes("usePersistedFilter('strategy_snapshot_status_filter', 'all'") &&
+      src.includes("usePersistedFilter('strategy_rules_mobile_section', 'all'"),
+    'StrategyDetailView persists inspect scope, snapshot status, and mobile rule section filters'
   );
   assert.ok(
     src.includes('data-testid="strategy-decision-filters-toggle"') && src.includes('aria-expanded={decisionFiltersExpanded}'),
@@ -72,15 +144,33 @@ test('StrategyDetailView Decision Log progressively discloses secondary facets a
   );
 });
 
-test('SymbolCatalogPicker separates EMA filter drawer expansion from EMA Cross sort scoring', () => {
-  const src = readSrc('components/SymbolCatalogPicker.jsx');
+test('SymbolCatalogPicker, SystemMetrics, and HistoryView persist remaining filter selections', () => {
+  const picker = readSrc('components/SymbolCatalogPicker.jsx');
+  const metrics = readSrc('components/SystemMetrics.jsx');
+  const history = readSrc('views/HistoryView.jsx');
 
   assert.ok(
-    src.includes('aria-expanded={showHtfFilters}'),
-    'SymbolCatalogPicker EMA Filters button accurately reflects collapsed/expanded drawer state even in ema_cross sort'
+    picker.includes('aria-expanded={showHtfFilters}') &&
+      picker.includes('isHtfMode && !showHtfFilters') &&
+      picker.includes('<SmoothCollapse isOpen={showHtfFilters}>'),
+    'SymbolCatalogPicker keeps EMA filter drawer collapsible cleanly with compact collapsed summary'
   );
   assert.ok(
-    src.includes('isHtfMode && !showHtfFilters') && src.includes('<SmoothCollapse isOpen={showHtfFilters}>'),
-    'SymbolCatalogPicker shows compact 1-line EMA summary when collapsed and wraps filter rows in SmoothCollapse'
+    picker.includes("usePersistedFilter('symbol_picker_category', 'all'") &&
+      picker.includes("usePersistedFilter('symbol_picker_sort', 'volume'") &&
+      picker.includes("usePersistedFilter('symbol_picker_htf_filters_expanded', false)") &&
+      picker.includes("usePersistedFilter('symbol_picker_htf_freshness', 'all'") &&
+      picker.includes("usePersistedFilter('symbol_picker_htf_direction', 'all'") &&
+      picker.includes("usePersistedFilter('symbol_picker_htf_min_score', 0"),
+    'SymbolCatalogPicker persists category, sort, and HTF EMA Cross filter selections'
+  );
+  assert.ok(
+    metrics.includes("usePersistedFilter('metrics_rest_endpoint_filter', 'all')") &&
+      metrics.includes("usePersistedFilter('metrics_rest_status_filter', 'all')"),
+    'SystemMetrics persists REST Call endpoint and status filters'
+  );
+  assert.ok(
+    history.includes("usePersistedFilter('history_session_filter_tab', 'strategy'"),
+    'HistoryView persists session breakdown filter tab'
   );
 });

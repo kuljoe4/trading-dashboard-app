@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, MoreVertical, SlidersHorizontal, ChevronDown, ChevronRight, Layers, Edit3, Filter } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
 import { SmoothCollapse } from './ui/SmoothMotion'
+import { usePersistedFilter } from '../hooks/usePersistedFilter'
 import * as Switch from '@radix-ui/react-switch'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { ConfirmationModal } from './ConfirmationModal'
@@ -3845,24 +3846,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [libraryExpanded, setLibraryExpanded] = useState(false);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [selectedPresetNames, setSelectedPresetNames] = useState(new Set());
-  const [presetTabFilter, setPresetTabFilter] = useState('all'); // 'all' | 'live' | 'testnet' | 'paper' | 'variants'
-  const [presetUsageFilter, setPresetUsageFilter] = useState('all'); // 'all' | 'active' | 'recent' | 'other'
-  const [presetFiltersExpanded, setPresetFiltersExpanded] = useState(() => {
-    try {
-      return localStorage.getItem('presets_filters_expanded') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [presetTabFilter, setPresetTabFilter] = usePersistedFilter('presets_mode_filter', 'all', ['all', 'live', 'testnet', 'paper', 'variants']); // 'all' | 'live' | 'testnet' | 'paper' | 'variants'
+  const [presetUsageFilter, setPresetUsageFilter] = usePersistedFilter('presets_usage_filter', 'all', ['all', 'active', 'recent', 'other']); // 'all' | 'active' | 'recent' | 'other'
+  const [presetFiltersExpanded, setPresetFiltersExpanded] = usePersistedFilter('presets_filters_expanded', false);
   const handleTogglePresetFilters = React.useCallback(() => {
-    setPresetFiltersExpanded((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem('presets_filters_expanded', String(next));
-      } catch {}
-      return next;
-    });
-  }, []);
+    setPresetFiltersExpanded((prev) => !prev);
+  }, [setPresetFiltersExpanded]);
   const [recentlyUsedNames, setRecentlyUsedNames] = useState(() => {
     try {
       const stored = localStorage.getItem('recently_used_presets');

@@ -14,6 +14,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useTradingStore } from '../store/trading';
+import { usePersistedFilter } from '../hooks/usePersistedFilter';
 import { cn, Tooltip } from './ui/primitives';
 import { SmoothCollapse } from './ui/SmoothMotion';
 import {
@@ -80,12 +81,12 @@ export const SymbolCatalogPicker = React.memo(({
 
   const [query, setQuery] = useState('');
   const [activeTab, setActiveTab] = useState('catalog'); // 'catalog' | 'strategies'
-  const [category, setCategory] = useState('all'); // 'all' | 'crypto' | 'tradfi' | 'movers'
-  const [sortBy, setSortBy] = useState('volume'); // 'volume' | 'ema_cross' | 'change' | 'alpha'
-  const [showHtfFilters, setShowHtfFilters] = useState(false);
-  const [htfFreshnessFilter, setHtfFreshnessFilter] = useState('all'); // 'all' | 'actionable' | 'fresh' | 'approaching' | 'early' | 'extended_or_stale'
-  const [htfDirectionFilter, setHtfDirectionFilter] = useState('all'); // 'all' | 'LONG' | 'SHORT'
-  const [htfMinScoreFilter, setHtfMinScoreFilter] = useState(0); // 0 | 55 | 70 | 80
+  const [category, setCategory] = usePersistedFilter('symbol_picker_category', 'all', ['all', 'crypto', 'tradfi', 'movers']); // 'all' | 'crypto' | 'tradfi' | 'movers'
+  const [sortBy, setSortBy] = usePersistedFilter('symbol_picker_sort', 'volume', ['volume', 'ema_cross', 'change', 'alpha']); // 'volume' | 'ema_cross' | 'change' | 'alpha'
+  const [showHtfFilters, setShowHtfFilters] = usePersistedFilter('symbol_picker_htf_filters_expanded', false);
+  const [htfFreshnessFilter, setHtfFreshnessFilter] = usePersistedFilter('symbol_picker_htf_freshness', 'all', ['all', 'actionable', 'fresh', 'approaching', 'early', 'extended_or_stale']); // 'all' | 'actionable' | 'fresh' | 'approaching' | 'early' | 'extended_or_stale'
+  const [htfDirectionFilter, setHtfDirectionFilter] = usePersistedFilter('symbol_picker_htf_direction', 'all', ['all', 'LONG', 'SHORT']); // 'all' | 'LONG' | 'SHORT'
+  const [htfMinScoreFilter, setHtfMinScoreFilter] = usePersistedFilter('symbol_picker_htf_min_score', 0, [0, 55, 70, 80]); // 0 | 55 | 70 | 80
   const [isOpen, setIsOpen] = useState(defaultExpanded);
   const [copiedSourceKey, setCopiedSourceKey] = useState(null);
 

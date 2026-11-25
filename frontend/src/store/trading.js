@@ -10,6 +10,11 @@ import {
   saveAppearanceSettings,
   normalizeAppearance,
 } from '../lib/theme.js'
+import {
+  readPersistedJson,
+  writePersistedJson,
+  sanitizeLogFilters,
+} from '../utils/filterPersistence.js'
 
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
 const MAX_LOG_LINES = 500;
@@ -787,7 +792,7 @@ const defaultConfig = {
 
 export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, pausedStrategies: [], strategyGateStates: {}, strategyId: null, balance: 10000, totalPnl: 0, realizedPnl: 0, activePnl: 0, lastKnownPnl: createEmptyLastKnownPnl(), totalRiskPct: 0, totalSlUsed: 0, totalEstPnlToRealize: 0,
-  activeTrades: [], logs: [], logLimit: 50, logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], sessionTradeHistory: [], sessionTradeHistoryId: null, tradeHistoryCounts: null, sessionTradeHistoryCounts: null, historyLimit: 250, lifetimeAnalytics: null,
+  activeTrades: [], logs: [], logLimit: 50, logFilters: readPersistedJson('decision_log_filters', DEFAULT_LOG_FILTERS, sanitizeLogFilters), scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], sessionTradeHistory: [], sessionTradeHistoryId: null, tradeHistoryCounts: null, sessionTradeHistoryCounts: null, historyLimit: 250, lifetimeAnalytics: null,
   gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, tradfiAgreementRequired: false, scannerPaused: false, lastScanTs: 0, nextScanTs: null, scanIntervalMs: 15000, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], sessionListCounts: null, sessionListLimit: 20, monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
   apiStatus: { isBanned: false, isRateLimited: false, isGeoBlocked: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
@@ -908,8 +913,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   setHealthEnabled: (e) => { localStorage.setItem('health_enabled', e); set({ healthEnabled: e }); },
   setStreamingEnabled: (e) => { localStorage.setItem('streaming_enabled', e); set({ streamingEnabled: e }); },
   toggleLogFilter: (level) => set((st) => {
-    const safeFilters = st.logFilters && typeof st.logFilters === 'object' ? st.logFilters : DEFAULT_LOG_FILTERS;
-    return { logFilters: { ...safeFilters, [level]: !safeFilters[level] } };
+    const safeFilters = sanitizeLogFilters(st.logFilters, DEFAULT_LOG_FILTERS);
+    const next = { ...safeFilters, [level]: !safeFilters[level] };
+    writePersistedJson('decision_log_filters', next);
+    return { logFilters: next };
   }),
   setSyncing: (s) => set({ isSyncing: s }),
   sync: async (retryCount = 0, options = {}) => {

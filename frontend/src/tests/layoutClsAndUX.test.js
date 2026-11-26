@@ -595,5 +595,53 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       'Sidebar must stabilize icon geometry across collapse and TradeDetailModal must not swap out metadata for Resuming Feed...'
     );
   });
+
+  test('Uniform ViewHeader & Skeleton Row 1/Row 2 geometry eliminates cold-boot, route-switch, and resume vertical CLS', () => {
+    const skeletonsSource = fs.readFileSync(path.join(__dirname, '../components/ui/Skeletons.jsx'), 'utf-8');
+    const mainSource = fs.readFileSync(path.join(__dirname, '../main.jsx'), 'utf-8');
+    const smoothMotionSource = fs.readFileSync(path.join(__dirname, '../components/ui/SmoothMotion.jsx'), 'utf-8');
+    const tradeDetailSource = fs.readFileSync(path.join(__dirname, '../views/TradeDetailView.jsx'), 'utf-8');
+    const indexHtmlSource = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf-8');
+
+    // ViewHeader locks Row 1 & Row 2 uniformly
+    assert.ok(
+      primitivesSource.includes('sm:min-h-[40px] sm:h-[40px]') &&
+      primitivesSource.includes('h-[30px] sm:h-[34px]') &&
+      primitivesSource.includes('h-[22px] min-h-[22px] w-full') &&
+      tradeDetailSource.includes('mobileOneRow'),
+      'ViewHeader and all views must lock Row 1 and Row 2 heights consistently across mobile and desktop'
+    );
+
+    // Skeletons render matching ViewHeader Row 1 + Row 2 chrome via ViewHeaderSkeleton
+    assert.ok(
+      skeletonsSource.includes('const ViewHeaderSkeleton =') &&
+      skeletonsSource.includes('h-[30px] sm:h-[34px] mb-2 lg:mb-4') &&
+      skeletonsSource.includes("readSkeletonPref('global_metrics_expanded'"),
+      'Skeletons.jsx must render matching ViewHeader Row 1 + Row 2 chrome and respect persisted expand/view-mode prefs'
+    );
+
+    // main.jsx uses constant top padding (no conditional pt-1 paper-mode layout shift)
+    assert.ok(
+      mainSource.includes('pt-[3px]') &&
+      !mainSource.includes("${tradingMode === 'paper' ? 'pt-1' : ''}"),
+      'main.jsx must maintain fixed top padding across paper/live/testnet mode hydration'
+    );
+
+    // SmoothSwap skips initial vertical slide on mount and DashboardView cards omit y: 5 jump
+    assert.ok(
+      smoothMotionSource.includes('isInitialMountRef') &&
+      smoothMotionSource.includes('initial={skipInitialAnim ? false :') &&
+      !dashboardViewSource.includes('initial={{ opacity: 0, y: 5 }}'),
+      'SmoothSwap and DashboardView strategy card grid must skip initial-mount vertical y-offset jitter'
+    );
+
+    // Boot shell mirrors two-row header + responsive KPI grid
+    assert.ok(
+      indexHtmlSource.includes('boot-h1') &&
+      indexHtmlSource.includes('boot-h2') &&
+      indexHtmlSource.includes('boot-kpis'),
+      'index.html boot-shell must mirror two-row header and responsive KPI strip geometry'
+    );
+  });
 });
 

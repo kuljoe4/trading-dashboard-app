@@ -427,4 +427,146 @@ describe('Trade History Adaptive Session Filtering & Resume PnL Integrity', () =
       sessionAPI.getLifetimeAnalytics = origAnalytics;
     }
   });
+
+  test('sync() atomically transitions sessionId and preserves non-zero metrics without intermediate 0-flash', async () => {
+    useTradingStore.setState({
+      sessionActive: true,
+      strategyId: 'sess-prev',
+      totalPnl: 20,
+      realizedPnl: 20,
+      activePnl: 0,
+      balance: 10020,
+      lastKnownPnl: createEmptyLastKnownPnl('sess-prev'),
+      activeTrades: [],
+    });
+
+    const observedTotalPnl = [];
+    const unsub = useTradingStore.subscribe((s) => {
+      observedTotalPnl.push(s.totalPnl);
+    });
+
+    const origStatus = sessionAPI.status;
+    sessionAPI.status = async () => ({
+      data: {
+        running: true,
+        strategyId: 'sess-next',
+        balance: 10150,
+        totalPnl: 150,
+        realizedPnl: 100,
+        activePnl: 50,
+        stats: { entryCount: 4, hitCount: 3 },
+        totalEstPnlToRealize: 42.5,
+        activeTrades: [
+          {
+            id: 'tr-next-1',
+            symbol: 'SOLUSDT',
+            direction: 'LONG',
+            status: 'OPEN',
+            entry_price: 150,
+            current_price: 155,
+            pnl: 50,
+          },
+        ],
+      },
+    });
+
+    try {
+      await useTradingStore.getState().sync();
+      const finalState = useTradingStore.getState();
+      assert.equal(finalState.strategyId, 'sess-next');
+      assert.equal(finalState.totalPnl, 150);
+      assert.equal(finalState.realizedPnl, 100);
+      assert.equal(finalState.activePnl, 50);
+      assert.equal(finalState.totalEstPnlToRealize, 42.5);
+      assert.ok(!observedTotalPnl.includes(0), `Should never flash 0 during atomic sync transition, saw: ${JSON.stringify(observedTotalPnl)}`);
+    } finally {
+      unsub();
+      sessionAPI.status = origStatus;
+    }
+  });
+
+  test('partial unpriced trades on resume retain per-trade PnL and keep totalPnl from dropping when realizedPnl != 0', () => {
+    useTradingStore.setState({
+      sessionActive: true,
+      strategyId: 'sess-mixed-resume',
+      totalPnl: 0,
+      realizedPnl: 0,
+      activePnl: 0,
+      lastKnownPnl: createEmptyLastKnownPnl('sess-mixed-resume'),
+      activeTrades: [],
+      variantStats: {},
+      wsStatus: 'live',
+      isThrottled: false,
+      isSyncingOnResume: false,
+      _lastFocusChangeTs: 0,
+    });
+
+    useTradingStore.getState().updateStats({
+      _authoritative: true,
+      running: true,
+      sessionActive: true,
+      strategyId: 'sess-mixed-resume',
+      totalPnl: 80,
+      realizedPnl: 50,
+      activePnl: 30,
+      activeTrades: [
+        {
+          id: 'tr-a',
+          symbol: 'BTCUSDT',
+          direction: 'LONG',
+          status: 'OPEN',
+          entry_price: 60000,
+          current_price: 60200,
+          pnl: 20,
+        },
+        {
+          id: 'tr-b',
+          symbol: 'ETHUSDT',
+          direction: 'LONG',
+          status: 'OPEN',
+          entry_price: 3000,
+          current_price: 3010,
+          pnl: 10,
+        },
+      ],
+    });
+
+    // Resume snapshot arrives where tr-a is priced (20) but tr-b is temporarily unpriced (0), and totalPnl came in as 70 instead of 80
+    useTradingStore.setState({ isSyncingOnResume: true, _lastFocusChangeTs: Date.now() });
+    useTradingStore.getState().updateStats({
+      _authoritative: true,
+      running: true,
+      sessionActive: true,
+      strategyId: 'sess-mixed-resume',
+      totalPnl: 70,
+      realizedPnl: 50,
+      activePnl: 20,
+      activeTrades: [
+        {
+          id: 'tr-a',
+          symbol: 'BTCUSDT',
+          direction: 'LONG',
+          status: 'OPEN',
+          entry_price: 60000,
+          current_price: 60200,
+          pnl: 20,
+        },
+        {
+          id: 'tr-b',
+          symbol: 'ETHUSDT',
+          direction: 'LONG',
+          status: 'OPEN',
+          entry_price: 3000,
+          current_price: 3000,
+          pnl: 0,
+        },
+      ],
+    });
+
+    const st = useTradingStore.getState();
+    const tradeB = st.activeTrades.find((t) => t.id === 'tr-b');
+    assert.equal(tradeB?.pnl, 10, 'Unpriced trade tr-b must keep cached pnl=10 even when sibling tr-a is priced');
+    assert.equal(st.activePnl, 30, 'activePnl must retain 20+10=30 during partial unpriced resume');
+    assert.equal(st.isSyncingOnResume, true, 'isSyncingOnResume remains true until all open cached trades have live prices');
+  });
 });

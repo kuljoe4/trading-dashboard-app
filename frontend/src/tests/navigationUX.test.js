@@ -30,4 +30,9 @@ test('Navigation buttons include explicit type="button", cursor-pointer, focus r
   // Verify desktop sidebar is scrollable on constrained viewports
   assert.match(fileContent, /overflow-y-auto/, 'Desktop sidebar should declare overflow-y-auto for vertical scrollability');
   assert.match(fileContent, /min-h-0/, 'Desktop sidebar container should specify min-h-0 for flex overflow containment');
+
+  // Verify BottomNav does not clip the trades badge counter
+  const bottomNavSection = fileContent.slice(fileContent.indexOf('export const BottomNav'));
+  assert.ok(!bottomNavSection.includes('overflow-hidden flex flex-col'), 'BottomNav item button must not use overflow-hidden which clips the top badge counter');
+  assert.ok(bottomNavSection.includes('overflow-visible') && bottomNavSection.includes('min-w-[16px] h-4 px-1'), 'BottomNav badge counter must allow overflow-visible and flexible min-width');
 });

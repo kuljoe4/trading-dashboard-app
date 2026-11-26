@@ -115,6 +115,7 @@ const TradeDetailView = ({ tradeId }) => {
       <ViewHeader
         title={trade.symbol}
         subTitle={`${trade.strategy_label} · ${duration}`}
+        mobileOneRow
         backAction={() => {
           if (typeof window !== 'undefined' && window.history.length > 1) {
             window.history.back();
@@ -123,19 +124,19 @@ const TradeDetailView = ({ tradeId }) => {
           }
         }}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 h-8 flex-nowrap">
           {tradingMode === 'paper' && <PaperBadge />}
           {tradingMode === 'testnet' && <DemoBadge />}
           {tradingMode === 'live' && <LiveBadge />}
           {isVariant && (
-            <span className="text-[10px] font-mono font-bold text-purple uppercase tracking-wider">
+            <span className="hidden xs:inline text-[10px] font-mono font-bold text-purple uppercase tracking-wider whitespace-nowrap">
               · Variant
             </span>
           )}
-          <span className={cn("text-[10px] font-mono font-bold tracking-wider", trade.direction === 'LONG' ? 'text-green' : 'text-red')}>
+          <span className={cn("text-[10px] font-mono font-bold tracking-wider whitespace-nowrap", trade.direction === 'LONG' ? 'text-green' : 'text-red')}>
             · {trade.direction}
           </span>
-          <div className="hidden sm:flex items-center gap-1.5 text-[10px] text-dim font-bold font-mono">
+          <div className="hidden sm:flex items-center gap-1.5 text-[10px] text-dim font-bold font-mono whitespace-nowrap">
             ID: {trade.id?.substring(0, 8)}
             <CopyButton value={trade.id} className="p-1" />
           </div>

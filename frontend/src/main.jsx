@@ -275,25 +275,18 @@ const App = () => {
 
         const currentState = useTradingStore.getState();
         const running = !!res.data.running;
-
-        if (running) {
-          setSessionActive(true, res.data.strategyId || res.data.strategy_id);
-        } else if (currentState.sessionActive) {
-          // BOLT: Defensive Termination Guard.
-          // Only force clear if the backend is DEFINITIVELY stopped.
-          if (res.data.status === 'stopped' || res.data.running === false) {
-             console.log("[App] Backend confirmed session stopped. Clearing local session state.");
-             setSessionActive(false, null);
-          }
-        }
+        const incomingSid = res.data.strategyId || res.data.strategy_id || null;
 
         updateStats({
           ...res.data,
           _authoritative: true,
+          running,
           sessionActive: running,
+          strategyId: incomingSid,
           realizedPnl: res.data.realizedPnl ?? res.data.realized_pnl,
           activePnl: res.data.activePnl ?? res.data.active_pnl,
           totalPnl: res.data.totalPnl ?? res.data.total_pnl,
+          totalEstPnlToRealize: res.data.totalEstPnlToRealize ?? res.data.total_est_pnl_to_realize,
           entryCount: res.data.stats?.entryCount,
           hitCount: res.data.stats?.hitCount,
           activeTrades: res.data.activeTrades,
@@ -303,6 +296,17 @@ const App = () => {
           tradeHistory: res.data.history,
           config: res.data.config,
         });
+
+        if (running) {
+          useTradingStore.getState().connectWS();
+        } else if (currentState.sessionActive) {
+          // BOLT: Defensive Termination Guard.
+          // Only force clear if the backend is DEFINITIVELY stopped.
+          if (res.data.status === 'stopped' || res.data.running === false) {
+             console.log("[App] Backend confirmed session stopped. Clearing local session state.");
+             setSessionActive(false, null);
+          }
+        }
       } catch (e) {
         if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {
           const httpStatus = e?.response?.status;
@@ -378,18 +382,25 @@ const App = () => {
           <ShortcutsModal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
           <GlobalToaster />
           <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
-            {tradingMode === 'paper' && (
-              <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
-            )}
+            <div
+              aria-hidden="true"
+              className={`fixed top-0 left-0 right-0 h-[3px] z-[100] transition-colors duration-300 ${
+                tradingMode === 'paper'
+                  ? 'bg-amber shadow-[0_2px_10px_rgba(245,166,35,0.45)]'
+                  : tradingMode === 'testnet'
+                    ? 'bg-purple/80 shadow-[0_2px_10px_rgba(168,85,247,0.35)]'
+                    : 'bg-green/30'
+              }`}
+            />
             <Sidebar selected={selectedStrategy} activeRoute={view} />
             <div
-              className={`min-h-screen transition-[padding] duration-300 ease-[var(--ease-glide)] ${
+              className={`min-h-screen transition-[padding] duration-300 ease-[var(--ease-glide)] pt-[3px] ${
                 sidebarCollapsed ? 'lg:pl-[80px]' : 'lg:pl-[260px]'
-              } ${tradingMode === 'paper' ? 'pt-1' : ''}`}
+              }`}
             >
               <PersistentAlertBanner />
               <Suspense fallback={<LoadingView view={view} />}>
-                <SmoothSwap contentKey={routeGroupKey} duration={0.22} yOffset={6}>
+                <SmoothSwap contentKey={routeGroupKey} duration={0.2} yOffset={0}>
                   {renderView()}
                 </SmoothSwap>
               </Suspense>

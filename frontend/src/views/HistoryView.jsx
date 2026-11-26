@@ -2804,12 +2804,12 @@ export const HistoryView = () => {
           mobileOneRow
         >
           <div className="flex items-center gap-2 shrink-0">
-            <div className="flex items-center gap-1 bg-surface border border-border/50 p-1 rounded-xl">
+            <div className="flex items-center gap-1 bg-surface border border-border/50 p-0.5 rounded-xl">
               <button
                 type="button"
                 onClick={() => setActiveViewTab('history')}
                 className={cn(
-                  "relative overflow-hidden min-h-[36px] sm:min-h-[32px] px-3 py-1.5 rounded-lg text-xs font-bold transition-colors duration-200 ease-[var(--ease-out-expo)] whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
+                  "relative overflow-hidden h-7 px-2.5 sm:px-3 rounded-lg text-xs font-bold transition-colors duration-200 ease-[var(--ease-out-expo)] whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
                   activeViewTab === 'history' ? "text-white" : "text-dim hover:text-text"
                 )}
               >
@@ -2817,7 +2817,7 @@ export const HistoryView = () => {
                   <MotionSegmentedPill layoutId="history-view-tab" className="rounded-lg bg-accent shadow-xs z-0" />
                 )}
                 <span className="relative z-10 flex items-center gap-1.5">
-                  <HistoryIcon size={14} />
+                  <HistoryIcon size={13} />
                   <span>Records</span>
                 </span>
               </button>
@@ -2825,7 +2825,7 @@ export const HistoryView = () => {
                 type="button"
                 onClick={() => setActiveViewTab('backtest')}
                 className={cn(
-                  "relative overflow-hidden min-h-[36px] sm:min-h-[32px] px-3 py-1.5 rounded-lg text-xs font-bold transition-colors duration-200 ease-[var(--ease-out-expo)] whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
+                  "relative overflow-hidden h-7 px-2.5 sm:px-3 rounded-lg text-xs font-bold transition-colors duration-200 ease-[var(--ease-out-expo)] whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
                   activeViewTab === 'backtest' ? "text-white" : "text-dim hover:text-text"
                 )}
               >
@@ -2833,7 +2833,7 @@ export const HistoryView = () => {
                   <MotionSegmentedPill layoutId="history-view-tab" className="rounded-lg bg-accent shadow-xs z-0" />
                 )}
                 <span className="relative z-10 flex items-center gap-1.5">
-                  <BarChart3 size={14} />
+                  <BarChart3 size={13} />
                   <span>Backtest</span>
                 </span>
               </button>
@@ -2841,7 +2841,7 @@ export const HistoryView = () => {
           </div>
         </ViewHeader>
 
-        <SmoothSwap contentKey={activeViewTab} duration={0.2} yOffset={6}>
+        <SmoothSwap contentKey={activeViewTab} duration={0.2} yOffset={0}>
         {activeViewTab === 'backtest' ? (
           <BacktestPanel onApplyConfig={handleApplyBacktestConfig} />
         ) : (

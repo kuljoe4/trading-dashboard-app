@@ -2197,7 +2197,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                     }
                   }}
                   className={cn(
-                    "px-2 sm:px-3 py-1.5 min-h-[38px] sm:min-h-[34px] rounded-xl border text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap",
+                    "px-2 sm:px-3 h-8 rounded-xl border text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap",
                     isPausing ? "cursor-wait opacity-60 text-dim bg-surface border-border" : (
                       isStrategyPaused
                         ? "bg-green/10 text-green border-green/25 hover:bg-green/20"
@@ -2218,7 +2218,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                 onClick={onEdit}
                 onMouseEnter={onEditMouseEnter}
                 onFocus={onEditMouseEnter}
-                className="px-2 sm:px-3 py-1.5 min-h-[38px] sm:min-h-[34px] bg-surface border border-border text-text/90 hover:text-accent hover:border-accent/40 rounded-xl text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap"
+                className="px-2 sm:px-3 h-8 bg-surface border border-border text-text/90 hover:text-accent hover:border-accent/40 rounded-xl text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap"
                 aria-label={isVariant ? "Edit strategy variant configuration" : "Edit base strategy configuration"}
               >
                 <Edit3 size={12} className="shrink-0" />

@@ -391,7 +391,7 @@ export function SettingsView() {
           <button
             type="button"
             onClick={handleToggleExpandAll}
-            className="h-9 sm:h-8 px-2.5 sm:px-3 rounded-lg bg-surface border border-border/70 hover:border-border-hover text-[10px] font-bold uppercase tracking-wider text-dim hover:text-text transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            className="h-8 px-2.5 sm:px-3 rounded-lg bg-surface border border-border/70 hover:border-border-hover text-[10px] font-bold uppercase tracking-wider text-dim hover:text-text transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             {allVisibleExpanded ? 'Collapse All' : 'Expand All'}
           </button>

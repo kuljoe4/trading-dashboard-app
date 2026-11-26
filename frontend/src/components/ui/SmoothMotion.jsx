@@ -131,16 +131,21 @@ export const SmoothSwap = ({
   children,
   className = '',
   duration = 0.22,
-  yOffset = 6,
+  yOffset = 0,
 }) => {
   const prefersReduced = useReducedMotion();
+  const isInitialMountRef = useRef(true);
+  useEffect(() => {
+    isInitialMountRef.current = false;
+  }, []);
   const effectiveDuration = prefersReduced ? 0 : duration;
   const effectiveY = prefersReduced ? 0 : yOffset;
+  const skipInitialAnim = prefersReduced || isInitialMountRef.current;
 
   return (
     <motion.div
       key={contentKey}
-      initial={prefersReduced ? false : { opacity: 0, y: effectiveY }}
+      initial={skipInitialAnim ? false : { opacity: 0, y: effectiveY }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: effectiveDuration, ease: MOTION_EASE.outExpo }}
       style={prefersReduced ? undefined : { willChange: 'transform, opacity' }}

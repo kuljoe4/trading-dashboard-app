@@ -388,7 +388,7 @@ export const EcoBadge = () => {
 
   return (
     <span className={cn(
-      "inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider font-mono transition-colors whitespace-nowrap shrink-0",
+      "inline-flex items-center gap-1.5 h-4 leading-none text-[9px] font-bold uppercase tracking-wider font-mono transition-colors whitespace-nowrap shrink-0",
       showResumingFeedback ? "text-accent" : "text-green"
     )}>
       <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", showResumingFeedback ? "bg-accent animate-spin" : "bg-green animate-pulse")} />
@@ -683,10 +683,11 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   const activeAlert = !hasActiveModal && alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null
 
   // Compute live metrics for Row 2 strip using session-cached PnL fallback on resume/navigation
+  const openPositions = Array.isArray(activeTrades) ? activeTrades : [];
   const netBal = Number(balance) || 0;
   const cachedTotalFallback = Number(lastKnownPnl?.totalPnl) || 0;
   const netPnlVal = Number(
-    Number(totalPnl) === 0 && sessionActive && showResumingFeedback && cachedTotalFallback !== 0
+    Number(totalPnl) === 0 && sessionActive && (showResumingFeedback || openPositions.length > 0) && cachedTotalFallback !== 0
       ? cachedTotalFallback
       : totalPnl
   ) || 0;
@@ -697,21 +698,23 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
         : (config.live_starting_balance || Math.max(1, netBal - netPnlVal)));
   const pnlPct = startingBal > 0 ? (netPnlVal / startingBal) * 100 : 0;
 
-  const openPositions = Array.isArray(activeTrades) ? activeTrades : [];
   const maxOpen = config.max_open_trades || 1;
   const rawActiveSum = openPositions.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
   const cachedActiveFallback = Number(activePnl) || Number(lastKnownPnl?.activePnl) || 0;
   const activePnlSum = (rawActiveSum === 0 && sessionActive && (showResumingFeedback || openPositions.length > 0) && cachedActiveFallback !== 0)
     ? cachedActiveFallback
     : rawActiveSum;
-  const liveRisk = Number(totalRiskPct) || 0;
+  const cachedRiskFallback = Number(lastKnownPnl?.totalRiskPct) || 0;
+  const liveRisk = (Number(totalRiskPct) === 0 && sessionActive && (showResumingFeedback || openPositions.length > 0) && cachedRiskFallback > 0)
+    ? cachedRiskFallback
+    : (Number(totalRiskPct) || 0);
   const gate = gateState || 'ACTIVE';
 
   const shouldRenderSecondRow = !hideMetrics;
   const hasSplitStickyMetrics = sticky && shouldRenderSecondRow;
 
   const metricsStripContent = shouldRenderSecondRow ? (
-    <div className="flex items-center justify-between gap-2 flex-nowrap min-h-[22px] w-full">
+    <div className="flex items-center justify-between gap-2 flex-nowrap h-[22px] min-h-[22px] w-full">
             {/* Live Metrics Strip or Quiet Telemetry Baseline when hideMetricsNumbers is active */}
             {!hideMetricsNumbers ? (
             <div className="flex items-center gap-2 sm:gap-3 font-mono text-[9.5px] sm:text-[10px] tabular-nums font-bold flex-nowrap overflow-x-auto no-scrollbar min-w-0">
@@ -910,8 +913,9 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       >
         {/* ROW 1: Brand / Title / Navigation & Action Controls */}
         <div className={cn(
-          "flex flex-row items-center justify-between gap-1.5 sm:gap-2 relative w-full min-h-[30px] sm:min-h-[36px] min-w-0",
-          mobileOneRow && "flex-nowrap min-h-[38px]"
+          "flex flex-row items-center justify-between gap-1.5 sm:gap-2 relative w-full min-h-[38px] sm:min-h-[40px] sm:h-[40px] min-w-0",
+          mobileOneRow && "flex-nowrap min-h-[38px]",
+          mobileOneRow && "h-[38px] sm:h-[40px]"
         )}>
           {/* Left Side: Title, Icon and Badges */}
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
@@ -937,19 +941,19 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   <Icon size={14} className="text-accent" />
                 </div>
               )}
-              <div className="flex flex-col min-w-0 flex-1">
+              <div className="flex flex-col justify-center min-w-0 flex-1 sm:h-[40px]">
                 <div className={cn(
-                  "flex items-center gap-1.5 sm:gap-2 min-w-0",
-                  mobileOneRow ? "flex-nowrap" : "flex-wrap"
+                  "flex items-center gap-1.5 sm:gap-2 min-w-0 h-[20px]",
+                  mobileOneRow ? "flex-nowrap" : "flex-wrap sm:flex-nowrap"
                 )}>
                   <h1 className={cn(
-                    "font-black tracking-tight truncate uppercase text-text min-w-0",
+                    "font-black tracking-tight truncate uppercase text-text min-w-0 leading-none",
                     mobileOneRow ? "text-[13px] sm:text-xs md:text-sm" : "text-xs md:text-sm"
                   )}>
                     {title}
                   </h1>
                   <div className={cn(
-                    "flex items-center gap-1 shrink-0 origin-left",
+                    "flex items-center gap-1 shrink-0 origin-left flex-nowrap h-4",
                     mobileOneRow ? "scale-[0.88] sm:scale-100" : "scale-90 sm:scale-100"
                   )}>
                     {tradingMode === 'paper' && <PaperBadge />}
@@ -960,18 +964,18 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   </div>
                 </div>
                 {subTitle && (
-                  <div className="hidden sm:flex items-center gap-2 min-w-0 transition-opacity duration-200">
-                    <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
+                  <div className="hidden sm:flex items-center gap-2 min-w-0 h-[16px] transition-opacity duration-200">
+                    <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80 leading-none">
                       {subTitle}
                     </p>
-                    <div className="hidden sm:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.85] origin-left">
+                    <div className="hidden sm:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.85] origin-left whitespace-nowrap">
                       <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
                         {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
                       </span>
                       {wsStatus !== 'live' && (
                         <button
                           onClick={() => window.location.reload()}
-                          className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors"
+                          className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors cursor-pointer"
                           aria-label="Retry connection"
                         >
                           Retry
@@ -1008,7 +1012,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       {hasSplitStickyMetrics && metricsStripContent && (
         <div
           className={cn(
-            "relative w-full mb-2 lg:mb-4 py-1 sm:py-1.5 px-2.5 sm:px-3.5 rounded-b-2xl border-b border-border/20 bg-background/60 transition-opacity duration-200 [overflow-anchor:none]",
+            "relative w-full h-[30px] sm:h-[34px] mb-2 lg:mb-4 py-1 sm:py-1.5 px-2.5 sm:px-3.5 rounded-b-2xl border-b border-border/20 bg-background/60 transition-opacity duration-200 [overflow-anchor:none]",
             showDropdown ? "z-30" : "z-10",
             isScrolled ? "opacity-0 pointer-events-none" : "opacity-100"
           )}

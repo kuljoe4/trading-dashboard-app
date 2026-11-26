@@ -607,7 +607,12 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
   const tradingMode = selectedEngine || config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
   const storeBalance = useTradingStore(state => state.balance);
-  const totalSessionPnl = useTradingStore(state => state.totalPnl || 0);
+  const totalSessionPnl = useTradingStore(state => (
+    safeNum(state.totalPnl) === 0 &&
+    state.sessionActive &&
+    (state.isThrottled || state.wsStatus !== 'live' || state.isSyncingOnResume) &&
+    safeNum(state.lastKnownPnl?.totalPnl) !== 0
+  ) ? safeNum(state.lastKnownPnl?.totalPnl) : safeNum(state.totalPnl));
 
   const startingBalance = tradingMode === 'paper'
     ? (config.paper_starting_balance || 10000)
@@ -1642,6 +1647,15 @@ export function DashboardView({ initialStrategy }) {
     if (totPnl === 0 && sessionActive && (isResuming || trades.length > 0) && cachedTotalActive !== 0) {
       totPnl = cachedTotalActive;
     }
+    if (maxRrAchieved === 0 && sessionActive && (isResuming || trades.length > 0) && safeNum(lastKnownPnl?.maxRr) > 0) {
+      maxRrAchieved = safeNum(lastKnownPnl?.maxRr);
+    }
+    if (peakActivePnlSum === 0 && totPnl > 0) {
+      peakActivePnlSum = totPnl;
+    }
+    if (minActivePnlSum === 0 && totPnl < 0) {
+      minActivePnlSum = totPnl;
+    }
 
     const cachedTrades = lastKnownPnl?.trades || {};
     for (const label of Object.keys(pnlMap)) {
@@ -2094,7 +2108,7 @@ export function DashboardView({ initialStrategy }) {
       "shadow-[inset_0_0_100px_rgba(34,197,94,0.05)] border-green/10"
     )}>
 
-      <SmoothSwap contentKey={selected ? `strategy:${selected}` : 'overview'} duration={0.2} yOffset={6}>
+      <SmoothSwap contentKey={selected ? `strategy:${selected}` : 'overview'} duration={0.2} yOffset={0}>
       {selected ? (
         <Suspense fallback={<StrategyDetailSkeleton />}>
           <StrategyDetailView
@@ -2460,9 +2474,9 @@ export function DashboardView({ initialStrategy }) {
           <motion.div
             key={cardViewMode}
             id="active-strategy-cards-container"
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, ease: MOTION_EASE.outExpo }}
+            initial={false}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.18, ease: MOTION_EASE.outExpo }}
             className={cn(
               "grid gap-2.5 sm:gap-3 min-h-[118px]",
               cardViewMode === 'list' ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 auto-rows-fr items-stretch"
@@ -2481,11 +2495,13 @@ export function DashboardView({ initialStrategy }) {
                     : ((isResuming || (activeTradeCountsMap[baseLabel] || 0) > 0)
                         ? safeNum(safeVariantStats[baseLabel]?.activePnl ?? safeVariantStats[baseLabel]?.unrealizedPnl ?? baseCachedVar?.activePnl)
                         : 0);
-                  const baseComputedPnl = baseMetric
-                    ? baseMetric.totalPnl + baseEffectiveActivePnl
-                    : (activeVariants.length > 0
-                        ? (safeNum(baseCachedVar?.totalPnl) || baseEffectiveActivePnl)
-                        : (currentStrategy.totalPnl || safeNum(baseCachedVar?.totalPnl)));
+                  const baseComputedPnl = activeVariants.length === 0 && currentStrategy.totalPnl !== 0
+                    ? currentStrategy.totalPnl
+                    : (baseMetric
+                        ? baseMetric.totalPnl + baseEffectiveActivePnl
+                        : (activeVariants.length > 0
+                            ? (safeNum(baseCachedVar?.totalPnl) || baseEffectiveActivePnl)
+                            : (currentStrategy.totalPnl || safeNum(baseCachedVar?.totalPnl))));
                   const rawBaseVariantPnl = safeVariantStats[baseLabel]?.totalPnl;
                   const baseTotalPnl = (rawBaseVariantPnl !== undefined && rawBaseVariantPnl !== null && (rawBaseVariantPnl !== 0 || baseComputedPnl === 0))
                     ? rawBaseVariantPnl

@@ -127,7 +127,7 @@ export const Sidebar = ({ selected, activeRoute }) => {
                   <div className="relative">
                     <item.icon size={18} className="shrink-0" />
                     {item.path === '/trades' && activeTrades?.length > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 bg-accent text-white text-[8.5px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-surface shadow-xs">
+                      <span className="absolute -top-1.5 -right-2 bg-accent text-white text-[8.5px] font-bold leading-none min-w-4 h-4 px-1 rounded-full flex items-center justify-center border-2 border-surface shadow-xs tabular-nums">
                         {activeTrades.length}
                       </span>
                     )}
@@ -270,7 +270,7 @@ export const BottomNav = ({ selected, activeRoute }) => {
               aria-label={item.path === '/trades' && activeTrades?.length > 0 ? `${item.label} (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : item.label}
               aria-current={active ? 'page' : undefined}
               className={cn(
-                "relative overflow-hidden flex flex-col items-center justify-center w-full h-11 gap-1 transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer rounded-xl",
+                "relative overflow-visible flex flex-col items-center justify-center w-full h-12 pt-1 gap-0.5 transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer rounded-xl",
                 active ? "text-accent" : "text-dim hover:text-text"
               )}
             >
@@ -280,15 +280,15 @@ export const BottomNav = ({ selected, activeRoute }) => {
                   className="rounded-xl bg-accent/10 z-0"
                 />
               )}
-              <div className="relative z-10">
+              <div className="relative z-10 inline-flex items-center justify-center">
                 <item.icon size={20} />
                 {item.path === '/trades' && activeTrades?.length > 0 && (
-                  <span className="absolute -top-1.5 -right-2 bg-accent text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center border border-surface shadow-sm">
+                  <span className="absolute -top-1.5 -right-2.5 bg-accent text-white text-[9px] leading-none font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center border border-surface shadow-sm tabular-nums whitespace-nowrap">
                     {activeTrades.length}
                   </span>
                 )}
               </div>
-              <span className="relative z-10 text-[10px] font-bold uppercase tracking-widest">{item.label}</span>
+              <span className="relative z-10 text-[10px] leading-tight font-bold uppercase tracking-widest">{item.label}</span>
             </button>
           )
         })}

@@ -52,43 +52,123 @@ const StaticMetricSkeletonCard = ({
   </div>
 )
 
+const readSkeletonPref = (key, fallback) => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const val = window.localStorage.getItem(key)
+      return val !== null ? val : fallback
+    }
+  } catch (_) {}
+  return fallback
+}
+
+/**
+ * Pixel-matched skeleton chrome mirroring ViewHeader Row 1 + Row 2 so loading -> live view transitions cause 0px header CLS.
+ */
+const ViewHeaderSkeleton = ({
+  title,
+  subTitle,
+  hasBack = false,
+  hasIcon = false,
+  hasMetricsRow = true,
+  rightSlot = null,
+}) => (
+  <>
+    <div
+      className={cn(
+        'py-1.5 sm:py-2 px-2.5 sm:px-3.5 bg-background/60 border-b border-border/20',
+        hasMetricsRow ? 'mb-0 rounded-t-2xl' : 'mb-1.5 md:mb-2 lg:mb-4 rounded-2xl'
+      )}
+    >
+      <div className="flex flex-row items-center justify-between gap-1.5 sm:gap-2 relative w-full min-h-[38px] sm:min-h-[40px] sm:h-[40px] flex-nowrap h-[38px] min-w-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+          {hasBack && (
+            <div className="min-h-[38px] min-w-[38px] sm:min-h-[34px] sm:min-w-[34px] p-1 sm:p-1.5 border border-border/60 rounded-xl flex items-center justify-center shrink-0 text-dim text-xs font-bold">
+              ←
+            </div>
+          )}
+          {hasIcon && (
+            <div
+              className={cn(
+                'w-7 h-7 rounded-xl bg-accent/10 border border-accent/20 items-center justify-center shrink-0',
+                hasBack ? 'hidden sm:flex' : 'flex'
+              )}
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-accent/40" />
+            </div>
+          )}
+          <div className="flex flex-col justify-center min-w-0 flex-1 sm:h-[40px]">
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 h-[20px] flex-nowrap">
+              {title ? (
+                <h1 className="font-black tracking-tight truncate uppercase text-text min-w-0 leading-none text-[13px] sm:text-xs md:text-sm">
+                  {title}
+                </h1>
+              ) : (
+                <SkeletonBlock className="w-32 sm:w-44 h-4 rounded" />
+              )}
+            </div>
+            {subTitle && (
+              <div className="hidden sm:flex items-center gap-2 min-w-0 h-[16px]">
+                <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80 leading-none">
+                  {subTitle}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+        {rightSlot && (
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 justify-end flex-nowrap">
+            {rightSlot}
+          </div>
+        )}
+      </div>
+    </div>
+    {hasMetricsRow && (
+      <div className="relative w-full h-[30px] sm:h-[34px] mb-2 lg:mb-4 py-1 sm:py-1.5 px-2.5 sm:px-3.5 rounded-b-2xl border-b border-border/20 bg-background/60">
+        <div className="flex items-center justify-between gap-2 flex-nowrap min-h-[22px] h-[22px] w-full">
+          <div className="flex items-center gap-2 font-mono text-[9.5px] tabular-nums font-bold min-w-0 truncate">
+            <span className="w-2 h-2 rounded-full bg-accent/60 shrink-0" />
+            <span className="text-[8.5px] uppercase tracking-wider text-dim font-bold">Syncing Feed</span>
+            <span className="text-border/40 select-none">|</span>
+            <span className="text-[8.5px] uppercase tracking-wider text-dim opacity-60 font-sans">GATE</span>
+            <SkeletonBlock className="w-10 h-2.5 rounded opacity-65" />
+          </div>
+        </div>
+      </div>
+    )}
+  </>
+)
+
 /**
  * Matches StrategyDetailView geometry (ViewHeader + 4 KPI cards + tab bar + Inspect Live + 4 dial cards).
  */
 export const StrategyDetailSkeleton = () => (
   <div
-    className="max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 pb-20 space-y-3"
+    className="max-w-[1300px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-5 md:pt-5 lg:px-6 lg:pt-6 pb-36 lg:pb-16"
     role="status"
     aria-busy="true"
     aria-label="Loading strategy details"
   >
-    {/* Header bar: back affordance & static action slot frame, title/status values shimmer */}
-    <div className="min-h-[56px] w-full rounded-2xl bg-surface/65 border border-border/50 px-4 py-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-8 h-8 rounded-lg border border-border/50 bg-background/50 flex items-center justify-center text-dim text-xs font-bold shrink-0">
-          ←
-        </div>
-        <div className="space-y-1.5">
-          <SkeletonBlock className="w-40 sm:w-52 h-4 rounded" />
-          <div className="flex items-center gap-2 text-[10px] font-mono text-dim">
-            <span>Strategy</span>
-            <span aria-hidden="true" className="opacity-40">·</span>
-            <SkeletonBlock className="w-20 h-2.5 rounded opacity-70" />
+    <ViewHeaderSkeleton
+      title={null}
+      subTitle="Base Strategy"
+      hasBack={true}
+      hasIcon={true}
+      hasMetricsRow={false}
+      rightSlot={
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 flex-nowrap">
+          <div className="hidden sm:flex h-8 px-3 rounded-xl border border-border bg-surface items-center text-[11px] font-semibold text-dim">
+            Scanner
+          </div>
+          <div className="h-8 px-3 rounded-xl border border-border bg-surface flex items-center text-[11px] font-semibold text-dim">
+            Config
           </div>
         </div>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <div className="hidden sm:flex h-8 px-3 rounded-lg border border-border/50 bg-background/50 items-center text-xs font-semibold text-dim">
-          Scanner
-        </div>
-        <div className="h-8 px-3 rounded-lg border border-border/50 bg-background/50 flex items-center text-xs font-semibold text-dim">
-          Config
-        </div>
-      </div>
-    </div>
+      }
+    />
 
     {/* 4 KPI cards with real static labels */}
-    <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2 sm:gap-2.5">
+    <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2 sm:gap-2.5 mb-3">
       <StaticMetricSkeletonCard label="Active P&L" hasSubValue valueWidth="w-24" subWidth="w-28" />
       <StaticMetricSkeletonCard label="Exposure & Slots" hasSubValue valueWidth="w-24" subWidth="w-24" />
       <StaticMetricSkeletonCard label="Win Rate" hasSubValue valueWidth="w-16" subWidth="w-28" />
@@ -96,7 +176,7 @@ export const StrategyDetailSkeleton = () => (
     </div>
 
     {/* Static 3-tab strip */}
-    <div className="h-[42px] w-full sm:w-[340px] rounded-xl bg-surface/60 border border-border/50 p-1 grid grid-cols-3 gap-1">
+    <div className="h-[42px] w-full sm:w-[340px] rounded-xl bg-surface/60 border border-border/50 p-1 grid grid-cols-3 gap-1 mb-3">
       {['Signals', 'Performance', 'History'].map((tab, idx) => (
         <div
           key={tab}
@@ -376,31 +456,25 @@ export const CalendarGridSkeleton = () => (
  */
 export const TradeDetailSkeleton = () => (
   <div
-    className="max-w-[1200px] mx-auto px-4 pt-4 md:px-8 md:pt-8 pb-36 lg:pb-16 space-y-4"
+    className="max-w-[1200px] mx-auto px-4 pt-4 md:px-8 md:pt-8 pb-36 lg:pb-16"
     role="status"
     aria-busy="true"
     aria-label="Loading trade details"
   >
-    <div className="min-h-[58px] rounded-2xl bg-surface/65 border border-border/50 px-4 py-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg border border-border/50 bg-background/50 flex items-center justify-center text-dim text-xs font-bold">
-          ←
+    <ViewHeaderSkeleton
+      title={null}
+      subTitle="Position Telemetry"
+      hasBack={true}
+      hasMetricsRow={true}
+      rightSlot={
+        <div className="flex items-center gap-1.5 h-8">
+          <SkeletonBlock className="w-12 h-4 rounded-full" />
+          <SkeletonBlock className="w-12 h-4 rounded-full opacity-75" />
         </div>
-        <div className="space-y-1.5">
-          <SkeletonBlock className="w-32 h-4 rounded" />
-          <div className="flex items-center gap-2 text-[10px] font-mono text-dim">
-            <span>Position Telemetry</span>
-            <SkeletonBlock className="w-20 h-2.5 rounded opacity-65" />
-          </div>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <SkeletonBlock className="w-16 h-5 rounded-full" />
-        <SkeletonBlock className="w-14 h-5 rounded-full opacity-75" />
-      </div>
-    </div>
+      }
+    />
 
-    <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-3">
+    <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-3 mb-4">
       <StaticMetricSkeletonCard label="Unrealized P&L" compact={false} valueWidth="w-24" />
       <StaticMetricSkeletonCard label="Reward : Risk" compact={false} valueWidth="w-20" />
       <StaticMetricSkeletonCard label="Position Size" compact={false} valueWidth="w-24" />
@@ -515,126 +589,156 @@ export const HistorySessionsSkeleton = ({ count = 3 }) => (
  * Renders real static Overview header, real interactive Live|Paper EngineSwitch (never skeletonized),
  * real Global Metrics labels/toolbar with value-only shimmers, and dynamic Strategy card telemetry placeholders.
  */
-export const DashboardSkeleton = () => (
-  <div
-    className="max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 pb-20 space-y-3"
-    role="status"
-    aria-busy="true"
-    aria-label="Loading cockpit overview"
-  >
-    {/* Static ViewHeader chrome */}
-    <div className="min-h-[58px] w-full rounded-2xl bg-surface/75 border border-border/60 px-4 py-3 flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <h1 className="text-sm sm:text-base font-black uppercase tracking-tight text-text truncate">Overview</h1>
-        <p className="text-[10px] sm:text-xs text-dim truncate">Real-time strategy management & market oversight</p>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="hidden md:inline-flex h-8 px-2.5 items-center rounded-xl border border-border/60 bg-surface text-[9px] font-bold uppercase tracking-widest text-dim">
-          Eco Mode
-        </span>
-      </div>
-    </div>
-
-    {/* Static EngineSwitch remains untouched and interactive between Live & Paper transitions */}
-    {selectedEngine && (
-      <div>
-        <EngineSwitch running={null} />
-      </div>
-    )}
-
-    {/* Global Metrics Header + Control Track */}
-    <div className="space-y-2.5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 w-full">
-        <div className="text-[11px] text-dim tracking-widest uppercase font-bold flex items-center gap-1.5">
-          Global Metrics
-        </div>
-        <div className="grid grid-cols-2 sm:inline-flex items-stretch gap-1 p-1 bg-surface/90 border border-border/60 rounded-xl w-full sm:w-auto shrink-0">
-          <span className="h-9 sm:h-7 px-3 rounded-lg flex items-center justify-center text-[10px] font-mono font-bold uppercase tracking-wider text-dim">
-            Risk Limits
+export const DashboardSkeleton = () => {
+  const expanded = readSkeletonPref('global_metrics_expanded', 'false') === 'true'
+  const cardViewMode = readSkeletonPref('dashboard_card_view_mode', 'detailed')
+  return (
+    <div
+      className="max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 pb-36 lg:pb-16"
+      role="status"
+      aria-busy="true"
+      aria-label="Loading cockpit overview"
+    >
+      <ViewHeaderSkeleton
+        title="Overview"
+        subTitle="Real-time strategy management & market oversight"
+        hasMetricsRow={true}
+        rightSlot={
+          <span className="h-8 min-w-[32px] px-2.5 rounded-xl border border-border/60 bg-surface text-[9px] font-bold uppercase tracking-widest text-dim inline-flex items-center justify-center">
+            <span className="hidden md:inline">Eco Mode</span>
           </span>
-          <span className="h-9 sm:h-7 px-3 rounded-lg flex items-center justify-center text-[10px] font-mono font-bold uppercase tracking-wider text-dim">
-            Expand
-          </span>
-        </div>
-      </div>
+        }
+      />
 
-      {/* 4 Global Metric StatCards: static labels remain visible, ONLY dynamic values shimmer */}
-      <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-2.5">
-        <StaticMetricSkeletonCard label="Account Balance" valueWidth="w-24" />
-        <StaticMetricSkeletonCard label="Active P&L" valueWidth="w-28" />
-        <StaticMetricSkeletonCard label="Live Risk" valueWidth="w-16" />
-        <StaticMetricSkeletonCard label="Peak RR" valueWidth="w-16" />
-      </div>
-    </div>
-
-    {/* Active Strategy panel: static title + static view-mode tabs, dynamic strategy rows/numbers shimmer */}
-    <div className="rounded-xl bg-surface border border-border p-3 sm:p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2 min-h-[30px]">
-        <span className="text-[11px] text-dim tracking-widest uppercase font-bold">Active Strategy</span>
-        <div className="inline-flex items-center bg-background/60 border border-border/40 p-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider">
-          <span className="h-6 px-2.5 rounded-md bg-accent/20 text-accent inline-flex items-center">Detailed</span>
-          <span className="h-6 px-2.5 rounded-md text-dim inline-flex items-center">Compact</span>
-          <span className="h-6 px-2.5 rounded-md text-dim inline-flex items-center">List</span>
+      {/* Static EngineSwitch remains untouched and interactive between Live & Paper transitions */}
+      {selectedEngine && (
+        <div className="mb-3">
+          <EngineSwitch running={null} />
         </div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3">
-        {[0, 1].map((i) => (
-          <div key={i} className="h-[132px] rounded-xl bg-background/50 border border-border/40 p-3.5 flex flex-col justify-between">
-            <div className="flex items-center justify-between gap-2">
-              <SkeletonBlock className="w-36 h-4 rounded" />
-              <SkeletonBlock className="w-16 h-5 rounded-full opacity-75" />
+      )}
+
+      {/* Global Metrics Header + Control Track */}
+      <div className="flex flex-col gap-2.5 mb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 w-full">
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <div className="text-[11px] text-dim tracking-widest uppercase font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0">
+              Global Metrics
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-lg bg-surface/50 border border-border/30 p-2 space-y-1">
-                <span className="text-[9px] uppercase text-dim font-bold block">Active</span>
-                <SkeletonBlock className="w-14 h-3 rounded" />
-              </div>
-              <div className="rounded-lg bg-surface/50 border border-border/30 p-2 space-y-1">
-                <span className="text-[9px] uppercase text-dim font-bold block">Session</span>
-                <SkeletonBlock className="w-14 h-3 rounded" />
-              </div>
-              <div className="rounded-lg bg-surface/50 border border-border/30 p-2 space-y-1">
-                <span className="text-[9px] uppercase text-dim font-bold block">Slots</span>
-                <SkeletonBlock className="w-10 h-3 rounded" />
-              </div>
-            </div>
+            <span className="sm:hidden text-[10px] font-mono tabular-nums text-dim truncate">
+              --/-- Slots · Cap --%
+            </span>
           </div>
-        ))}
+          <div className="grid grid-cols-2 sm:inline-flex items-stretch gap-1 p-1 bg-surface/90 border border-border/60 rounded-xl w-full sm:w-auto shrink-0">
+            <span className="h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider text-dim">
+              Risk Limits
+            </span>
+            <span className="h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider text-dim">
+              {expanded ? 'Compact' : 'Expand'}
+            </span>
+          </div>
+        </div>
+
+        {/* 4 Global Metric StatCards: static labels remain visible, ONLY dynamic values shimmer */}
+        <div
+          className={cn(
+            'grid auto-rows-fr items-stretch gap-2.5',
+            expanded ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4' : 'grid-cols-2 md:grid-cols-4'
+          )}
+        >
+          <StaticMetricSkeletonCard label="Account Balance" compact={!expanded} hasSubValue={expanded} valueWidth="w-24" subWidth="w-32" />
+          <StaticMetricSkeletonCard label="Active P&L" compact={!expanded} hasSubValue={expanded} valueWidth="w-28" subWidth="w-32" />
+          <StaticMetricSkeletonCard label="Live Risk" compact={!expanded} hasSubValue={expanded} valueWidth="w-16" subWidth="w-28" />
+          <StaticMetricSkeletonCard label="Peak RR" compact={!expanded} hasSubValue={expanded} valueWidth="w-16" subWidth="w-28" />
+        </div>
+      </div>
+
+      {/* Active Strategy panel: static title + static view-mode tabs, dynamic strategy rows/numbers shimmer */}
+      <div className="rounded-xl bg-surface border border-border p-3 sm:p-4 flex flex-col mb-3">
+        <div className="flex items-center justify-between gap-2 mb-2.5 min-h-[30px]">
+          <span className="text-[11px] text-dim tracking-widest uppercase font-bold">Active Strategy</span>
+          <div className="inline-flex items-center bg-background/60 border border-border/40 p-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider">
+            {[
+              { id: 'detailed', label: 'Detailed' },
+              { id: 'compact', label: 'Compact' },
+              { id: 'list', label: 'List' },
+            ].map((t) => (
+              <span
+                key={t.id}
+                className={cn(
+                  'h-6 px-2.5 rounded-md inline-flex items-center',
+                  cardViewMode === t.id ? 'bg-accent text-white shadow-xs' : 'text-dim'
+                )}
+              >
+                {t.label}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div
+          className={cn(
+            'grid gap-2.5 sm:gap-3 min-h-[118px]',
+            cardViewMode === 'list' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 auto-rows-fr items-stretch'
+          )}
+        >
+          {[0, 1].map((i) => (
+            <div key={i} className="min-h-[118px] rounded-xl bg-background/50 border border-border/40 p-3.5 flex flex-col justify-between gap-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <SkeletonBlock className="w-36 h-4 rounded" />
+                <SkeletonBlock className="w-16 h-5 rounded-full opacity-75" />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-lg bg-surface/50 border border-border/30 p-2 space-y-1">
+                  <span className="text-[9px] uppercase text-dim font-bold block">Active</span>
+                  <SkeletonBlock className="w-14 h-3 rounded" />
+                </div>
+                <div className="rounded-lg bg-surface/50 border border-border/30 p-2 space-y-1">
+                  <span className="text-[9px] uppercase text-dim font-bold block">Session</span>
+                  <SkeletonBlock className="w-14 h-3 rounded" />
+                </div>
+                <div className="rounded-lg bg-surface/50 border border-border/30 p-2 space-y-1">
+                  <span className="text-[9px] uppercase text-dim font-bold block">Slots</span>
+                  <SkeletonBlock className="w-10 h-3 rounded" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-surface/55 border border-border/50 px-4 py-3.5 flex items-center justify-between">
+        <span className="text-xs font-black uppercase tracking-wider text-text">Periodic P&L</span>
+        <SkeletonBlock className="w-24 h-5 rounded-lg opacity-65" />
       </div>
     </div>
-
-    <div className="rounded-2xl bg-surface/55 border border-border/50 px-4 py-3.5 flex items-center justify-between">
-      <span className="text-xs font-black uppercase tracking-wider text-text">Periodic P&L</span>
-      <SkeletonBlock className="w-24 h-5 rounded-lg opacity-65" />
-    </div>
-  </div>
-)
+  )
+}
 
 /**
  * Matches TradesView geometry: Static ViewHeader + real KPI labels with value shimmers + static filter bar + ActiveTradesSkeleton.
  */
 export const TradesSkeleton = () => (
   <div
-    className="max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 pb-20 space-y-3"
+    className="max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 pb-36 lg:pb-16"
     role="status"
     aria-busy="true"
     aria-label="Loading active positions"
   >
-    <div className="min-h-[58px] w-full rounded-2xl bg-surface/75 border border-border/60 px-4 py-3 flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <h1 className="text-sm sm:text-base font-black uppercase tracking-tight text-text truncate">Active Positions</h1>
-        <p className="text-[10px] sm:text-xs text-dim truncate">Live monitoring across all strategies</p>
-      </div>
-    </div>
+    <ViewHeaderSkeleton
+      title="Active Positions"
+      subTitle="Live monitoring across all strategies"
+      hasBack={true}
+      hasIcon={true}
+      hasMetricsRow={true}
+    />
 
-    <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-2.5">
+    <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-2.5 mb-3">
       <StaticMetricSkeletonCard label="Active P&L" hasSubValue valueWidth="w-24" subWidth="w-28" />
       <StaticMetricSkeletonCard label="Active Risk" hasSubValue valueWidth="w-16" subWidth="w-24" />
       <StaticMetricSkeletonCard label="Peak RR" hasSubValue valueWidth="w-16" subWidth="w-24" />
       <StaticMetricSkeletonCard label="Positions" hasSubValue valueWidth="w-14" subWidth="w-24" />
     </div>
 
-    <div className="h-[52px] rounded-xl bg-surface border border-border px-3.5 flex items-center justify-between">
+    <div className="h-[52px] rounded-xl bg-surface border border-border px-3.5 flex items-center justify-between mb-3">
       <span className="text-xs font-semibold text-text">Tactical Filters</span>
       <span className="px-3 py-1 rounded-xl border border-border bg-surface-elevated text-[11px] font-semibold text-dim">
         Filters
@@ -650,23 +754,26 @@ export const TradesSkeleton = () => (
  */
 export const HistorySkeleton = () => (
   <div
-    className="max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 pb-20 space-y-4"
+    className="max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 pb-36 lg:pb-16"
     role="status"
     aria-busy="true"
     aria-label="Loading trade history"
   >
-    <div className="min-h-[58px] w-full rounded-2xl bg-surface/75 border border-border/60 px-4 py-3 flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <h1 className="text-sm sm:text-base font-black uppercase tracking-tight text-text truncate">Trade History</h1>
-        <p className="text-[10px] sm:text-xs text-dim truncate">Session performance, analytics & backtest studio</p>
-      </div>
-      <div className="inline-flex items-center gap-1 p-1 rounded-xl border border-border bg-background/60 text-[11px] font-bold">
-        <span className="px-3 py-1 rounded-lg bg-accent/15 text-accent">History</span>
-        <span className="px-3 py-1 rounded-lg text-dim">Backtest</span>
-      </div>
-    </div>
+    <ViewHeaderSkeleton
+      title="Trade History"
+      subTitle="Verified records of closed sessions & positions"
+      hasBack={true}
+      hasIcon={true}
+      hasMetricsRow={true}
+      rightSlot={
+        <div className="flex items-center gap-1 bg-surface border border-border/50 p-0.5 rounded-xl text-xs font-bold">
+          <span className="h-7 px-2.5 sm:px-3 rounded-lg bg-accent text-white inline-flex items-center">Records</span>
+          <span className="h-7 px-2.5 sm:px-3 rounded-lg text-dim inline-flex items-center">Backtest</span>
+        </div>
+      }
+    />
 
-    <div className="rounded-2xl bg-surface/60 border border-border/50 p-3 space-y-2.5">
+    <div className="rounded-2xl bg-surface/60 border border-border/50 p-3 space-y-2.5 mb-4">
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
         <div className="flex items-center gap-1 text-[11px] font-semibold">
           <span className="px-3 py-1.5 rounded-lg bg-accent/15 text-accent border border-accent/30">Paper</span>
@@ -679,7 +786,7 @@ export const HistorySkeleton = () => (
       </div>
     </div>
 
-    <div className="min-h-[68px] rounded-2xl bg-surface/55 border border-border/50 p-4 flex items-center justify-between gap-4">
+    <div className="min-h-[68px] rounded-2xl bg-surface/55 border border-border/50 p-4 flex items-center justify-between gap-4 mb-4">
       <div className="min-w-0">
         <div className="text-xs md:text-sm font-black tracking-tight uppercase text-text">Lifetime Analytics & Insights</div>
         <div className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5 opacity-80">
@@ -711,26 +818,32 @@ export const HistorySkeleton = () => (
  */
 export const SettingsSkeleton = () => (
   <div
-    className="max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 pb-20 space-y-3"
+    className="max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 pb-36 lg:pb-16"
     role="status"
     aria-busy="true"
     aria-label="Loading system settings"
   >
-    <div className="min-h-[58px] w-full rounded-2xl bg-surface/75 border border-border/60 px-4 py-3 flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <h1 className="text-sm sm:text-base font-black uppercase tracking-tight text-text truncate">System Settings</h1>
-        <p className="text-[10px] sm:text-xs text-dim truncate">API credentials, trading mode, display & diagnostics</p>
-      </div>
+    <ViewHeaderSkeleton
+      title="System Settings"
+      subTitle="Global workspace, credentials & engine infrastructure"
+      hasBack={true}
+      hasIcon={true}
+      hasMetricsRow={false}
+      rightSlot={
+        <div className="h-8 px-2.5 sm:px-3 rounded-lg bg-surface border border-border/70 inline-flex items-center text-[10px] font-bold uppercase tracking-wider text-dim">
+          Expand All
+        </div>
+      }
+    />
+
+    <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2.5 mb-3">
+      <StaticMetricSkeletonCard label="Readiness" hasSubValue valueWidth="w-20" subWidth="w-24" />
+      <StaticMetricSkeletonCard label="Exchange Keys" hasSubValue valueWidth="w-16" subWidth="w-24" />
+      <StaticMetricSkeletonCard label="Hibernation" hasSubValue valueWidth="w-20" subWidth="w-24" />
+      <StaticMetricSkeletonCard label="Theme & Glare" hasSubValue valueWidth="w-20" subWidth="w-24" />
     </div>
 
-    <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2.5">
-      <StaticMetricSkeletonCard label="Environment" hasSubValue valueWidth="w-20" subWidth="w-24" />
-      <StaticMetricSkeletonCard label="Readiness" hasSubValue valueWidth="w-16" subWidth="w-24" />
-      <StaticMetricSkeletonCard label="Stream" hasSubValue valueWidth="w-20" subWidth="w-24" />
-      <StaticMetricSkeletonCard label="Display" hasSubValue valueWidth="w-20" subWidth="w-24" />
-    </div>
-
-    <div className="h-[44px] w-full sm:w-auto rounded-xl bg-surface/60 border border-border/50 p-1 inline-flex items-center gap-1 overflow-x-auto">
+    <div className="h-[44px] w-full sm:w-auto rounded-xl bg-surface/60 border border-border/50 p-1 inline-flex items-center gap-1 overflow-x-auto mb-3">
       {['All Sections', 'Security & Keys', 'Engine & Data', 'Workspace & UI', 'Diagnostics & Reset'].map((cat, idx) => (
         <span
           key={cat}

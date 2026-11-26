@@ -28,6 +28,7 @@ export class PositionTrackerService {
   public tradePeakRrSwitchHandled: Set<string> = new Set(); // trade.id -> whether this trade has contributed to the switch count
   private dirtyTrailingSymbols: Map<string, { config: SessionConfig; lastReason: string }> = new Map();
   private ratchetBackoffMap: Map<string, { until: number; count: number; lastErrorCode: string; lastLoggedTs: number; lastTargetSl: number }> = new Map();
+  private lastEmittedMaxRr: Map<string, number> = new Map();
   private _totalRisk: number = 0;
   private _pendingRiskTotal: number = 0; // BOLT: Track total pending risk in O(1)
   private _activeListCache: Trade[] | null = null;
@@ -68,11 +69,59 @@ export class PositionTrackerService {
     this.tradePeakRrSwitchHandled.clear();
     this.dirtyTrailingSymbols.clear();
     this.ratchetBackoffMap.clear();
+    this.lastEmittedMaxRr.clear();
     this._totalRisk = 0;
     this._pendingRiskTotal = 0;
     this.sessionState.setActiveTrades([]);
     this._activeListCache = null;
     this.logger.log('[PositionTracker] Internal state cleared.');
+  }
+
+  private emitTradeUpdated(trade: Trade): void {
+    const tradeKey = trade.id || trade.symbol;
+    if (tradeKey) {
+      this.lastEmittedMaxRr.set(tradeKey, Number(trade.max_rr_achieved || 0));
+    }
+    this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+  }
+
+  /**
+   * Central Peak/Min R:R tracker: updates max_rr_achieved & min_rr_achieved on every price observation,
+   * hydrates Dynamic RR Milestone Switch hits, and emits TRADE_UPDATED whenever cumulative gain since
+   * the last persisted/emitted Peak R:R reaches >= 0.1R (including sequences of < 0.1R sub-ticks).
+   */
+  public updateTradeRrExtremes(trade: Trade, currentPrice: number, config?: SessionConfig): void {
+    if (!trade || trade.status !== 'OPEN' || !Number.isFinite(currentPrice) || currentPrice <= 0) return;
+    const entryPrice = Number(trade.entry_price);
+    const initialSl = Number(trade.initial_sl);
+    const risk = Math.abs(entryPrice - initialSl);
+    if (!Number.isFinite(risk) || risk <= 0) return;
+
+    const reward = trade.direction === 'LONG' ? currentPrice - entryPrice : entryPrice - currentPrice;
+    const liveRr = reward / risk;
+    if (!Number.isFinite(liveRr)) return;
+
+    const tradeKey = trade.id || trade.symbol;
+    const oldMaxRr = Number(trade.max_rr_achieved || 0);
+    if (liveRr > oldMaxRr) {
+      const nextMaxRr = roundEight(liveRr);
+      trade.max_rr_achieved = nextMaxRr;
+      const lastEmitted = this.lastEmittedMaxRr.get(tradeKey) ?? oldMaxRr;
+      if (nextMaxRr - lastEmitted >= 0.1) {
+        this.emitTradeUpdated(trade);
+      }
+    }
+
+    if (
+      trade.min_rr_achieved === undefined ||
+      trade.min_rr_achieved === null ||
+      trade.min_rr_achieved === 0 ||
+      liveRr < trade.min_rr_achieved
+    ) {
+      trade.min_rr_achieved = roundEight(liveRr);
+    }
+
+    this.hydratePeakRrSwitchState(trade, config);
   }
 
   private isRatchetInBackoff(symbol: string): boolean {
@@ -388,6 +437,46 @@ export class PositionTrackerService {
           maxRr = Math.max(maxRr, liveReward / risk);
         }
       }
+
+      // 3b. Floor from strictly post-entry cached klines if already available in memory
+      const entryTsRaw: any = (trade as any).entry_ts;
+      const entryTsMs = entryTsRaw instanceof Date
+        ? entryTsRaw.getTime()
+        : (typeof entryTsRaw === 'number'
+            ? (entryTsRaw < 1e11 ? entryTsRaw * 1000 : entryTsRaw)
+            : (typeof entryTsRaw === 'string' ? Date.parse(entryTsRaw) : 0));
+      if (entryTsMs > 0 && Number.isFinite(entryTsMs) && typeof (this.klineStore as any)?.getRawCandles === 'function') {
+        try {
+          const candidateTfs = Array.from(
+            new Set(
+              [activeConfig?.scan_interval, '1m', (activeConfig as any)?.kline_interval].filter(
+                (tf): tf is string => typeof tf === 'string' && tf.trim().length > 0,
+              ),
+            ),
+          );
+          for (const tf of candidateTfs) {
+            const candles = (this.klineStore as any).getRawCandles(trade.symbol, tf);
+            if (!Array.isArray(candles) || candles.length === 0) continue;
+            for (let cIdx = 0; cIdx < candles.length; cIdx++) {
+              const c = candles[cIdx];
+              if (!c) continue;
+              const cTimeRaw = Number(c.time);
+              const cTimeMs = cTimeRaw > 0 && cTimeRaw < 1e11 ? cTimeRaw * 1000 : cTimeRaw;
+              if (!Number.isFinite(cTimeMs) || cTimeMs < entryTsMs) continue;
+              const extremePx = trade.direction === 'LONG' ? Number(c.high) : Number(c.low);
+              if (!Number.isFinite(extremePx) || extremePx <= 0) continue;
+              const candleReward = trade.direction === 'LONG'
+                ? extremePx - Number(trade.entry_price)
+                : Number(trade.entry_price) - extremePx;
+              if (candleReward > 0) {
+                maxRr = Math.max(maxRr, candleReward / risk);
+              }
+            }
+          }
+        } catch {
+          // Ignore optional kline cache lookup failures
+        }
+      }
     }
 
     trade.max_rr_achieved = roundEight(maxRr);
@@ -427,6 +516,7 @@ export class PositionTrackerService {
 
     // Hydrate max_rr_achieved to ensure numbers are coerced and floored against milestones/profit
     this.hydrateMaxRr(trade);
+    this.lastEmittedMaxRr.set(trade.id || trade.symbol, Number(trade.max_rr_achieved || 0));
 
     // SRE: Ensure risk is correctly calculated before adding to total
     this.refreshTradeRisk(trade, true);
@@ -538,6 +628,9 @@ export class PositionTrackerService {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return false;
 
+    // Always capture Peak/Min R:R even if exit signal override returns early below
+    this.updateTradeRrExtremes(trade, currentPrice, config);
+
     if (await this.handleExitSignalOverrideIfNeeded(trade, config)) {
       return false;
     }
@@ -545,38 +638,6 @@ export class PositionTrackerService {
     // Calculate current R:R metrics
     const risk = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
     if (risk <= 0) return false;
-
-    const reward = trade.direction === 'LONG'
-      ? currentPrice - Number(trade.entry_price)
-      : Number(trade.entry_price) - currentPrice;
-    const liveRr = reward / risk;
-
-    // BOLT: Update peak RR on every tick to ensure high-fidelity analytics.
-    // We only emit TRADE_UPDATED if it changes significantly (0.1 R) to avoid DB pressure.
-    const oldMaxRr = Number(trade.max_rr_achieved || 0);
-    if (liveRr > oldMaxRr) {
-      trade.max_rr_achieved = liveRr;
-      if (liveRr - oldMaxRr >= 0.1) {
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
-      }
-    }
-
-    // Dynamic RR Milestone Switch Tracking
-    if (config.tp_mode === 'exp_rr_seq_switch' && config.peak_rr_switch_threshold) {
-      const peakThreshold = config.peak_rr_switch_threshold;
-      if (trade.max_rr_achieved >= peakThreshold && !this.tradePeakRrSwitchHandled.has(trade.id)) {
-        const stratLabel = trade.strategy_label || 'Momentum Strategy';
-        const currentHits = this.peakRrSwitchHits.get(stratLabel) || 0;
-        this.peakRrSwitchHits.set(stratLabel, currentHits + 1);
-        this.tradePeakRrSwitchHandled.add(trade.id);
-        this.logger.log(`[Milestone Switch] Trade ${trade.symbol} hit peak RR threshold (${peakThreshold}R). Strategy ${stratLabel} switch hit count: ${currentHits + 1}`);
-      }
-    }
-
-    // SRE: Update min RR on every tick to capture Maximum Adverse Excursion (MAE)
-    if (trade.min_rr_achieved === undefined || trade.min_rr_achieved === null || trade.min_rr_achieved === 0 || liveRr < trade.min_rr_achieved) {
-      trade.min_rr_achieved = liveRr;
-    }
 
     // Find highest milestone crossed by max_rr
     let currentIndex = -1;
@@ -737,7 +798,7 @@ export class PositionTrackerService {
              this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
 
              // Notify of trade state change for persistence
-             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+             this.emitTradeUpdated(trade);
              return true;
           } else {
              this.recordRatchetFailureBackoff(
@@ -762,7 +823,7 @@ export class PositionTrackerService {
             trade.rr_sequence_index = currentIndex;
             trade.updated_at = new Date();
             this.refreshTradeRisk(trade, false, currentPrice, config);
-            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+            this.emitTradeUpdated(trade);
           } else {
             this.logger.warn(`[SL Ratchet] ${symbol} milestone ${currentIndex} reached (Peak RR: ${Number(trade.max_rr_achieved).toFixed(2)}), but SL adjustment was constrained (current_sl: ${Number(trade.current_sl)}, targetSl: ${targetSl}, newSl: ${newSl}). Retrying on next tick.`);
             this.recordActiveTradeEvent(
@@ -1081,6 +1142,10 @@ export class PositionTrackerService {
       this.setEntering(symbol, false);
       this.closingSymbols.delete(symbol);
       this.rrSequenceIndex.delete(symbol);
+      if (existing) {
+        this.lastEmittedMaxRr.delete(existing.id || existing.symbol);
+      }
+      this.lastEmittedMaxRr.delete(result.trade.id || result.trade.symbol);
       this._activeListCache = null;
       this.recalculateTotalRisk();
 
@@ -1107,6 +1172,7 @@ export class PositionTrackerService {
     const existing = this.trades.get(symbol);
     if (existing) {
       const tradeKey = existing.id || existing.symbol;
+      this.lastEmittedMaxRr.delete(tradeKey);
       if (this.tradePeakRrSwitchHandled.has(tradeKey)) {
         this.tradePeakRrSwitchHandled.delete(tradeKey);
         const stratLabel = existing.strategy_label || 'Momentum Strategy';
@@ -1409,6 +1475,8 @@ export class PositionTrackerService {
     if (!trade || trade.status !== 'OPEN' || !trade.is_knife) return;
 
     const activeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+    this.updateTradeRrExtremes(trade, currentPrice, activeConfig);
+
     const knifeTrailingEnabled: boolean = activeConfig.knife_trailing_enabled ?? true;
     if (!knifeTrailingEnabled) return;
 
@@ -1417,15 +1485,6 @@ export class PositionTrackerService {
 
     const reward = trade.direction === 'LONG' ? currentPrice - Number(trade.entry_price) : Number(trade.entry_price) - currentPrice;
     const liveRr = reward / risk;
-
-    const oldMaxRr = Number(trade.max_rr_achieved || 0);
-    if (liveRr > oldMaxRr) {
-      trade.max_rr_achieved = liveRr;
-      if (liveRr - oldMaxRr >= 0.1) {
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
-      }
-    }
-    this.hydratePeakRrSwitchState(trade, activeConfig);
     const peakRr = Math.max(trade.max_rr_achieved || 0, liveRr);
 
     // High-velocity Auto-Ratchet Evaluation
@@ -1493,7 +1552,7 @@ export class PositionTrackerService {
         trade.current_sl = newSl;
         trade.updated_at = new Date();
         this.logSlAdjustment(trade, prevSl, newSl, -4, false);
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        this.emitTradeUpdated(trade);
       }
 
       if (!this.closingSymbols.has(symbol)) {
@@ -1541,7 +1600,7 @@ export class PositionTrackerService {
         trade.updated_at = new Date();
         this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
         this.logSlAdjustment(trade, prevSl, newSl, -4, false);
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        this.emitTradeUpdated(trade);
         return;
       }
 
@@ -1564,7 +1623,7 @@ export class PositionTrackerService {
         trade.updated_at = new Date();
         this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
         this.logSlAdjustment(trade, prevSl, finalSl, -4, !!updateRes.price && updateRes.price !== newSl);
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        this.emitTradeUpdated(trade);
       } else {
         this.recordRatchetFailureBackoff(
           trade,
@@ -1587,38 +1646,19 @@ export class PositionTrackerService {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return;
 
+    const activeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+    this.updateTradeRrExtremes(trade, currentPrice, activeConfig);
+
     if (await this.handleExitSignalOverrideIfNeeded(trade, config)) {
       return;
     }
 
-    const activeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
     const trailingEnabled: boolean = activeConfig.trailing_stop_enabled === true || activeConfig.sl_type === 'trailing';
     if (!trailingEnabled) return;
 
     const risk = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
     const reward = trade.direction === 'LONG' ? currentPrice - Number(trade.entry_price) : Number(trade.entry_price) - currentPrice;
     const liveRr = risk > 0 ? reward / risk : 0;
-
-    // Keep peak R:R updated
-    const oldMaxRr = Number(trade.max_rr_achieved || 0);
-    if (liveRr > oldMaxRr) {
-      trade.max_rr_achieved = liveRr;
-      if (liveRr - oldMaxRr >= 0.1) {
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
-      }
-    }
-
-    // Dynamic RR Milestone Switch Tracking
-    if (activeConfig.tp_mode === 'exp_rr_seq_switch' && activeConfig.peak_rr_switch_threshold) {
-      const peakThreshold = activeConfig.peak_rr_switch_threshold;
-      if (trade.max_rr_achieved >= peakThreshold && !this.tradePeakRrSwitchHandled.has(trade.id)) {
-        const stratLabel = trade.strategy_label || 'Momentum Strategy';
-        const currentHits = this.peakRrSwitchHits.get(stratLabel) || 0;
-        this.peakRrSwitchHits.set(stratLabel, currentHits + 1);
-        this.tradePeakRrSwitchHandled.add(trade.id);
-        this.logger.log(`[Milestone Switch] Trade ${trade.symbol} hit peak RR threshold (${peakThreshold}R). Strategy ${stratLabel} switch hit count: ${currentHits + 1}`);
-      }
-    }
 
     const peakRr = Math.max(trade.max_rr_achieved || 0, liveRr);
 
@@ -1697,7 +1737,7 @@ export class PositionTrackerService {
         trade.current_sl = newSl;
         trade.updated_at = new Date();
         this.logSlAdjustment(trade, prevSl, newSl, -2, false);
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        this.emitTradeUpdated(trade);
       }
 
       if (!this.closingSymbols.has(symbol)) {
@@ -1750,7 +1790,7 @@ export class PositionTrackerService {
         trade.updated_at = new Date();
         this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
         this.logSlAdjustment(trade, prevSl, newSl, -2, false);
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        this.emitTradeUpdated(trade);
         return;
       }
 
@@ -1774,7 +1814,7 @@ export class PositionTrackerService {
         trade.updated_at = new Date();
         this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
         this.logSlAdjustment(trade, prevSl, finalSl, -2, !!updateRes.price && updateRes.price !== newSl);
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        this.emitTradeUpdated(trade);
       } else {
         this.recordRatchetFailureBackoff(
           trade,

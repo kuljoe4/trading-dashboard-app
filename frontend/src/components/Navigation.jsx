@@ -3,6 +3,7 @@ import { SystemMetrics } from './SystemMetrics'
 import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap, Plus, Keyboard } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
+import { MotionSegmentedPill } from './ui/SmoothMotion'
 
 const preloadView = (path) => {
   if (path === '/') {
@@ -64,28 +65,33 @@ export const Sidebar = ({ selected, activeRoute }) => {
       onMouseEnter={() => collapsed && setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={cn(
-        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 bg-surface border-r border-border z-50 transition-all duration-300",
+        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 bg-surface border-r border-border z-50 transition-[width] duration-300 ease-[var(--ease-glide)] will-change-[width]",
         isExpanded ? "w-[260px]" : "w-[80px]"
       )}
     >
-      <div className={cn("flex-1 flex flex-col p-4 sm:p-5 overflow-y-auto overflow-x-hidden min-h-0", !isExpanded && "px-3")}>
+      <div className="flex-1 flex flex-col p-4 overflow-y-auto overflow-x-hidden min-h-0">
         <button
           type="button"
           onClick={() => { window.location.hash = '#/'; }}
           onMouseEnter={() => preloadView('/')}
           onFocus={() => preloadView('/')}
           aria-label="Momentum Cockpit Home"
-          className={cn("flex items-center gap-3 mb-8 text-left group/brand focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer transition-opacity hover:opacity-95 relative shrink-0", !isExpanded && "justify-center")}
+          className="flex items-center mb-8 text-left group/brand focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl cursor-pointer transition-opacity duration-200 hover:opacity-95 relative shrink-0 w-full overflow-hidden"
         >
-          <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center shadow-sm shrink-0 group-hover/brand:scale-105 transition-transform">
-            <LayoutDashboard size={20} className="text-white" />
-          </div>
-          {isExpanded && (
-            <div className="flex flex-col min-w-0">
-              <span className="text-sm font-extrabold tracking-tight uppercase text-text whitespace-nowrap">Momentum</span>
-              <span className="text-[9px] font-mono font-medium text-dim tracking-wider uppercase">Trading Terminal</span>
+          <div className="w-12 h-10 shrink-0 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center shadow-sm shrink-0 group-hover/brand:scale-105 transition-transform duration-200 ease-[var(--ease-out-expo)]">
+              <LayoutDashboard size={20} className="text-white" />
             </div>
-          )}
+          </div>
+          <div
+            className={cn(
+              "flex flex-col min-w-0 pr-2 transition-[opacity,transform] duration-200 ease-[var(--ease-out-expo)]",
+              isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-1.5 pointer-events-none"
+            )}
+          >
+            <span className="text-sm font-extrabold tracking-tight uppercase text-text whitespace-nowrap">Momentum</span>
+            <span className="text-[9px] font-mono font-medium text-dim tracking-wider uppercase whitespace-nowrap">Trading Terminal</span>
+          </div>
           {isSyncing && (
             <div className="absolute top-0 left-0 right-0 h-0.5 overflow-hidden rounded-full">
               <div className="h-full bg-accent animate-progress-fast" />
@@ -94,57 +100,75 @@ export const Sidebar = ({ selected, activeRoute }) => {
         </button>
 
       <nav className="flex flex-col gap-1.5 shrink-0">
-        {NAV_ITEMS.map(item => (
-          <Tooltip key={item.path} content={collapsed ? `${item.label} [${item.shortcut}]` : null} side="right">
-            <button
-              type="button"
-              onClick={() => window.location.hash = `#${item.path}`}
-              onMouseEnter={() => preloadView(item.path)}
-              onFocus={() => preloadView(item.path)}
-              onTouchStart={() => preloadView(item.path)}
-              aria-label={`${item.label}${item.path === '/trades' && activeTrades?.length > 0 ? ` (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : ''}${item.shortcut ? ` [${item.shortcut}]` : ''}`}
-              aria-current={isActive(item.path) ? 'page' : undefined}
-              className={cn(
-                "group w-full flex flex-col items-center gap-1 py-2.5 rounded-lg font-semibold text-xs tracking-wide transition-all relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                isExpanded ? "flex-row px-3 gap-3" : "justify-center px-0",
-                isActive(item.path) ? "bg-accent text-white shadow-sm" : "text-dim hover:bg-white/[0.04] hover:text-text"
-              )}
-            >
-              <div className="relative">
-                <item.icon size={18} className="shrink-0" />
-                {item.path === '/trades' && activeTrades?.length > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-accent text-white text-[8.5px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-surface shadow-xs">
-                    {activeTrades.length}
-                  </span>
+        {NAV_ITEMS.map(item => {
+          const active = isActive(item.path)
+          return (
+            <Tooltip key={item.path} content={collapsed ? `${item.label} [${item.shortcut}]` : null} side="right">
+              <button
+                type="button"
+                onClick={() => window.location.hash = `#${item.path}`}
+                onMouseEnter={() => preloadView(item.path)}
+                onFocus={() => preloadView(item.path)}
+                onTouchStart={() => preloadView(item.path)}
+                aria-label={`${item.label}${item.path === '/trades' && activeTrades?.length > 0 ? ` (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : ''}${item.shortcut ? ` [${item.shortcut}]` : ''}`}
+                aria-current={isActive(item.path) ? 'page' : undefined}
+                className={cn(
+                  "group w-full flex items-center py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-colors duration-200 ease-[var(--ease-out-expo)] relative overflow-hidden focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                  active ? "text-white" : "text-dim hover:bg-white/[0.04] hover:text-text"
                 )}
-              </div>
-              {isExpanded && (
-                <span className="flex-1 flex items-center justify-between">
+              >
+                {active && (
+                  <MotionSegmentedPill
+                    layoutId="sidebar-active-nav"
+                    className="rounded-xl bg-accent shadow-sm z-0"
+                  />
+                )}
+                <div className="relative z-10 w-12 h-5 shrink-0 flex items-center justify-center">
+                  <div className="relative">
+                    <item.icon size={18} className="shrink-0" />
+                    {item.path === '/trades' && activeTrades?.length > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 bg-accent text-white text-[8.5px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-surface shadow-xs">
+                        {activeTrades.length}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <span
+                  className={cn(
+                    "relative z-10 flex-1 flex items-center justify-between pr-3 whitespace-nowrap min-w-0 transition-[opacity,transform] duration-200 ease-[var(--ease-out-expo)]",
+                    isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-1.5 pointer-events-none"
+                  )}
+                >
                   <span>{item.label}</span>
-                  <span className="ml-auto text-[9.5px] font-mono text-dim/60 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[{item.shortcut}]</span>
+                  <span className={cn(
+                    "ml-auto text-[9.5px] font-mono opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-150",
+                    active ? "text-white/80" : "text-dim/60"
+                  )}>[{item.shortcut}]</span>
                 </span>
-              )}
-            </button>
-          </Tooltip>
-        ))}
+              </button>
+            </Tooltip>
+          )
+        })}
 
         <Tooltip content={collapsed ? "Market Scanner [S]" : null} side="right">
           <button
             type="button"
             onClick={triggerScanner}
             aria-label="Market Scanner [S]"
-            className={cn(
-              "group w-full flex flex-col items-center gap-1 py-2.5 rounded-lg font-semibold text-xs tracking-wide transition-all text-accent hover:bg-accent/10 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-              isExpanded ? "flex-row px-3 gap-3" : "justify-center px-0"
-            )}
+            className="group w-full flex items-center py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-colors duration-200 ease-[var(--ease-out-expo)] text-accent hover:bg-accent/10 relative overflow-hidden focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
           >
-            <Zap size={18} className="shrink-0" />
-            {isExpanded && (
-              <span className="flex-1 flex items-center justify-between">
-                <span>Scanner</span>
-                <span className="ml-auto text-[9.5px] font-mono text-dim/60 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[S]</span>
-              </span>
-            )}
+            <span className="w-12 h-5 shrink-0 flex items-center justify-center">
+              <Zap size={18} className="shrink-0" />
+            </span>
+            <span
+              className={cn(
+                "flex-1 flex items-center justify-between pr-3 whitespace-nowrap min-w-0 transition-[opacity,transform] duration-200 ease-[var(--ease-out-expo)]",
+                isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-1.5 pointer-events-none"
+              )}
+            >
+              <span>Scanner</span>
+              <span className="ml-auto text-[9.5px] font-mono text-dim/60 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-150">[S]</span>
+            </span>
           </button>
         </Tooltip>
 
@@ -153,24 +177,26 @@ export const Sidebar = ({ selected, activeRoute }) => {
             type="button"
             onClick={() => window.dispatchEvent(new Event('toggle-shortcuts'))}
             aria-label="Keyboard Shortcuts [?]"
-            className={cn(
-              "group w-full flex flex-col items-center gap-1 py-2.5 rounded-lg font-semibold text-xs tracking-wide transition-all text-dim hover:text-text hover:bg-white/[0.04] relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-              isExpanded ? "flex-row px-3 gap-3" : "justify-center px-0"
-            )}
+            className="group w-full flex items-center py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-colors duration-200 ease-[var(--ease-out-expo)] text-dim hover:text-text hover:bg-white/[0.04] relative overflow-hidden focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
           >
-            <Keyboard size={18} className="shrink-0" />
-            {isExpanded && (
-              <span className="flex-1 flex items-center justify-between">
-                <span>Shortcuts</span>
-                <span className="ml-auto text-[9.5px] font-mono text-dim/60 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[?]</span>
-              </span>
-            )}
+            <span className="w-12 h-5 shrink-0 flex items-center justify-center">
+              <Keyboard size={18} className="shrink-0" />
+            </span>
+            <span
+              className={cn(
+                "flex-1 flex items-center justify-between pr-3 whitespace-nowrap min-w-0 transition-[opacity,transform] duration-200 ease-[var(--ease-out-expo)]",
+                isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-1.5 pointer-events-none"
+              )}
+            >
+              <span>Shortcuts</span>
+              <span className="ml-auto text-[9.5px] font-mono text-dim/60 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-150">[?]</span>
+            </span>
           </button>
         </Tooltip>
       </nav>
 
         <div className={cn(
-          "mt-auto pt-6 border-t border-border/50 shrink-0",
+          "mt-auto pt-6 border-t border-border/50 shrink-0 transition-[padding] duration-300 ease-[var(--ease-glide)]",
           !isExpanded ? "px-0" : "px-2"
         )}>
           <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} rateLimitLastSync={rateLimitLastSync} apiStatus={apiStatus} wsStatus={wsStatus} gateState={gateState} isEcoMode={isEcoMode} activeTrades={activeTrades} config={config} compact={!isExpanded} />
@@ -182,7 +208,7 @@ export const Sidebar = ({ selected, activeRoute }) => {
           type="button"
           onClick={toggleSidebar}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="absolute -right-4 top-8 w-8 h-8 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-[60] shadow-md transition-transform active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+          className="absolute -right-4 top-8 w-8 h-8 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-[60] shadow-md transition-[transform,color,border-color] duration-200 ease-[var(--ease-out-expo)] active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
@@ -225,38 +251,47 @@ export const BottomNav = ({ selected, activeRoute }) => {
         </div>
       )}
       <MobileHealthBar />
-      <div className="flex justify-around items-center h-14">
+      <div className="flex justify-around items-center h-14 px-1.5">
         {[
           { path: '/', label: 'Cockpit', icon: LayoutDashboard },
           { path: '/trades', label: 'Trades', icon: Briefcase },
           { path: '/history', label: 'History', icon: History },
           { path: '/settings', label: 'Settings', icon: SettingsIcon },
-        ].map(item => (
-          <button
-            key={item.path}
-            type="button"
-            onClick={() => window.location.hash = `#${item.path}`}
-            onMouseEnter={() => preloadView(item.path)}
-            onFocus={() => preloadView(item.path)}
-            onTouchStart={() => preloadView(item.path)}
-            aria-label={item.path === '/trades' && activeTrades?.length > 0 ? `${item.label} (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : item.label}
-            aria-current={isActive(item.path) ? 'page' : undefined}
-            className={cn(
-              "flex flex-col items-center justify-center w-full h-full gap-1 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer rounded-lg",
-              isActive(item.path) ? "text-accent" : "text-dim hover:text-text"
-            )}
-          >
-            <div className="relative">
-              <item.icon size={20} />
-              {item.path === '/trades' && activeTrades?.length > 0 && (
-                <span className="absolute -top-1.5 -right-2 bg-accent text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center border border-surface shadow-sm">
-                  {activeTrades.length}
-                </span>
+        ].map(item => {
+          const active = isActive(item.path)
+          return (
+            <button
+              key={item.path}
+              type="button"
+              onClick={() => window.location.hash = `#${item.path}`}
+              onMouseEnter={() => preloadView(item.path)}
+              onFocus={() => preloadView(item.path)}
+              onTouchStart={() => preloadView(item.path)}
+              aria-label={item.path === '/trades' && activeTrades?.length > 0 ? `${item.label} (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : item.label}
+              aria-current={active ? 'page' : undefined}
+              className={cn(
+                "relative overflow-hidden flex flex-col items-center justify-center w-full h-11 gap-1 transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer rounded-xl",
+                active ? "text-accent" : "text-dim hover:text-text"
               )}
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-widest">{item.label}</span>
-          </button>
-        ))}
+            >
+              {active && (
+                <MotionSegmentedPill
+                  layoutId="bottom-nav-active"
+                  className="rounded-xl bg-accent/10 z-0"
+                />
+              )}
+              <div className="relative z-10">
+                <item.icon size={20} />
+                {item.path === '/trades' && activeTrades?.length > 0 && (
+                  <span className="absolute -top-1.5 -right-2 bg-accent text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center border border-surface shadow-sm">
+                    {activeTrades.length}
+                  </span>
+                )}
+              </div>
+              <span className="relative z-10 text-[10px] font-bold uppercase tracking-widest">{item.label}</span>
+            </button>
+          )
+        })}
       </div>
     </div>
   )

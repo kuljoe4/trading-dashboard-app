@@ -91,11 +91,11 @@ html[data-low-glare="true"] .animate-pulse {
 
   button {
     transition-property: color, background-color, border-color, opacity, transform, box-shadow;
-    transition-duration: 160ms;
+    transition-duration: 180ms;
     transition-timing-function: var(--ease-out-expo);
   }
   button:not(:disabled):active {
-    @apply scale-[0.98];
+    @apply scale-[0.985];
   }
 
   /* Global Standardized Scrollbars */
@@ -230,9 +230,10 @@ html[data-low-glare="true"] .animate-pulse {
 
   .animate-in {
     animation-name: ui-enter;
-    animation-duration: var(--ui-enter-duration, 200ms);
+    animation-duration: var(--ui-enter-duration, 220ms);
     animation-timing-function: var(--ease-out-expo);
     animation-fill-mode: both;
+    will-change: transform, opacity;
   }
   .fade-in {
     --ui-enter-opacity: 0;
@@ -311,11 +312,15 @@ html[data-low-glare="true"] .animate-pulse {
   }
 
   @media (prefers-reduced-motion: reduce) {
+    button {
+      transition-duration: 0.01ms !important;
+    }
     .animate-event-arrive,
     .animate-handoff-slide,
     .animate-focus-sweep,
     .animate-in {
       animation: none !important;
+      will-change: auto !important;
     }
     .skeleton-shimmer::after {
       animation: none !important;

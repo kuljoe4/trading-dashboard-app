@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { settingsAPI, healthAPI, sessionAPI, setAdminApiKey, formatApiErrorMessage } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn, ViewHeader, Tooltip } from '../components/ui/primitives'
-import { SmoothCollapse, SmoothSwap } from '../components/ui/SmoothMotion'
+import { SmoothCollapse, SmoothSwap, MotionSegmentedPill } from '../components/ui/SmoothMotion'
 import {
   Settings as SettingsIcon,
   ShieldAlert,
@@ -376,7 +376,7 @@ export function SettingsView() {
 
   return (
     <div className={cn(
-      "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 transition-all",
+      "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 transition-[padding] duration-300 ease-[var(--ease-glide)]",
       healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
     )}>
         <ViewHeader
@@ -476,13 +476,19 @@ export function SettingsView() {
                   aria-selected={selected}
                   onClick={() => setActiveCategory(cat.id)}
                   className={cn(
-                    "h-9 sm:h-8 px-3 rounded-lg text-[11px] font-bold tracking-tight transition-all whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    "relative overflow-hidden h-9 sm:h-8 px-3 rounded-lg text-[11px] font-bold tracking-tight transition-colors duration-200 ease-[var(--ease-out-expo)] whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                     selected
-                      ? "bg-accent text-white shadow-xs"
+                      ? "text-white"
                       : "text-dim hover:text-text hover:bg-white/[0.04]"
                   )}
                 >
-                  {cat.label}
+                  {selected && (
+                    <MotionSegmentedPill
+                      layoutId="settings-category-pill"
+                      className="rounded-lg bg-accent shadow-xs z-0"
+                    />
+                  )}
+                  <span className="relative z-10">{cat.label}</span>
                 </button>
               )
             })}
@@ -518,7 +524,7 @@ export function SettingsView() {
           </motion.div>
         )}
 
-        <SmoothSwap contentKey={activeCategory} duration={0.14} yOffset={3}>
+        <SmoothSwap contentKey={activeCategory} duration={0.2} yOffset={5}>
         <div className="flex flex-col gap-3">
           {/* Section 1: Dashboard Visual Theme */}
           {isSectionVisible('theme') && (

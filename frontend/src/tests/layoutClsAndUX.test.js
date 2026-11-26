@@ -524,8 +524,76 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       'ActiveTradeCard and DashboardView StrategyCard must not cover cards with Resuming Feed backdrop-blur overlays'
     );
   });
+
+  test('Smooth compositor motion primitives, LayoutGroup, MotionConfig, and SmoothCollapse zero-CLS contracts are enforced', () => {
+    const mainSource = fs.readFileSync(path.join(__dirname, '../main.jsx'), 'utf-8');
+    const smoothMotionSource = fs.readFileSync(path.join(__dirname, '../components/ui/SmoothMotion.jsx'), 'utf-8');
+    const navigationSource = fs.readFileSync(path.join(__dirname, '../components/Navigation.jsx'), 'utf-8');
+    const engineSwitchSource = fs.readFileSync(path.join(__dirname, '../components/EngineSwitch.jsx'), 'utf-8');
+    const alertBannerSource = fs.readFileSync(path.join(__dirname, '../components/PersistentAlertBanner.jsx'), 'utf-8');
+    const tradesViewSource = fs.readFileSync(path.join(__dirname, '../views/TradesView.jsx'), 'utf-8');
+    const analyticsSource = fs.readFileSync(path.join(__dirname, '../components/Analytics.jsx'), 'utf-8');
+    const historyViewSource = fs.readFileSync(path.join(__dirname, '../views/HistoryView.jsx'), 'utf-8');
+    const settingsViewSource = fs.readFileSync(path.join(__dirname, '../views/SettingsView.jsx'), 'utf-8');
+    const configModalSource = fs.readFileSync(path.join(__dirname, '../components/ConfigModal.jsx'), 'utf-8');
+    const activeSummarySource = fs.readFileSync(path.join(__dirname, '../components/config/ActiveSummaryPanel.jsx'), 'utf-8');
+    const backtestPanelSource = fs.readFileSync(path.join(__dirname, '../components/BacktestPanel.jsx'), 'utf-8');
+    const tradeDetailModalSource = fs.readFileSync(path.join(__dirname, '../components/TradeDetailModal.jsx'), 'utf-8');
+
+    // 1. Global accessibility & shared layout group root wrappers
+    assert.ok(
+      mainSource.includes('<MotionConfig reducedMotion="user">') &&
+      mainSource.includes('<LayoutGroup id="momentum-cockpit-motion">'),
+      'main.jsx must wrap the shell in MotionConfig reducedMotion="user" and a shared LayoutGroup'
+    );
+
+    // 2. SmoothMotion enforces geometry containment & outExpo / glide curves
+    assert.ok(
+      smoothMotionSource.includes('[contain:layout_style]') &&
+      smoothMotionSource.includes('export const MOTION_EASE') &&
+      smoothMotionSource.includes('export const MotionSegmentedPill'),
+      'SmoothMotion.jsx must contain layout geometry and export MOTION_EASE + MotionSegmentedPill'
+    );
+
+    // 3. SmoothCollapse handles dynamic drawers/panels without abrupt height snaps
+    for (const [label, src] of [
+      ['DashboardView', dashboardViewSource],
+      ['HistoryView', historyViewSource],
+      ['PersistentAlertBanner', alertBannerSource],
+      ['ConfigModal', configModalSource],
+      ['ActiveSummaryPanel', activeSummarySource],
+      ['BacktestPanel', backtestPanelSource],
+    ]) {
+      assert.ok(
+        src.includes('<SmoothCollapse'),
+        `${label} must use <SmoothCollapse> for collapsible drawers/panels to prevent layout snapping`
+      );
+    }
+
+    // 4. MotionSegmentedPill drives active indicators across navigation & filters
+    for (const [label, src] of [
+      ['Navigation', navigationSource],
+      ['EngineSwitch', engineSwitchSource],
+      ['DashboardView', dashboardViewSource],
+      ['TradesView', tradesViewSource],
+      ['Analytics', analyticsSource],
+      ['HistoryView', historyViewSource],
+      ['SettingsView', settingsViewSource],
+      ['ConfigModal', configModalSource],
+      ['BacktestPanel', backtestPanelSource],
+    ]) {
+      assert.ok(
+        src.includes('<MotionSegmentedPill'),
+        `${label} must render <MotionSegmentedPill> for silky segmented/tab indicator transitions`
+      );
+    }
+
+    // 5. Sidebar fixes icon column width (w-12 inside p-4 -> 80px collapsed) so icons never jump horizontally
+    assert.ok(
+      navigationSource.includes('w-12 h-10 shrink-0') &&
+      !tradeDetailModalSource.includes('Resuming Feed...'),
+      'Sidebar must stabilize icon geometry across collapse and TradeDetailModal must not swap out metadata for Resuming Feed...'
+    );
+  });
 });
-
-
-
 

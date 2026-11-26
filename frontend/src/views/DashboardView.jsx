@@ -39,7 +39,7 @@ import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
 import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
-import { SmoothCollapse, SmoothSwap, MOTION_EASE } from '../components/ui/SmoothMotion'
+import { SmoothCollapse, SmoothSwap, MotionSegmentedPill, MOTION_EASE } from '../components/ui/SmoothMotion'
 import { StrategyDetailSkeleton, DecisionLogSkeleton, ScannerRowsSkeleton, SkeletonBlock } from '../components/ui/Skeletons'
 import { EngineSwitch } from '../components/EngineSwitch'
 import { useNow } from '../hooks/useNow'
@@ -313,16 +313,12 @@ const MonthlyRevenueChart = React.memo(({
         </div>
       </div>
 
-      <AnimatePresence>
-        {isChartExpanded && (
-          <motion.div
-            id="periodic-chart-content"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="overflow-hidden flex flex-col gap-3 sm:gap-3.5 pt-3 border-t border-border/20"
-          >
+      <SmoothCollapse
+        isOpen={isChartExpanded}
+        id="periodic-chart-content"
+        duration={0.26}
+        innerClassName="flex flex-col gap-3 sm:gap-3.5 pt-3 border-t border-border/20"
+      >
             {/* Mobile-First Controls: Scope Toggle + Strategy Filter + Adaptive Timeframe Horizon */}
             <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-2.5">
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto min-w-0">
@@ -337,13 +333,19 @@ const MonthlyRevenueChart = React.memo(({
                     aria-pressed={activeScope === 'all'}
                     onClick={(e) => { e.stopPropagation(); handleSelectScope('all'); }}
                     className={cn(
-                      "min-h-[36px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-bold tracking-tight transition-colors focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer whitespace-nowrap min-w-0 truncate flex items-center justify-center",
+                      "relative overflow-hidden min-h-[36px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-bold tracking-tight transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer whitespace-nowrap min-w-0 truncate flex items-center justify-center",
                       activeScope === 'all'
-                        ? "bg-accent text-white shadow-sm shadow-accent/20"
+                        ? "text-white"
                         : "text-dim hover:text-text hover:bg-white/5"
                     )}
                   >
-                    All Sessions
+                    {activeScope === 'all' && (
+                      <MotionSegmentedPill
+                        layoutId="dashboard-periodic-scope"
+                        className="rounded-lg bg-accent shadow-sm shadow-accent/20 z-0"
+                      />
+                    )}
+                    <span className="relative z-10 truncate">All Sessions</span>
                   </button>
                   <button
                     type="button"
@@ -351,15 +353,21 @@ const MonthlyRevenueChart = React.memo(({
                     disabled={!hasSession}
                     onClick={(e) => { e.stopPropagation(); handleSelectScope('session'); }}
                     className={cn(
-                      "min-h-[36px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-bold tracking-tight transition-colors focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap min-w-0 truncate flex items-center justify-center",
+                      "relative overflow-hidden min-h-[36px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-bold tracking-tight transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap min-w-0 truncate flex items-center justify-center",
                       !hasSession
                         ? "text-dim/40 cursor-not-allowed"
                         : activeScope === 'session'
-                          ? "bg-accent text-white shadow-sm shadow-accent/20 cursor-pointer"
+                          ? "text-white cursor-pointer"
                           : "text-dim hover:text-text hover:bg-white/5 cursor-pointer"
                     )}
                   >
-                    {sessionLabel}
+                    {hasSession && activeScope === 'session' && (
+                      <MotionSegmentedPill
+                        layoutId="dashboard-periodic-scope"
+                        className="rounded-lg bg-accent shadow-sm shadow-accent/20 z-0"
+                      />
+                    )}
+                    <span className="relative z-10 truncate">{sessionLabel}</span>
                   </button>
                 </div>
 
@@ -397,14 +405,20 @@ const MonthlyRevenueChart = React.memo(({
                     aria-pressed={timeframe === tf.id}
                     onClick={(e) => { e.stopPropagation(); handleSelectTimeframe(tf.id); }}
                     className={cn(
-                      "min-h-[36px] sm:min-h-[30px] px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-[10.5px] font-bold tracking-tight transition-colors focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer whitespace-nowrap shrink-0 flex items-center justify-center",
+                      "relative overflow-hidden min-h-[36px] sm:min-h-[30px] px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-[10.5px] font-bold tracking-tight transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer whitespace-nowrap shrink-0 flex items-center justify-center",
                       timeframe === tf.id
-                        ? "bg-accent text-white shadow-sm shadow-accent/20"
+                        ? "text-white"
                         : "text-dim hover:text-text hover:bg-white/5"
                     )}
                   >
-                    <span className="hidden sm:inline">{tf.fullLabel}</span>
-                    <span className="inline sm:hidden">{tf.shortLabel}</span>
+                    {timeframe === tf.id && (
+                      <MotionSegmentedPill
+                        layoutId="dashboard-periodic-tf"
+                        className="rounded-lg bg-accent shadow-sm shadow-accent/20 z-0"
+                      />
+                    )}
+                    <span className="relative z-10 hidden sm:inline">{tf.fullLabel}</span>
+                    <span className="relative z-10 inline sm:hidden">{tf.shortLabel}</span>
                   </button>
                 ))}
               </div>
@@ -516,13 +530,13 @@ const MonthlyRevenueChart = React.memo(({
 
                   {/* Bar Container */}
                   <div className={cn(
-                    "w-full max-w-[44px] h-[126px] flex items-end justify-center rounded-lg bg-background/40 p-1 border transition-colors duration-150",
+                    "w-full max-w-[44px] h-[126px] [contain:layout_style] flex items-end justify-center rounded-lg bg-background/40 p-1 border transition-colors duration-150",
                     isActive ? "border-accent/50 bg-background/60" : "border-border/30"
                   )}>
                     <motion.div
                       initial={{ height: 0 }}
                       animate={{ height: `${heightPct}%` }}
-                      transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                      transition={{ duration: 0.34, ease: MOTION_EASE.outExpo }}
                       className={cn(
                         "w-full rounded-[5px] transition-colors duration-150 relative overflow-hidden",
                         isFlat
@@ -552,9 +566,7 @@ const MonthlyRevenueChart = React.memo(({
           })}
         </div>
       </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </SmoothCollapse>
     </div>
   );
 });
@@ -675,7 +687,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
         role="button"
         tabIndex={0}
         className={cn(
-          "bg-surface border border-border/40 rounded-xl p-2.5 sm:px-3 sm:py-2 flex items-center justify-between gap-2.5 w-full shadow-sm cursor-pointer hover:border-accent/40 hover:bg-white/[0.02] transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden min-h-[42px]",
+          "bg-surface border border-border/40 rounded-xl p-2.5 sm:px-3 sm:py-2 flex items-center justify-between gap-2.5 w-full shadow-sm cursor-pointer hover:border-accent/40 hover:bg-white/[0.02] transition-[background-color,border-color,box-shadow] duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden min-h-[42px]",
           className,
           isResuming && "border-accent/25"
         )}
@@ -685,7 +697,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Tooltip content={s.sessionActive ? "Engine Status: Active" : "Engine Status: Stopped"}>
             <span className={cn(
-              "w-2 h-2 rounded-full shrink-0 transition-all",
+              "w-2 h-2 rounded-full shrink-0 transition-colors duration-200",
               s.sessionActive
                 ? "bg-green shadow-[0_0_8px_rgba(0,229,160,0.5)] animate-pulse"
                 : "bg-dim/40"
@@ -773,7 +785,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border/40 rounded-xl flex flex-col w-full h-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
+        "bg-surface border border-border/40 rounded-xl flex flex-col w-full h-full shadow-sm cursor-pointer hover:border-accent/30 transition-[background-color,border-color,box-shadow] duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
         isCompact ? "p-2.5 gap-2" : "p-3 sm:p-3.5 gap-2.5",
         className,
         isResuming && "border-accent/25"
@@ -1128,23 +1140,18 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
           )}
         </SectionLabel>
         <div className={cn(
-          "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+          "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-[transform,color,border-color,background-color] duration-200",
           showReconciliation && "text-accent border-accent/40 bg-accent/5 rotate-180"
         )}>
           <ChevronLeft size={14} className="-rotate-90" />
         </div>
       </button>
 
-      <AnimatePresence>
-        {showReconciliation && (
-          <motion.div
-            id="reconciliation-center-list"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-            className="overflow-hidden"
-          >
+      <SmoothCollapse
+        isOpen={showReconciliation}
+        id="reconciliation-center-list"
+        duration={0.28}
+      >
             <div className="bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-4">
               <div className="flex flex-col gap-1">
                 <div className="text-[10px] text-dim font-black uppercase tracking-widest">Exchange Reconciliation Console</div>
@@ -1302,9 +1309,7 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
                 </div>
               )}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </SmoothCollapse>
     </motion.div>
   );
 });
@@ -2089,7 +2094,7 @@ export function DashboardView({ initialStrategy }) {
       "shadow-[inset_0_0_100px_rgba(34,197,94,0.05)] border-green/10"
     )}>
 
-      <SmoothSwap contentKey={selected ? `strategy:${selected}` : 'overview'} duration={0.16} yOffset={4}>
+      <SmoothSwap contentKey={selected ? `strategy:${selected}` : 'overview'} duration={0.2} yOffset={6}>
       {selected ? (
         <Suspense fallback={<StrategyDetailSkeleton />}>
           <StrategyDetailView
@@ -2103,7 +2108,7 @@ export function DashboardView({ initialStrategy }) {
         </Suspense>
       ) : (
         <div className={cn(
-          "max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 transition-all",
+          "max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 transition-[padding] duration-300 ease-[var(--ease-glide)]",
           healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
         )}>
 
@@ -2205,7 +2210,7 @@ export function DashboardView({ initialStrategy }) {
                 aria-controls="temporal-risk-grid"
                 aria-label={showTemporalRisk ? "Collapse Temporal Risk section" : "Expand Temporal Risk section"}
                 className={cn(
-                  "h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center gap-1.5 text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider transition-all whitespace-nowrap min-w-0 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none border",
+                  "h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center gap-1.5 text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider transition-[background-color,border-color,color,box-shadow] duration-200 whitespace-nowrap min-w-0 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none border",
                   showTemporalRisk
                     ? "bg-accent/15 border-accent/35 text-accent shadow-xs"
                     : "border-transparent text-dim hover:text-text hover:bg-background/60"
@@ -2222,7 +2227,7 @@ export function DashboardView({ initialStrategy }) {
                 aria-expanded={globalMetricsExpanded}
                 aria-label={globalMetricsExpanded ? "Collapse secondary global metrics" : "Expand secondary global metrics"}
                 className={cn(
-                  "h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center gap-1.5 text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider transition-all whitespace-nowrap min-w-0 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none border",
+                  "h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center gap-1.5 text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider transition-[background-color,border-color,color,box-shadow] duration-200 whitespace-nowrap min-w-0 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none border",
                   globalMetricsExpanded
                     ? "bg-background/90 border-border/60 text-text shadow-xs"
                     : "border-transparent text-dim hover:text-text hover:bg-background/60"
@@ -2401,20 +2406,9 @@ export function DashboardView({ initialStrategy }) {
             />
           </div>
 
-          <AnimatePresence>
-            {showTemporalRisk && (
-              <motion.div
-                id="temporal-risk-grid"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25 }}
-                className="overflow-hidden pt-1"
-              >
-                <TemporalRiskGrid />
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <SmoothCollapse isOpen={showTemporalRisk} id="temporal-risk-grid" duration={0.26} innerClassName="pt-1">
+            <TemporalRiskGrid />
+          </SmoothCollapse>
         </div>
 
         <ReconciliationCenter
@@ -2431,58 +2425,46 @@ export function DashboardView({ initialStrategy }) {
               <Zap size={13} className="text-accent" /> Active Strategy
             </SectionLabel>
             <div className="inline-flex items-center bg-background/60 border border-border/40 p-0.5 rounded-lg" role="tablist" aria-label="Strategy card view mode selection">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={cardViewMode === 'detailed'}
-                aria-controls="active-strategy-cards-container"
-                onClick={() => handleCardViewModeChange('detailed')}
-                className={cn(
-                  "h-6 sm:h-6 px-2.5 rounded-md text-[9px] font-black uppercase tracking-wider inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  cardViewMode === 'detailed' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
-                )}
-                aria-label="Detailed strategy cards view"
-              >
-                Detailed
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={cardViewMode === 'compact'}
-                aria-controls="active-strategy-cards-container"
-                onClick={() => handleCardViewModeChange('compact')}
-                className={cn(
-                  "h-6 sm:h-6 px-2.5 rounded-md text-[9px] font-black uppercase tracking-wider inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  cardViewMode === 'compact' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
-                )}
-                aria-label="Compact strategy cards view"
-              >
-                Compact
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={cardViewMode === 'list'}
-                aria-controls="active-strategy-cards-container"
-                onClick={() => handleCardViewModeChange('list')}
-                className={cn(
-                  "h-6 sm:h-6 px-2.5 rounded-md text-[9px] font-black uppercase tracking-wider inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  cardViewMode === 'list' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
-                )}
-                aria-label="List strategy cards view"
-              >
-                List
-              </button>
+              {[
+                { id: 'detailed', label: 'Detailed', aria: 'Detailed strategy cards view' },
+                { id: 'compact', label: 'Compact', aria: 'Compact strategy cards view' },
+                { id: 'list', label: 'List', aria: 'List strategy cards view' },
+              ].map((tab) => {
+                const isSelectedTab = cardViewMode === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isSelectedTab}
+                    aria-controls="active-strategy-cards-container"
+                    onClick={() => handleCardViewModeChange(tab.id)}
+                    className={cn(
+                      "relative overflow-hidden h-6 sm:h-6 px-2.5 rounded-md text-[9px] font-black uppercase tracking-wider inline-flex items-center justify-center transition-colors duration-200 ease-[var(--ease-out-expo)] cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      isSelectedTab ? "text-white" : "text-dim hover:text-text"
+                    )}
+                    aria-label={tab.aria}
+                  >
+                    {isSelectedTab && (
+                      <MotionSegmentedPill
+                        layoutId="dashboard-card-view-mode"
+                        className="rounded-md bg-accent shadow-xs z-0"
+                      />
+                    )}
+                    <span className="relative z-10">{tab.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
           <motion.div
             key={cardViewMode}
             id="active-strategy-cards-container"
-            initial={{ opacity: 0.94, y: 3 }}
+            initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.14, ease: MOTION_EASE.outExpo }}
+            transition={{ duration: 0.2, ease: MOTION_EASE.outExpo }}
             className={cn(
-              "grid gap-2.5 sm:gap-3",
+              "grid gap-2.5 sm:gap-3 min-h-[118px]",
               cardViewMode === 'list' ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 auto-rows-fr items-stretch"
             )}
           >
@@ -2627,12 +2609,12 @@ export function DashboardView({ initialStrategy }) {
                   disabled={loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
                   aria-label="Create new trading strategy"
                   className={cn(
-                    "bg-background border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-dim transition-all group min-h-[110px] w-full",
+                    "bg-background border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-dim transition-[background-color,border-color,color] duration-200 group min-h-[110px] w-full cursor-pointer",
                     lastSession ? "col-span-1" : "col-span-1 md:col-span-2",
                     (loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                   )}
                 >
-                  <div className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-xs">
+                  <div className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors duration-200 shadow-xs">
                     <Plus size={16} />
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-widest">
@@ -2646,11 +2628,11 @@ export function DashboardView({ initialStrategy }) {
                     disabled={loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
                     aria-label={`Resume last session: ${lastSession.config?.strategy_label || lastSession.strategyLabel || 'Previous Session'}`}
                     className={cn(
-                      "bg-background border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-dim transition-all group min-h-[110px] w-full col-span-1",
+                      "bg-background border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-dim transition-[background-color,border-color,color] duration-200 group min-h-[110px] w-full col-span-1 cursor-pointer",
                       (loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                     )}
                   >
-                    <div className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-xs">
+                    <div className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors duration-200 shadow-xs">
                       <History size={16} />
                     </div>
                     <div className="flex flex-col items-center">
@@ -2702,29 +2684,23 @@ export function DashboardView({ initialStrategy }) {
                 <span className="text-[9px] text-dim font-mono uppercase tracking-wider">Buffer: 500</span>
               </div>
               <div className={cn(
-                "p-1 rounded-md border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+                "p-1 rounded-md border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-[transform,color,border-color,background-color] duration-200",
                 showSessionLogs && "text-accent border-accent/40 bg-accent/5 rotate-180"
               )}>
                 <ChevronLeft size={12} className="-rotate-90" />
               </div>
             </div>
 
-            <AnimatePresence>
-              {showSessionLogs && (
-                <motion.div
-                  id="dashboard-session-logs-panel"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.24, ease: MOTION_EASE.glide }}
-                  className="overflow-hidden pt-2 border-t border-border/20"
-                >
-                  <Suspense fallback={<DecisionLogSkeleton />}>
-                    <DecisionLog />
-                  </Suspense>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <SmoothCollapse
+              isOpen={showSessionLogs}
+              id="dashboard-session-logs-panel"
+              duration={0.24}
+              innerClassName="pt-2 border-t border-border/20"
+            >
+              <Suspense fallback={<DecisionLogSkeleton />}>
+                <DecisionLog />
+              </Suspense>
+            </SmoothCollapse>
           </div>
         </div>
       </div>

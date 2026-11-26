@@ -331,7 +331,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    this.logger.log("SessionService destroying, flushing log queue...");
+    this.logger.log("SessionService destroying, flushing pending trade & log queues...");
+    await this.saveTradePromiseChain.catch(() => {});
     await this.flushLogQueue();
   }
 
@@ -409,9 +410,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
         const currentMaxRr = Number(trade.max_rr_achieved || 0);
         const prevSavedMaxRr = Number(lastState.max_rr_achieved || 0);
-        const peakRrIncreased =
-          currentMaxRr > prevSavedMaxRr &&
-          typeof this.tradeRepository.update === 'function';
+        const peakRrIncreased = currentMaxRr > prevSavedMaxRr;
 
         const timeElapsed = Date.now() - lastState.lastSavedTs;
         if (!criticalChanged) {
@@ -434,8 +433,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           await this.tradeRepository.update(trade.id, {
             mark_price: trade.mark_price,
             last_price: trade.last_price,
-            max_rr_achieved: Number(trade.max_rr_achieved || 0),
-            min_rr_achieved: Number(trade.min_rr_achieved || 0),
+            max_rr_achieved: roundEight(Number(trade.max_rr_achieved || 0)),
+            min_rr_achieved: roundEight(Number(trade.min_rr_achieved || 0)),
             updated_at: new Date(),
           });
         } else {
@@ -2073,6 +2072,24 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     const initialQty = Number(trade.qty || 1);
     const realizedFee = Number(trade.realized_fee || 0);
 
+    let finalizedMaxRr = Number(trade.max_rr_achieved || 0);
+    if (!Number.isFinite(finalizedMaxRr)) finalizedMaxRr = 0;
+    const entryPx = Number(trade.entry_price || 0);
+    const initSl = Number(trade.initial_sl || 0);
+    const risk = Math.abs(entryPx - initSl);
+    const isLong = String(trade.direction || 'LONG').toUpperCase() === 'LONG';
+    if (risk > 0 && entryPx > 0) {
+      const currentSl = Number(trade.current_sl || 0);
+      if (currentSl > 0) {
+        const slReward = isLong ? currentSl - entryPx : entryPx - currentSl;
+        if (slReward > 0) finalizedMaxRr = Math.max(finalizedMaxRr, slReward / risk);
+      }
+      if (exitPriceToUse > 0) {
+        const exitReward = isLong ? exitPriceToUse - entryPx : entryPx - exitPriceToUse;
+        if (exitReward > 0) finalizedMaxRr = Math.max(finalizedMaxRr, exitReward / risk);
+      }
+    }
+
     // SRE: Fix History inaccuracy by not fabricating PnL for orphaned trades
     return {
       status: "CLOSED_ORPHANED",
@@ -2083,6 +2100,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       pnl_pct: 0,
       qty: initialQty,
       realized_fee: realizedFee,
+      max_rr_achieved: roundEight(finalizedMaxRr),
       exit_reason: contextReason || trade.exit_reason || "CLOSED_ORPHANED",
     };
   }

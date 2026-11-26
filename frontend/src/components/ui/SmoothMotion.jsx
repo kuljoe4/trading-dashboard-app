@@ -26,7 +26,7 @@ export const SmoothCollapse = ({
   children,
   className = '',
   innerClassName = '',
-  duration = 0.24,
+  duration = 0.26,
   id,
 }) => {
   const prefersReduced = useReducedMotion();
@@ -38,13 +38,23 @@ export const SmoothCollapse = ({
         <motion.div
           id={id}
           initial={{ height: 0, opacity: 0 }}
-          animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{
-            height: { duration: effectiveDuration, ease: MOTION_EASE.glide },
-            opacity: { duration: Math.max(0.12, effectiveDuration * 0.78), ease: MOTION_EASE.outExpo },
+          animate={{
+            height: 'auto',
+            opacity: 1,
+            transition: {
+              height: { duration: effectiveDuration, ease: MOTION_EASE.glide },
+              opacity: { duration: prefersReduced ? 0 : Math.max(0.16, effectiveDuration * 0.8), ease: MOTION_EASE.outExpo },
+            },
           }}
-          className={`overflow-hidden ${className}`}
+          exit={{
+            height: 0,
+            opacity: 0,
+            transition: {
+              height: { duration: prefersReduced ? 0 : Math.max(0.18, effectiveDuration * 0.88), ease: MOTION_EASE.glide },
+              opacity: { duration: prefersReduced ? 0 : 0.14, ease: MOTION_EASE.snappy },
+            },
+          }}
+          className={`overflow-hidden [contain:layout_style] ${className}`}
         >
           <div className={innerClassName}>{children}</div>
         </motion.div>
@@ -105,7 +115,7 @@ export const SmoothHeightContainer = ({
           ? { height: { duration, ease: MOTION_EASE.glide } }
           : { duration: 0 }
       }
-      className={`overflow-hidden ${className}`}
+      className={`overflow-hidden [contain:layout_style] ${className}`}
     >
       <div ref={contentRef}>{children}</div>
     </motion.div>
@@ -120,8 +130,8 @@ export const SmoothSwap = ({
   contentKey,
   children,
   className = '',
-  duration = 0.14,
-  yOffset = 3,
+  duration = 0.22,
+  yOffset = 6,
 }) => {
   const prefersReduced = useReducedMotion();
   const effectiveDuration = prefersReduced ? 0 : duration;
@@ -130,9 +140,10 @@ export const SmoothSwap = ({
   return (
     <motion.div
       key={contentKey}
-      initial={prefersReduced ? false : { opacity: 0.92, y: effectiveY }}
+      initial={prefersReduced ? false : { opacity: 0, y: effectiveY }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: effectiveDuration, ease: MOTION_EASE.outExpo }}
+      style={prefersReduced ? undefined : { willChange: 'transform, opacity' }}
       className={className}
     >
       {children}
@@ -147,7 +158,7 @@ export const SmoothSwap = ({
 export const MotionSegmentedPill = ({
   layoutId,
   className = '',
-  duration = 0.2,
+  duration = 0.22,
 }) => {
   const prefersReduced = useReducedMotion();
   return (
@@ -158,6 +169,7 @@ export const MotionSegmentedPill = ({
         duration: prefersReduced ? 0 : duration,
         ease: MOTION_EASE.outExpo,
       }}
+      style={prefersReduced ? undefined : { willChange: 'transform' }}
       className={`pointer-events-none absolute inset-0 ${className}`}
     />
   );

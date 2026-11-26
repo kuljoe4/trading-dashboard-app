@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
+import { SmoothCollapse, MotionSegmentedPill, MOTION_EASE } from './ui/SmoothMotion'
 import { fmtUSD, pnlClass } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI, presetsAPI } from '../api/client'
@@ -286,35 +287,48 @@ export const BacktestPanel = ({ onApplyConfig }) => {
               type="button"
               onClick={() => setStrategyType('active')}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                strategyType === 'active' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                "relative px-3 py-1.5 rounded-lg text-xs font-bold transition-colors duration-200 whitespace-nowrap cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                strategyType === 'active' ? "text-white" : "text-dim hover:text-text"
               )}
             >
-              Active Strategy
+              {strategyType === 'active' && (
+                <MotionSegmentedPill layoutId="backtest-source-pill" className="rounded-lg bg-accent shadow-xs" />
+              )}
+              <span className="relative z-10">Active Strategy</span>
             </button>
             <button
               type="button"
               onClick={() => setStrategyType('preset')}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
-                strategyType === 'preset' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                "relative px-3 py-1.5 rounded-lg text-xs font-bold transition-colors duration-200 whitespace-nowrap cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
+                strategyType === 'preset' ? "text-white" : "text-dim hover:text-text"
               )}
             >
-              <Layers size={13} />
-              Saved Presets {presets.length > 0 && `(${presets.length})`}
+              {strategyType === 'preset' && (
+                <MotionSegmentedPill layoutId="backtest-source-pill" className="rounded-lg bg-accent shadow-xs" />
+              )}
+              <span className="relative z-10 flex items-center gap-1.5">
+                <Layers size={13} />
+                Saved Presets {presets.length > 0 && `(${presets.length})`}
+              </span>
             </button>
             <button
               type="button"
               onClick={() => setStrategyType('variant')}
               disabled={!config?.strategy_variants || config.strategy_variants.length === 0}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
-                strategyType === 'variant' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text",
+                "relative px-3 py-1.5 rounded-lg text-xs font-bold transition-colors duration-200 whitespace-nowrap cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
+                strategyType === 'variant' ? "text-white" : "text-dim hover:text-text",
                 (!config?.strategy_variants || config.strategy_variants.length === 0) && "opacity-40 cursor-not-allowed"
               )}
             >
-              <Sliders size={13} />
-              Variants {config?.strategy_variants?.length ? `(${config.strategy_variants.length})` : ''}
+              {strategyType === 'variant' && (
+                <MotionSegmentedPill layoutId="backtest-source-pill" className="rounded-lg bg-accent shadow-xs" />
+              )}
+              <span className="relative z-10 flex items-center gap-1.5">
+                <Sliders size={13} />
+                Variants {config?.strategy_variants?.length ? `(${config.strategy_variants.length})` : ''}
+              </span>
             </button>
           </div>
         </div>
@@ -475,7 +489,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
               onClick={handleRunBacktest}
               disabled={isExecuting}
               className={cn(
-                "w-full h-[34px] rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                "w-full h-[34px] rounded-xl text-xs font-bold uppercase tracking-wider transition-[background-color,transform,opacity] duration-200 flex items-center justify-center gap-2 cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isExecuting
                   ? "bg-accent/50 text-white cursor-wait"
                   : "bg-accent text-white hover:bg-accent-hover active:scale-[0.98]"
@@ -510,7 +524,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
             aria-checked={useGlobalScanner}
             onClick={() => setUseGlobalScanner(v => !v)}
             className={cn(
-              "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
+              "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-[background-color,border-color,color] duration-200 cursor-pointer",
               useGlobalScanner
                 ? "bg-accent/15 border-accent/40 text-accent"
                 : "bg-background border-border/40 text-dim hover:text-text"
@@ -534,9 +548,10 @@ export const BacktestPanel = ({ onApplyConfig }) => {
         <BacktestResultsSkeleton />
       ) : results && (
         <motion.div
-          initial={{ opacity: 0.94, y: 4 }}
+          initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col gap-6"
+          transition={{ duration: 0.22, ease: MOTION_EASE.outExpo }}
+          className="flex flex-col gap-6 [contain:layout_style]"
         >
           {/* KPI Cards Strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 auto-rows-fr items-stretch gap-3">
@@ -598,7 +613,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
                 <button
                   type="button"
                   onClick={() => onApplyConfig(targetStrategyConfig)}
-                  className="px-3 py-1.5 bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-1.5 bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25 rounded-xl text-xs font-bold transition-[background-color,border-color,color] duration-200 flex items-center gap-1.5 cursor-pointer"
                 >
                   <Check size={14} />
                   Apply Strategy to Session
@@ -688,45 +703,49 @@ export const BacktestPanel = ({ onApplyConfig }) => {
                     type="button"
                     onClick={() => setTradeFilter('all')}
                     className={cn(
-                      "px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
-                      tradeFilter === 'all' ? "bg-accent text-white" : "text-dim hover:text-text"
+                      "relative px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-colors duration-200 cursor-pointer",
+                      tradeFilter === 'all' ? "text-white" : "text-dim hover:text-text"
                     )}
                   >
-                    All ({results.trades?.length || 0})
+                    {tradeFilter === 'all' && (
+                      <MotionSegmentedPill layoutId="backtest-trade-filter" className="rounded bg-accent" />
+                    )}
+                    <span className="relative z-10">All ({results.trades?.length || 0})</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setTradeFilter('win')}
                     className={cn(
-                      "px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
-                      tradeFilter === 'win' ? "bg-green text-white" : "text-dim hover:text-text"
+                      "relative px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-colors duration-200 cursor-pointer",
+                      tradeFilter === 'win' ? "text-white" : "text-dim hover:text-text"
                     )}
                   >
-                    Wins ({results.wins ?? 0})
+                    {tradeFilter === 'win' && (
+                      <MotionSegmentedPill layoutId="backtest-trade-filter" className="rounded bg-green" />
+                    )}
+                    <span className="relative z-10">Wins ({results.wins ?? 0})</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setTradeFilter('loss')}
                     className={cn(
-                      "px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
-                      tradeFilter === 'loss' ? "bg-red text-white" : "text-dim hover:text-text"
+                      "relative px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-colors duration-200 cursor-pointer",
+                      tradeFilter === 'loss' ? "text-white" : "text-dim hover:text-text"
                     )}
                   >
-                    Losses ({results.losses ?? 0})
+                    {tradeFilter === 'loss' && (
+                      <MotionSegmentedPill layoutId="backtest-trade-filter" className="rounded bg-red" />
+                    )}
+                    <span className="relative z-10">Losses ({results.losses ?? 0})</span>
                   </button>
                 </div>
               </div>
             </div>
 
             {/* Selected Trade Candlestick Chart View Overlay */}
-            <AnimatePresence>
+            <SmoothCollapse isOpen={Boolean(selectedTradeForChart)} duration={0.26}>
               {selectedTradeForChart && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="bg-background/90 border border-accent/30 rounded-2xl p-4 flex flex-col gap-3 shadow-md overflow-hidden"
-                >
+                <div className="bg-background/90 border border-accent/30 rounded-2xl p-4 flex flex-col gap-3 shadow-md">
                   <div className="flex items-center justify-between border-b border-border/30 pb-3">
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-extrabold font-mono text-text">{selectedTradeForChart.symbol}</span>
@@ -802,9 +821,9 @@ export const BacktestPanel = ({ onApplyConfig }) => {
                       />
                     </div>
                   </div>
-                </motion.div>
+                </div>
               )}
-            </AnimatePresence>
+            </SmoothCollapse>
 
             {filteredTrades.length === 0 ? (
               <div className="text-center py-8 text-xs text-dim font-medium">
@@ -891,7 +910,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
                                 setSelectedTradeForChart(isSelected ? null : trade);
                               }}
                               className={cn(
-                                "p-1.5 rounded-lg border transition-all cursor-pointer inline-flex items-center justify-center",
+                                "p-1.5 rounded-lg border transition-[background-color,border-color,color] duration-200 cursor-pointer inline-flex items-center justify-center",
                                 isSelected ? "bg-accent text-white border-accent" : "bg-background border-border/40 text-dim hover:text-accent hover:border-accent/40"
                               )}
                               title="Plot Candlestick Chart"

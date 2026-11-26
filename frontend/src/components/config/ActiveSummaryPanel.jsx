@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { SmoothCollapse } from '../ui/SmoothMotion';
 import {
   SlidersHorizontal,
   Search,
@@ -122,7 +122,7 @@ const SummaryCollapsibleSection = React.memo(({
             aria-expanded={isOpen}
             aria-controls={`${id}-content`}
             className={cn(
-              'w-6 h-6 rounded-md border flex items-center justify-center transition-all cursor-pointer shrink-0',
+              'w-6 h-6 rounded-md border flex items-center justify-center transition-[transform,color,border-color,background-color] duration-200 cursor-pointer shrink-0',
               hasError
                 ? 'border-red/40 text-red hover:border-red'
                 : 'border-border/40 text-dim group-hover:border-accent/40 group-hover:text-accent',
@@ -134,22 +134,15 @@ const SummaryCollapsibleSection = React.memo(({
         </div>
       </div>
 
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            id={`${id}-content`}
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeInOut' }}
-            className="overflow-hidden w-full min-w-0"
-          >
-            <div className="p-2.5 sm:p-4 pt-2.5 border-t border-border/40 flex flex-col gap-3 w-full min-w-0">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <SmoothCollapse
+        isOpen={isOpen}
+        id={`${id}-content`}
+        duration={0.24}
+        className="w-full min-w-0"
+        innerClassName="p-2.5 sm:p-4 pt-2.5 border-t border-border/40 flex flex-col gap-3 w-full min-w-0"
+      >
+        {children}
+      </SmoothCollapse>
     </section>
   );
 });

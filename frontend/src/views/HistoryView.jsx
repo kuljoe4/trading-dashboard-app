@@ -9,7 +9,7 @@ import { useTradingStore, normalizeTrade } from '../store/trading'
 import { usePersistedFilter } from '../hooks/usePersistedFilter'
 import { resolveAdaptiveHistoryTradeLimit, resolveAdaptiveSessionLimit, filterHistorySessions, getNextAdaptiveTradeStep } from '../utils/periodicPerformance'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader, Btn } from '../components/ui/primitives'
-import { SmoothHeightContainer, SmoothSwap } from '../components/ui/SmoothMotion'
+import { SmoothHeightContainer, SmoothSwap, SmoothCollapse, MotionSegmentedPill, MOTION_EASE } from '../components/ui/SmoothMotion'
 import { ChartPanelSkeleton, HistorySessionsSkeleton, SkeletonBlock, ModalDrawerSkeleton } from '../components/ui/Skeletons'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { PastWeekPromotionPanel } from '../components/PastWeekPromotionPanel'
@@ -144,10 +144,10 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
             <Dialog.Content className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 z-10110 outline-none w-full max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[calc(100%-2rem)] md:max-w-lg">
               <motion.div
                 role="dialog"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                initial={{ opacity: 0, scale: 0.97, y: 6 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98, y: 4 }}
+                transition={{ duration: 0.2, ease: MOTION_EASE.outExpo }}
                 className="bg-surface border border-border rounded-t-3xl rounded-b-none md:rounded-2xl p-5 md:p-6 shadow-2xl overflow-hidden max-h-[85vh] flex flex-col focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {/* Header */}
@@ -163,7 +163,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                   </div>
                   <Tooltip content="Close">
                     <Dialog.Close asChild>
-                      <button type="button" className="text-dim hover:text-text p-1.5 hover:bg-white/5 rounded-lg transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close dialog">
+                      <button type="button" className="text-dim hover:text-text p-1.5 hover:bg-white/5 rounded-lg transition-[background-color,color,transform] duration-150 active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close dialog">
                         <X size={16} />
                       </button>
                     </Dialog.Close>
@@ -1658,15 +1658,11 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle, onInspec
         )}
       </div>
 
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="border-t border-border/10"
-          >
+      <SmoothCollapse
+        isOpen={expanded}
+        duration={0.26}
+        className="border-t border-border/10"
+      >
             <div className="p-4 flex flex-col gap-4 bg-background/20">
               {/* Mobile-First Session Trade Filter Panel (Strategy, Symbol, & Pairs) */}
               {(availableSessionStrategies.length > 1 || availableSessionSymbols.length > 1 || availableSessionCombos.length > 1) && (() => {
@@ -1747,12 +1743,17 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle, onInspec
                         aria-pressed={sessionFilterTab === 'strategy'}
                         aria-label="Filter session by strategy"
                         className={cn(
-                          "min-h-[40px] sm:min-h-[32px] px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                          sessionFilterTab === 'strategy' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                          "relative overflow-hidden min-h-[40px] sm:min-h-[32px] px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors duration-200 ease-[var(--ease-out-expo)] cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                          sessionFilterTab === 'strategy' ? "text-white" : "text-dim hover:text-text"
                         )}
                       >
-                        <span>Strategy</span>
-                        <span className="font-mono text-[10px] opacity-80 tabular-nums">{availableSessionStrategies.length}</span>
+                        {sessionFilterTab === 'strategy' && (
+                          <MotionSegmentedPill layoutId={`session-filter-tab-${session.id}`} className="rounded-lg bg-accent shadow-xs z-0" />
+                        )}
+                        <span className="relative z-10 flex items-center gap-1.5">
+                          <span>Strategy</span>
+                          <span className="font-mono text-[10px] opacity-80 tabular-nums">{availableSessionStrategies.length}</span>
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -1763,12 +1764,17 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle, onInspec
                         aria-pressed={sessionFilterTab === 'symbol'}
                         aria-label="Filter session by symbol"
                         className={cn(
-                          "min-h-[40px] sm:min-h-[32px] px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                          sessionFilterTab === 'symbol' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                          "relative overflow-hidden min-h-[40px] sm:min-h-[32px] px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors duration-200 ease-[var(--ease-out-expo)] cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                          sessionFilterTab === 'symbol' ? "text-white" : "text-dim hover:text-text"
                         )}
                       >
-                        <span>Symbol</span>
-                        <span className="font-mono text-[10px] opacity-80 tabular-nums">{availableSessionSymbols.length}</span>
+                        {sessionFilterTab === 'symbol' && (
+                          <MotionSegmentedPill layoutId={`session-filter-tab-${session.id}`} className="rounded-lg bg-accent shadow-xs z-0" />
+                        )}
+                        <span className="relative z-10 flex items-center gap-1.5">
+                          <span>Symbol</span>
+                          <span className="font-mono text-[10px] opacity-80 tabular-nums">{availableSessionSymbols.length}</span>
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -1779,13 +1785,18 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle, onInspec
                         aria-pressed={sessionFilterTab === 'combo'}
                         aria-label="Filter session by strategy and symbol together"
                         className={cn(
-                          "min-h-[40px] sm:min-h-[32px] px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                          sessionFilterTab === 'combo' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                          "relative overflow-hidden min-h-[40px] sm:min-h-[32px] px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors duration-200 ease-[var(--ease-out-expo)] cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                          sessionFilterTab === 'combo' ? "text-white" : "text-dim hover:text-text"
                         )}
                       >
-                        <span className="sm:hidden">Pairs</span>
-                        <span className="hidden sm:inline">Strategy + Symbol</span>
-                        <span className="font-mono text-[10px] opacity-80 tabular-nums">{availableSessionCombos.length}</span>
+                        {sessionFilterTab === 'combo' && (
+                          <MotionSegmentedPill layoutId={`session-filter-tab-${session.id}`} className="rounded-lg bg-accent shadow-xs z-0" />
+                        )}
+                        <span className="relative z-10 flex items-center gap-1.5">
+                          <span className="sm:hidden">Pairs</span>
+                          <span className="hidden sm:inline">Strategy + Symbol</span>
+                          <span className="font-mono text-[10px] opacity-80 tabular-nums">{availableSessionCombos.length}</span>
+                        </span>
                       </button>
                     </div>
 
@@ -2093,9 +2104,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle, onInspec
                 </div>
               )}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </SmoothCollapse>
     </div>
   )
 })
@@ -2783,7 +2792,7 @@ export const HistoryView = () => {
 
   return (
     <div className={cn(
-      "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 transition-all",
+      "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 transition-[padding] duration-300 ease-[var(--ease-glide)]",
       healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
     )}>
         <ViewHeader
@@ -2800,29 +2809,39 @@ export const HistoryView = () => {
                 type="button"
                 onClick={() => setActiveViewTab('history')}
                 className={cn(
-                  "min-h-[36px] sm:min-h-[32px] px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
-                  activeViewTab === 'history' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                  "relative overflow-hidden min-h-[36px] sm:min-h-[32px] px-3 py-1.5 rounded-lg text-xs font-bold transition-colors duration-200 ease-[var(--ease-out-expo)] whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
+                  activeViewTab === 'history' ? "text-white" : "text-dim hover:text-text"
                 )}
               >
-                <HistoryIcon size={14} />
-                <span>Records</span>
+                {activeViewTab === 'history' && (
+                  <MotionSegmentedPill layoutId="history-view-tab" className="rounded-lg bg-accent shadow-xs z-0" />
+                )}
+                <span className="relative z-10 flex items-center gap-1.5">
+                  <HistoryIcon size={14} />
+                  <span>Records</span>
+                </span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveViewTab('backtest')}
                 className={cn(
-                  "min-h-[36px] sm:min-h-[32px] px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
-                  activeViewTab === 'backtest' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                  "relative overflow-hidden min-h-[36px] sm:min-h-[32px] px-3 py-1.5 rounded-lg text-xs font-bold transition-colors duration-200 ease-[var(--ease-out-expo)] whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
+                  activeViewTab === 'backtest' ? "text-white" : "text-dim hover:text-text"
                 )}
               >
-                <BarChart3 size={14} />
-                <span>Backtest</span>
+                {activeViewTab === 'backtest' && (
+                  <MotionSegmentedPill layoutId="history-view-tab" className="rounded-lg bg-accent shadow-xs z-0" />
+                )}
+                <span className="relative z-10 flex items-center gap-1.5">
+                  <BarChart3 size={14} />
+                  <span>Backtest</span>
+                </span>
               </button>
             </div>
           </div>
         </ViewHeader>
 
-        <SmoothSwap contentKey={activeViewTab} duration={0.16} yOffset={4}>
+        <SmoothSwap contentKey={activeViewTab} duration={0.2} yOffset={6}>
         {activeViewTab === 'backtest' ? (
           <BacktestPanel onApplyConfig={handleApplyBacktestConfig} />
         ) : (
@@ -2866,11 +2885,14 @@ export const HistoryView = () => {
                       aria-pressed={lifetimeMode === m}
                       aria-label={`Switch history to ${m} mode`}
                       className={cn(
-                        "min-h-[40px] sm:min-h-[32px] px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all whitespace-nowrap shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                        lifetimeMode === m ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                        "relative overflow-hidden min-h-[40px] sm:min-h-[32px] px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-colors duration-200 ease-[var(--ease-out-expo)] whitespace-nowrap shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                        lifetimeMode === m ? "text-white" : "text-dim hover:text-text"
                       )}
                     >
-                      {m}
+                      {lifetimeMode === m && (
+                        <MotionSegmentedPill layoutId="history-env-mode" className="rounded-lg bg-accent shadow-xs z-0" />
+                      )}
+                      <span className="relative z-10">{m}</span>
                     </button>
                   ))}
                 </div>
@@ -2945,8 +2967,8 @@ export const HistoryView = () => {
                 </div>
               </div>
 
-              <SmoothHeightContainer duration={0.22}>
-                <SmoothSwap contentKey={filtersExpanded ? 'expanded' : 'collapsed'} duration={0.14} yOffset={2}>
+              <SmoothHeightContainer duration={0.24}>
+                <SmoothSwap contentKey={filtersExpanded ? 'expanded' : 'collapsed'} duration={0.18} yOffset={4}>
                   {/* Unboxed Quiet Summary Strip when Collapsed */}
                   {!filtersExpanded ? (
                     <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-dim tabular-nums pt-2 border-t border-border/20 flex-wrap">
@@ -3010,11 +3032,14 @@ export const HistoryView = () => {
                               aria-pressed={timeRange === r}
                               aria-label={`Filter history to ${r} time range`}
                               className={cn(
-                                "min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                                timeRange === r ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                                "relative overflow-hidden min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono tracking-wider whitespace-nowrap shrink-0 transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                                timeRange === r ? "text-white" : "text-dim hover:text-text hover:bg-surface/60"
                               )}
                             >
-                              {r}
+                              {timeRange === r && (
+                                <MotionSegmentedPill layoutId="history-time-range" className="rounded-lg bg-accent shadow-xs z-0" />
+                              )}
+                              <span className="relative z-10">{r}</span>
                             </button>
                           ))}
                         </div>
@@ -3036,11 +3061,14 @@ export const HistoryView = () => {
                               aria-pressed={sortBy === opt.id}
                               aria-label={`Sort sessions by ${opt.label}`}
                               className={cn(
-                                "min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                                sortBy === opt.id ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                                "relative overflow-hidden min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                                sortBy === opt.id ? "text-white" : "text-dim hover:text-text hover:bg-surface/60"
                               )}
                             >
-                              {opt.label}
+                              {sortBy === opt.id && (
+                                <MotionSegmentedPill layoutId="history-sort-by" className="rounded-lg bg-accent shadow-xs z-0" />
+                              )}
+                              <span className="relative z-10">{opt.label}</span>
                             </button>
                           ))}
                         </div>
@@ -3058,13 +3086,18 @@ export const HistoryView = () => {
                               aria-pressed={tradeLimit === l}
                               aria-label={l === 'AUTO' ? 'Use adaptive trade history limit' : `Set trade history limit to ${l}`}
                               className={cn(
-                                "min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                                tradeLimit === l ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                                "relative overflow-hidden min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                                tradeLimit === l ? "text-white" : "text-dim hover:text-text hover:bg-surface/60"
                               )}
                             >
-                              {l === 'AUTO'
-                                ? (resolvedTradeLimitInfo.isKnown ? `Auto (${resolvedTradeLimitInfo.actualCount})` : 'Auto')
-                                : l}
+                              {tradeLimit === l && (
+                                <MotionSegmentedPill layoutId="history-trade-limit" className="rounded-lg bg-accent shadow-xs z-0" />
+                              )}
+                              <span className="relative z-10">
+                                {l === 'AUTO'
+                                  ? (resolvedTradeLimitInfo.isKnown ? `Auto (${resolvedTradeLimitInfo.actualCount})` : 'Auto')
+                                  : l}
+                              </span>
                             </button>
                           ))}
                         </div>
@@ -3082,13 +3115,18 @@ export const HistoryView = () => {
                               aria-pressed={sessionLimit === sl}
                               aria-label={sl === 'AUTO' ? 'Use adaptive session history limit' : `Set session history limit to ${sl}`}
                               className={cn(
-                                "min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                                sessionLimit === sl ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                                "relative overflow-hidden min-h-[38px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono tabular-nums tracking-wider whitespace-nowrap shrink-0 transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                                sessionLimit === sl ? "text-white" : "text-dim hover:text-text hover:bg-surface/60"
                               )}
                             >
-                              {sl === 'AUTO'
-                                ? (resolvedSessionLimitInfo.isKnown ? `Auto (${resolvedSessionLimitInfo.modeCount})` : 'Auto')
-                                : sl}
+                              {sessionLimit === sl && (
+                                <MotionSegmentedPill layoutId="history-session-limit" className="rounded-lg bg-accent shadow-xs z-0" />
+                              )}
+                              <span className="relative z-10">
+                                {sl === 'AUTO'
+                                  ? (resolvedSessionLimitInfo.isKnown ? `Auto (${resolvedSessionLimitInfo.modeCount})` : 'Auto')
+                                  : sl}
+                              </span>
                             </button>
                           ))}
                         </div>
@@ -3200,15 +3238,12 @@ export const HistoryView = () => {
             </div>
           </div>
 
-          <AnimatePresence initial={false}>
-            {analyticsExpanded && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                className="overflow-hidden bg-surface/5 border-x border-b border-border/50 rounded-b-2xl p-4 md:p-6 flex flex-col gap-6 md:gap-8"
-              >
+          <SmoothCollapse
+            isOpen={analyticsExpanded}
+            duration={0.28}
+            className="bg-surface/5 border-x border-b border-border/50 rounded-b-2xl"
+            innerClassName="p-4 md:p-6 flex flex-col gap-6 md:gap-8"
+          >
                 {/* 1. Stat Cards Grid (Static card headers stay visible; only dynamic values shimmer while analytics load) */}
                 {(() => {
                   const isAnalyticsLoading = (loading || analyticsLoading) && !currentAnalytics;
@@ -3621,9 +3656,7 @@ export const HistoryView = () => {
                     </div>
                   </div>
                 )}
-              </motion.div>
-            )}
-          </AnimatePresence>
+          </SmoothCollapse>
         </div>
 
 
@@ -3710,13 +3743,14 @@ export const HistoryView = () => {
             )
           ) : (
             <div className="flex flex-col gap-3">
-              <AnimatePresence mode="popLayout">
+              <AnimatePresence initial={false}>
                 {sessionsToRender.length === 0 && hiddenEmptyCount > 0 ? (
                   <motion.div
                     key="history-empty-sessions-hidden"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    transition={{ duration: 0.2, ease: MOTION_EASE.outExpo }}
                     className="flex flex-col items-center justify-center py-12 px-4 text-center bg-surface/15 border border-border/40 border-dashed rounded-2xl gap-3"
                   >
                     <div className="text-xs font-bold text-text uppercase tracking-wider font-mono tabular-nums">
@@ -3730,7 +3764,7 @@ export const HistoryView = () => {
                         <button
                           type="button"
                           onClick={handleIncreaseAdaptiveTradeLimit}
-                          className="min-h-[44px] px-5 py-2.5 bg-accent text-white rounded-xl text-xs font-bold font-mono uppercase tracking-wider hover:bg-accent/90 transition-all cursor-pointer"
+                          className="min-h-[44px] px-5 py-2.5 bg-accent text-white rounded-xl text-xs font-bold font-mono uppercase tracking-wider hover:bg-accent/90 transition-colors cursor-pointer"
                         >
                           {nextTradeStepInfo.isAll
                             ? `Load All Trades${nextTradeStepInfo.remainingTrades ? ` (${resolvedTradeLimitInfo.totalCount})` : ''}`
@@ -3740,7 +3774,7 @@ export const HistoryView = () => {
                       <button
                         type="button"
                         onClick={handleToggleHideEmptySessions}
-                        className="min-h-[44px] px-5 py-2.5 bg-surface/60 border border-border/60 text-text hover:border-accent/40 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
+                        className="min-h-[44px] px-5 py-2.5 bg-surface/60 border border-border/60 text-text hover:border-accent/40 rounded-xl text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
                       >
                         Show {hiddenEmptyCount} Empty {hiddenEmptyCount === 1 ? 'Session' : 'Sessions'}
                       </button>
@@ -3751,7 +3785,8 @@ export const HistoryView = () => {
                     key="history-no-results"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    transition={{ duration: 0.2, ease: MOTION_EASE.outExpo }}
                     className="flex flex-col items-center justify-center py-16 text-center bg-surface/10 border border-border/40 border-dashed rounded-2xl"
                   >
                     <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center mb-4 text-dim/20">
@@ -3765,7 +3800,7 @@ export const HistoryView = () => {
                         setSearch('');
                         searchInputRef.current?.focus();
                       }}
-                      className="min-h-[40px] px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                      className="min-h-[40px] px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-colors active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
                     >
                       Clear Search
                     </button>
@@ -3774,9 +3809,10 @@ export const HistoryView = () => {
                   sessionsToRender.map((s, i) => (
                     <motion.div
                       key={s.id}
-                      initial={{ opacity: 0, y: 12 }}
+                      initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.22, delay: Math.min(i * 0.025, 0.2), ease: [0.16, 1, 0.3, 1] }}
+                      transition={{ duration: 0.22, delay: Math.min(i * 0.015, 0.1), ease: MOTION_EASE.outExpo }}
+                      className="[contain:layout_style]"
                     >
                       <SessionGroup
                         session={s}
@@ -3822,10 +3858,10 @@ export const HistoryView = () => {
 
                 {orphans.length > 0 && (
                   <motion.div
-                    layout
-                    initial={{ opacity: 0, y: 20 }}
+                    initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="mt-12 bg-surface/30 border border-border rounded-2xl overflow-hidden"
+                    transition={{ duration: 0.22, ease: MOTION_EASE.outExpo }}
+                    className="mt-12 bg-surface/30 border border-border rounded-2xl overflow-hidden [contain:layout_style]"
                   >
                     <Tooltip content="Trades not associated with a specific session (e.g. manual trades or orphaned data)">
                       <div
@@ -3861,23 +3897,18 @@ export const HistoryView = () => {
                       </div>
                     </Tooltip>
 
-                    <AnimatePresence>
-                      {orphansExpanded && (
-                        <motion.div
-                          id="orphans-list"
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          className="overflow-hidden border-t border-border/40"
-                        >
-                          <div className="p-4 flex flex-col gap-3 bg-background/30">
-                            {orphans.map((trade) => (
-                              <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} onInspectTrade={handleInspectTrade} />
-                            ))}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    <SmoothCollapse
+                      isOpen={orphansExpanded}
+                      id="orphans-list"
+                      duration={0.26}
+                      className="border-t border-border/40"
+                    >
+                      <div className="p-4 flex flex-col gap-3 bg-background/30">
+                        {orphans.map((trade) => (
+                          <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} onInspectTrade={handleInspectTrade} />
+                        ))}
+                      </div>
+                    </SmoothCollapse>
                   </motion.div>
                 )}
               </AnimatePresence>

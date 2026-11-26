@@ -1,11 +1,13 @@
 import React, { useRef, useEffect } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, AlertTriangle } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { cn, Btn, Tooltip } from './ui/primitives'
+import { MOTION_EASE } from './ui/SmoothMotion'
 
 export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", cancelText = "Cancel", variant = "danger", loading = false }) => {
   const cancelBtnRef = useRef(null);
+  const prefersReduced = useReducedMotion();
 
   // UX: Safe-by-default focus strategy. Auto-focus the non-destructive action (Cancel)
   // to prevent accidental data loss from rapid 'Enter' key presses.
@@ -25,9 +27,10 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
           <Dialog.Portal forceMount>
             <Dialog.Overlay asChild>
               <motion.div
-                initial={{ opacity: 0 }}
+                initial={prefersReduced ? false : { opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
+                transition={{ duration: prefersReduced ? 0 : 0.18, ease: MOTION_EASE.focus }}
                 className={cn("fixed inset-0 z-10100 bg-black/80 w-full h-full", loading ? "cursor-wait" : "cursor-pointer")}
               />
             </Dialog.Overlay>
@@ -36,10 +39,10 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
             >
               <motion.div
                 role="alertdialog"
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                initial={prefersReduced ? false : { opacity: 0, scale: 0.97, y: 6 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={prefersReduced ? { opacity: 0 } : { opacity: 0, scale: 0.98, y: 4 }}
+                transition={{ duration: prefersReduced ? 0 : 0.2, ease: MOTION_EASE.outExpo }}
                 className="bg-surface border border-border rounded-t-3xl rounded-b-none md:rounded-xl p-3.5 md:p-4 shadow-2xl overflow-hidden"
               >
                   <div className="flex justify-between items-center mb-2">
@@ -54,7 +57,7 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                         <button
                           type="button"
                           disabled={loading}
-                          className="text-dim hover:text-text p-1 hover:bg-white/5 rounded-lg transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                          className="text-dim hover:text-text p-1 hover:bg-white/5 rounded-lg transition-[background-color,color,transform] duration-150 active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                           aria-label="Close dialog"
                         >
                           <X size={14} />

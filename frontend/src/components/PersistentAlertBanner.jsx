@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { shallow } from 'zustand/shallow';
 import {
   AlertCircle,
@@ -21,8 +21,7 @@ import { sessionAPI } from '../api/client';
 import { formatDuration } from '../lib/formatters';
 import { useNow } from '../hooks/useNow';
 import { cn } from './ui/primitives';
-
-const STRIP_TRANSITION = { duration: 0.2, ease: [0.22, 1, 0.36, 1] };
+import { MOTION_EASE, SmoothCollapse } from './ui/SmoothMotion';
 
 const TONE_STYLES = {
   red: {
@@ -133,6 +132,7 @@ export const PersistentAlertBanner = () => {
   );
 
   const now = useNow();
+  const prefersReduced = useReducedMotion();
 
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isRetryingApi, setIsRetryingApi] = useState(false);
@@ -705,12 +705,25 @@ export const PersistentAlertBanner = () => {
             role={activeNotice.role}
             aria-live={activeNotice.ariaLive}
             title={activeNotice.tooltip || activeNotice.detail}
-            initial={{ opacity: 0, height: 0, y: -8 }}
-            animate={{ opacity: 1, height: 'auto', y: 0 }}
-            exit={{ opacity: 0, height: 0, y: -8 }}
-            transition={STRIP_TRANSITION}
+            initial={prefersReduced ? false : { opacity: 0, height: 0 }}
+            animate={{
+              opacity: 1,
+              height: 'auto',
+              transition: {
+                height: { duration: prefersReduced ? 0 : 0.24, ease: MOTION_EASE.glide },
+                opacity: { duration: prefersReduced ? 0 : 0.2, ease: MOTION_EASE.outExpo },
+              },
+            }}
+            exit={{
+              opacity: 0,
+              height: 0,
+              transition: {
+                height: { duration: prefersReduced ? 0 : 0.2, ease: MOTION_EASE.glide },
+                opacity: { duration: prefersReduced ? 0 : 0.14, ease: MOTION_EASE.snappy },
+              },
+            }}
             className={cn(
-              'relative overflow-hidden border-b bg-gradient-to-r backdrop-blur-md transition-colors duration-200',
+              'relative overflow-hidden [contain:layout_style] border-b bg-gradient-to-r backdrop-blur-md transition-colors duration-200',
               activeTone.strip
             )}
           >
@@ -861,17 +874,12 @@ export const PersistentAlertBanner = () => {
             )}
 
             {/* Smooth inline detail & multi-notice drawer inside the SAME strip */}
-            <AnimatePresence initial={false}>
-              {isExpanded && (
-                <motion.div
-                  key="strip-details"
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={STRIP_TRANSITION}
-                  className="overflow-hidden border-t border-white/[0.07] bg-background/55"
-                >
-                  <div className="w-full max-w-[1160px] mx-auto px-2.5 sm:px-4 md:px-6 py-2.5 flex flex-col gap-2">
+            <SmoothCollapse
+              isOpen={isExpanded}
+              duration={0.24}
+              className="border-t border-white/[0.07] bg-background/55"
+            >
+              <div className="w-full max-w-[1160px] mx-auto px-2.5 sm:px-4 md:px-6 py-2.5 flex flex-col gap-2">
                     {/* Active notice full description & secondary actions */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <p className="text-[11.5px] text-text/85 leading-relaxed">
@@ -960,10 +968,8 @@ export const PersistentAlertBanner = () => {
                           })}
                       </div>
                     )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+              </div>
+            </SmoothCollapse>
           </motion.div>
         )}
       </AnimatePresence>

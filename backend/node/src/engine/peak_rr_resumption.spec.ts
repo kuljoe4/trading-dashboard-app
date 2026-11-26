@@ -20,6 +20,7 @@ describe('Peak RR Resumption and Hydration Tests', () => {
   const mockOrderManager: any = {
     checkExitSignals: jest.fn().mockReturnValue({ exitTriggered: false }),
     applyFilters: jest.fn((sym, p) => ({ price: p })),
+    isRatcheting: jest.fn().mockReturnValue(false),
   };
   const mockTickerCache: any = {
     getPrice: jest.fn().mockReturnValue(null),
@@ -40,6 +41,9 @@ describe('Peak RR Resumption and Hydration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockTickerCache.getPrice.mockReturnValue(null);
+    mockOrderManager.checkExitSignals.mockReturnValue({ exitTriggered: false });
+    mockOrderManager.isRatcheting.mockReturnValue(false);
     positionTracker = new PositionTrackerService(
       mockRiskEngine,
       mockSignalEngine,
@@ -255,6 +259,132 @@ describe('Peak RR Resumption and Hydration Tests', () => {
       expect(positionTracker.peakRrSwitchHits.get('Momentum Strategy')).toBe(1);
       expect(idx).toBe(1);
       expect(trade.max_rr_achieved).toBe(3.0);
+    });
+  });
+
+  describe('Regression: gradual sub-0.1R ticks, override early return, and post-entry candle hydration', () => {
+    it('emits TRADE_UPDATED cumulatively when gradual < 0.1R ticks cross 0.1R thresholds', async () => {
+      const trade: Trade = {
+        id: 't-gradual-1',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90, // Risk = 10 -> each +0.4 price is +0.04R
+        current_sl: 90,
+        qty: 1,
+        status: 'OPEN',
+        max_rr_achieved: 0,
+        rr_sequence_index: -1,
+      } as any;
+
+      positionTracker.addTrade(trade);
+      mockEventEmitter.emit.mockClear();
+
+      // 0.04R, 0.08R -> no TRADE_UPDATED yet (< 0.1R cumulative)
+      await positionTracker.checkRrSequenceAdjustments('BTCUSDT', 100.4, defaultConfig);
+      await positionTracker.checkRrSequenceAdjustments('BTCUSDT', 100.8, defaultConfig);
+      const updatesBeforeThreshold = mockEventEmitter.emit.mock.calls.filter((c: any[]) => c[0] === 'trade.updated');
+      expect(updatesBeforeThreshold.length).toBe(0);
+      expect(trade.max_rr_achieved).toBeCloseTo(0.08, 6);
+
+      // 0.12R -> crosses 0.1R from lastEmitted (0), emits TRADE_UPDATED once
+      await positionTracker.checkRrSequenceAdjustments('BTCUSDT', 101.2, defaultConfig);
+      let tradeUpdates = mockEventEmitter.emit.mock.calls.filter((c: any[]) => c[0] === 'trade.updated');
+      expect(tradeUpdates.length).toBe(1);
+      expect(trade.max_rr_achieved).toBeCloseTo(0.12, 6);
+
+      // 0.17R -> only +0.05R above 0.12R, no new emit yet
+      await positionTracker.checkRrSequenceAdjustments('BTCUSDT', 101.7, defaultConfig);
+      tradeUpdates = mockEventEmitter.emit.mock.calls.filter((c: any[]) => c[0] === 'trade.updated');
+      expect(tradeUpdates.length).toBe(1);
+
+      // 0.23R -> +0.11R above lastEmitted (0.12R), emits second TRADE_UPDATED
+      await positionTracker.checkRrSequenceAdjustments('BTCUSDT', 102.3, defaultConfig);
+      tradeUpdates = mockEventEmitter.emit.mock.calls.filter((c: any[]) => c[0] === 'trade.updated');
+      expect(tradeUpdates.length).toBe(2);
+      expect(trade.max_rr_achieved).toBeCloseTo(0.23, 6);
+    });
+
+    it('continues updating max_rr_achieved and emitting TRADE_UPDATED even when exit signal override returns early', async () => {
+      mockTickerCache.getPrice.mockReturnValue(110);
+      mockOrderManager.checkExitSignals.mockImplementation((_sym: string, t: any) => {
+        t.exit_signals_status = {
+          ema_cross: {
+            threshold_is_price: true,
+            threshold: 105, // current PnL > threshold PnL triggers override
+          },
+        };
+        return { exitTriggered: false };
+      });
+
+      const overrideConfig: SessionConfig = {
+        ...defaultConfig,
+        exit_signals_override_ratchet: true,
+        trailing_stop_enabled: true,
+        trailing_stop_type: 'pct',
+        trailing_stop_distance_pct: 1.0,
+      } as any;
+
+      const trade: Trade = {
+        id: 't-override-1',
+        symbol: 'ETHUSDT',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 0,
+        qty: 1,
+        status: 'OPEN',
+        max_rr_achieved: 1.0,
+        rr_sequence_index: -1,
+      } as any;
+
+      positionTracker.addTrade(trade);
+      mockEventEmitter.emit.mockClear();
+
+      // Price pushes to 115 (+1.5R) while exit-signal override is active
+      mockTickerCache.getPrice.mockReturnValue(115);
+      await positionTracker.checkRrSequenceAdjustments('ETHUSDT', 115, overrideConfig);
+      expect(trade.max_rr_achieved).toBeCloseTo(1.5, 6);
+
+      // Price pushes to 125 (+2.5R) on trailing check while override is still active
+      mockTickerCache.getPrice.mockReturnValue(125);
+      await positionTracker.checkTrailingStop('ETHUSDT', 125, overrideConfig);
+      expect(trade.max_rr_achieved).toBeCloseTo(2.5, 6);
+
+      const tradeUpdates = mockEventEmitter.emit.mock.calls.filter((c: any[]) => c[0] === 'trade.updated');
+      expect(tradeUpdates.length).toBe(2);
+    });
+
+    it('floors max_rr_achieved from strictly post-entry klines on restart while ignoring pre-entry wicks', () => {
+      const entryTs = new Date('2026-11-26T00:10:00Z');
+      mockTickerCache.getPrice.mockReturnValue(105); // Reverted to +0.5R at restart
+      mockKlineStore.getRawCandles = jest.fn().mockImplementation((_sym: string, tf: string) => {
+        if (tf === '1m') {
+          return [
+            { time: entryTs.getTime() - 60000, high: 150, low: 95, close: 100 }, // Pre-entry candle MUST be ignored
+            { time: entryTs.getTime() + 60000, high: 122, low: 101, close: 112 }, // Post-entry spike to +2.2R
+            { time: entryTs.getTime() + 120000, high: 115, low: 104, close: 105 },
+          ];
+        }
+        return [];
+      });
+
+      const trade: Trade = {
+        id: 't-kline-1',
+        symbol: 'SOLUSDT',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90, // Risk = 10
+        current_sl: 90,
+        qty: 1,
+        status: 'OPEN',
+        max_rr_achieved: 0.4,
+        rr_sequence_index: -1,
+        entry_ts: entryTs,
+      } as any;
+
+      positionTracker.addTrade(trade);
+      expect(trade.max_rr_achieved).toBeCloseTo(2.2, 6);
     });
   });
 });

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { fmtUSD, solveSmoothing, pnlClass } from '../lib/theme';
 import { formatDuration } from '../lib/formatters';
 import { cn, Tooltip } from '../components/ui/primitives';
+import { MotionSegmentedPill, MOTION_EASE } from '../components/ui/SmoothMotion';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X, List, Grid, Maximize2, Minimize2, Layers, ZoomIn } from 'lucide-react';
 
 export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hideAxes = false, configChanges = [] }) => {
@@ -495,12 +496,17 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
               aria-label="Grid View"
               title="Calendar Grid View"
               className={cn(
-                "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase",
-                viewMode === 'GRID' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
+                "relative overflow-hidden p-1.5 rounded-lg transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase",
+                viewMode === 'GRID' ? "text-white" : "text-dim hover:text-text"
               )}
             >
-              <Grid size={13} />
-              <span className="hidden xs:inline">Grid</span>
+              {viewMode === 'GRID' && (
+                <MotionSegmentedPill layoutId="analytics-calendar-view-mode" className="rounded-lg bg-accent shadow-sm z-0" />
+              )}
+              <span className="relative z-10 flex items-center gap-1">
+                <Grid size={13} />
+                <span className="hidden xs:inline">Grid</span>
+              </span>
             </button>
             <button
               type="button"
@@ -511,12 +517,17 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
               aria-label="Agenda View"
               title="Daily Agenda List View"
               className={cn(
-                "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase",
-                viewMode === 'LIST' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
+                "relative overflow-hidden p-1.5 rounded-lg transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase",
+                viewMode === 'LIST' ? "text-white" : "text-dim hover:text-text"
               )}
             >
-              <List size={13} />
-              <span className="hidden xs:inline">Agenda</span>
+              {viewMode === 'LIST' && (
+                <MotionSegmentedPill layoutId="analytics-calendar-view-mode" className="rounded-lg bg-accent shadow-sm z-0" />
+              )}
+              <span className="relative z-10 flex items-center gap-1">
+                <List size={13} />
+                <span className="hidden xs:inline">Agenda</span>
+              </span>
             </button>
           </div>
 
@@ -526,7 +537,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
               type="button"
               onClick={handlePrevMonth}
               aria-label="Previous Month"
-              className="p-1.5 hover:bg-surface text-dim hover:text-text rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
+              className="p-1.5 hover:bg-surface text-dim hover:text-text rounded-lg transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
             >
               <ChevronLeft size={14} />
             </button>
@@ -534,7 +545,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
               type="button"
               onClick={handleNextMonth}
               aria-label="Next Month"
-              className="p-1.5 hover:bg-surface text-dim hover:text-text rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
+              className="p-1.5 hover:bg-surface text-dim hover:text-text rounded-lg transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
             >
               <ChevronRight size={14} />
             </button>
@@ -546,9 +557,9 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
       <motion.div
         key={viewMode}
         id="strategy-calendar-view-container"
-        initial={{ opacity: 0.94, y: 3 }}
+        initial={{ opacity: 0, y: 5 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.2, ease: MOTION_EASE.outExpo }}
       >
           {viewMode === 'GRID' ? (
             <div className="grid grid-cols-7 gap-1 sm:gap-2">
@@ -587,7 +598,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
                       }}
                       aria-label={tooltipContent}
                       className={cn(
-                        "min-h-[58px] sm:min-h-[72px] p-1.5 sm:p-2 rounded-xl border flex flex-col justify-between transition-all relative group cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none overflow-hidden text-left w-full",
+                        "min-h-[58px] sm:min-h-[72px] p-1.5 sm:p-2 rounded-xl border flex flex-col justify-between transition-[transform,background-color,border-color] duration-150 ease-[var(--ease-out-expo)] relative group cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none overflow-hidden text-left w-full",
                         hasTrades
                           ? isProfitable
                             ? "bg-green/10 border-green/30 hover:border-green/60 hover:scale-[1.02] active:scale-95"
@@ -637,7 +648,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
                       key={day.key}
                       type="button"
                       onClick={() => setSelectedDayDetail(day)}
-                      className="w-full text-left p-3 rounded-xl bg-surface/40 hover:bg-surface border border-border/30 hover:border-accent/40 transition-all flex items-center justify-between gap-3 group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                      className="w-full text-left p-3 rounded-xl bg-surface/40 hover:bg-surface border border-border/30 hover:border-accent/40 transition-[background-color,border-color] duration-150 flex items-center justify-between gap-3 group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
                       aria-label={`${day.key}: ${fmtUSD(day.pnl)}, ${day.wins} Wins, ${day.losses} Losses (${winRate}% Win Rate). Tap for full trade details.`}
                     >
                       <div className="flex items-center gap-3">
@@ -669,7 +680,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
                           </span>
                           <span className="text-[8px] text-dim uppercase tracking-wider font-bold">Daily PnL</span>
                         </div>
-                        <ChevronRight size={16} className="text-dim group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
+                        <ChevronRight size={16} className="text-dim group-hover:text-accent group-hover:translate-x-0.5 transition-[transform,color] duration-150" />
                       </div>
                     </button>
                   );

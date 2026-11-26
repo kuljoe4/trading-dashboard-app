@@ -1,5 +1,6 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MotionConfig, LayoutGroup } from 'framer-motion';
 import { TooltipProvider } from './components/ui/tooltip';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useTradingStore } from './store/trading';
@@ -370,30 +371,34 @@ const App = () => {
       : view;
 
   return (
-    <TooltipProvider delayDuration={200} skipDelayDuration={0}>
-      <AuthOverlay />
-      <ShortcutsModal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
-      <GlobalToaster />
-      <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
-        {tradingMode === 'paper' && (
-          <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
-        )}
-        <Sidebar selected={selectedStrategy} activeRoute={view} />
-        <div
-          className={`min-h-screen transition-[padding] duration-300 ${
-            sidebarCollapsed ? 'lg:pl-[80px]' : 'lg:pl-[260px]'
-          } ${tradingMode === 'paper' ? 'pt-1' : ''}`}
-        >
-          <PersistentAlertBanner />
-          <Suspense fallback={<LoadingView view={view} />}>
-            <SmoothSwap contentKey={routeGroupKey} duration={0.14} yOffset={3}>
-              {renderView()}
-            </SmoothSwap>
-          </Suspense>
-        </div>
-        <BottomNav selected={selectedStrategy} activeRoute={view} />
-      </div>
-    </TooltipProvider>
+    <MotionConfig reducedMotion="user">
+      <LayoutGroup id="momentum-cockpit-motion">
+        <TooltipProvider delayDuration={200} skipDelayDuration={0}>
+          <AuthOverlay />
+          <ShortcutsModal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+          <GlobalToaster />
+          <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
+            {tradingMode === 'paper' && (
+              <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
+            )}
+            <Sidebar selected={selectedStrategy} activeRoute={view} />
+            <div
+              className={`min-h-screen transition-[padding] duration-300 ease-[var(--ease-glide)] ${
+                sidebarCollapsed ? 'lg:pl-[80px]' : 'lg:pl-[260px]'
+              } ${tradingMode === 'paper' ? 'pt-1' : ''}`}
+            >
+              <PersistentAlertBanner />
+              <Suspense fallback={<LoadingView view={view} />}>
+                <SmoothSwap contentKey={routeGroupKey} duration={0.22} yOffset={6}>
+                  {renderView()}
+                </SmoothSwap>
+              </Suspense>
+            </div>
+            <BottomNav selected={selectedStrategy} activeRoute={view} />
+          </div>
+        </TooltipProvider>
+      </LayoutGroup>
+    </MotionConfig>
   );
 };
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { sessionAPI } from '../api/client';
 import { selectedEngine } from '../utils/engineMode.js';
 import { cn } from './ui/utils';
+import { MotionSegmentedPill } from './ui/SmoothMotion';
 
 export const EngineSwitch = ({ running = null, className = '' }) => {
   const [otherRunning, setOtherRunning] = useState(null);
@@ -70,18 +71,26 @@ export const EngineSwitch = ({ running = null, className = '' }) => {
             aria-label={`${label} · ${statusLabel}`}
             title={statusLabel}
             className={cn(
-              'inline-flex min-h-8 items-center gap-2 rounded-lg px-3 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
-              active ? 'bg-accent/15 text-accent shadow-xs' : 'text-dim hover:text-text'
+              'relative overflow-hidden inline-flex min-h-8 min-w-[74px] items-center justify-center gap-2 rounded-lg px-3 text-xs font-semibold transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
+              active ? 'text-accent' : 'text-dim hover:text-text'
             )}
           >
-            <span
-              aria-hidden="true"
-              className={cn(
-                'h-2 w-2 rounded-full transition-colors',
-                status === null ? 'bg-amber' : status ? 'bg-green' : 'bg-dim/50'
-              )}
-            />
-            {label}
+            {active && (
+              <MotionSegmentedPill
+                layoutId="engine-switch-pill"
+                className="rounded-lg bg-accent/15 shadow-xs z-0"
+              />
+            )}
+            <span className="relative z-10 inline-flex items-center gap-2">
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'h-2 w-2 rounded-full transition-colors duration-200',
+                  status === null ? 'bg-amber' : status ? 'bg-green' : 'bg-dim/50'
+                )}
+              />
+              {label}
+            </span>
           </a>
         );
       })}

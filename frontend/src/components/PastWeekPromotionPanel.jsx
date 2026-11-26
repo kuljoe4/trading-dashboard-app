@@ -13,7 +13,7 @@ import {
   Check,
 } from 'lucide-react';
 import { cn, Btn } from './ui/primitives';
-import { SmoothCollapse } from './ui/SmoothMotion';
+import { SmoothCollapse, MotionSegmentedPill, MOTION_EASE } from './ui/SmoothMotion';
 import { fmtUSD, pnlClass } from '../lib/theme';
 import { usePersistedFilter } from '../hooks/usePersistedFilter';
 import {
@@ -188,10 +188,10 @@ export const PastWeekPromotionPanel = ({
               <Dialog.Content className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 z-10130 outline-none w-full max-h-[88vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[calc(100%-2rem)] md:max-w-md">
                 <motion.div
                   role="dialog"
-                  initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                  initial={{ opacity: 0, scale: 0.97, y: 6 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.96, y: 8 }}
-                  transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                  exit={{ opacity: 0, scale: 0.98, y: 4 }}
+                  transition={{ duration: 0.2, ease: MOTION_EASE.outExpo }}
                   className="bg-surface border border-border rounded-t-3xl rounded-b-none md:rounded-2xl p-4 sm:p-5 shadow-2xl overflow-y-auto max-h-[88vh] flex flex-col gap-3.5"
                 >
                   {/* Header */}
@@ -639,13 +639,19 @@ export const PastWeekPromotionPanel = ({
                   onClick={() => setReviewFilter(tab.id)}
                   aria-pressed={reviewFilter === tab.id}
                   className={cn(
-                    'min-h-[32px] sm:min-h-[26px] px-2.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer',
+                    'relative overflow-hidden min-h-[32px] sm:min-h-[26px] px-2.5 rounded-lg text-[11px] font-semibold border transition-colors duration-200 ease-[var(--ease-out-expo)] cursor-pointer',
                     reviewFilter === tab.id
-                      ? 'bg-accent/15 border-accent/40 text-accent'
+                      ? 'border-accent/40 text-accent'
                       : 'bg-background/50 border-border/50 text-dim hover:text-text'
                   )}
                 >
-                  {tab.label}
+                  {reviewFilter === tab.id && (
+                    <MotionSegmentedPill
+                      layoutId="past-week-review-filter"
+                      className="rounded-lg bg-accent/15 z-0"
+                    />
+                  )}
+                  <span className="relative z-10">{tab.label}</span>
                 </button>
               ))}
             </div>

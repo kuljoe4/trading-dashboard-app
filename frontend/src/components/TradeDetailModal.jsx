@@ -80,40 +80,42 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
                     <h2 id="modal-title" className="text-base font-black tracking-tighter">{trade.symbol}</h2>
                     <CopyButton value={trade.symbol} className="opacity-40 hover:opacity-100" />
                   </div>
-                  <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] flex-wrap">
-                    {showResumingFeedback ? (
-                      <span className="text-accent flex items-center gap-1">
-                        <RefreshCw size={9} className="animate-spin" /> Resuming Feed...
-                      </span>
-                    ) : (
+                  <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] min-h-[14px]">
+                    <span className={cn("font-bold font-mono tracking-wider shrink-0", isLong ? 'text-green' : 'text-red')}>
+                      {trade.direction}
+                    </span>
+                    {trade.strategy_label && (
                       <>
-                        <span className={cn("font-bold font-mono tracking-wider", isLong ? 'text-green' : 'text-red')}>
-                          {trade.direction}
+                        <span className="text-dim/40 font-mono shrink-0">·</span>
+                        <span className="text-dim/80 font-mono tracking-normal truncate max-w-[180px] sm:max-w-[260px]">
+                          via {trade.strategy_label}
                         </span>
-                        {trade.strategy_label && (
-                          <>
-                            <span className="text-dim/40 font-mono">·</span>
-                            <span className="text-dim/80 font-mono tracking-normal">
-                              via {trade.strategy_label}
-                            </span>
-                          </>
-                        )}
-                        {trade.strategy_label && config && (
-                          <>
-                            <span className="text-dim/40 font-mono">·</span>
-                            <span className="text-dim/60 font-mono text-[8px] uppercase tracking-wider">
-                              {trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? 'Base' : 'Variant'}
-                            </span>
-                          </>
-                        )}
                       </>
                     )}
+                    {trade.strategy_label && config && (
+                      <>
+                        <span className="text-dim/40 font-mono shrink-0">·</span>
+                        <span className="text-dim/60 font-mono text-[8px] uppercase tracking-wider shrink-0">
+                          {trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? 'Base' : 'Variant'}
+                        </span>
+                      </>
+                    )}
+                    <span
+                      aria-hidden={!showResumingFeedback}
+                      title="Syncing feed"
+                      className={cn(
+                        "inline-flex items-center gap-1 text-accent font-mono tracking-normal shrink-0 transition-opacity duration-200",
+                        showResumingFeedback ? "opacity-100" : "opacity-0 pointer-events-none"
+                      )}
+                    >
+                      <RefreshCw size={9} className={showResumingFeedback ? "animate-spin" : ""} />
+                    </span>
                   </div>
                 </div>
               </div>
               <Tooltip content="Close Details">
                 <Drawer.Close asChild>
-                  <button type="button" className="p-1.5 hover:bg-white/5 rounded-xl transition-all text-dim hover:text-text active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close Details">
+                  <button type="button" className="p-1.5 hover:bg-white/5 rounded-xl transition-[background-color,color,transform] duration-150 text-dim hover:text-text active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close Details">
                     <X size={14} />
                   </button>
                 </Drawer.Close>

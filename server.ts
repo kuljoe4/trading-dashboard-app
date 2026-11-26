@@ -220,6 +220,7 @@ const state = {
     lastErrorMessage: null as string | null,
   },
   activeTrades: [] as any[],
+  livePositionMeta: {} as Record<string, any>,
   tradeHistory: [
     {
       id: 'trade-init-1',
@@ -462,15 +463,16 @@ async function syncLiveAccountBaseline() {
         const mark = parseFloat(p.markPrice);
         const pnl = parseFloat(p.unRealizedProfit);
         const notional = Math.abs(parseFloat(p.notional || (amt * mark).toString()));
-        const existing = prevActiveBySymbol.get(p.symbol);
+        const persistedMeta = state.livePositionMeta?.[p.symbol];
+        const existing = prevActiveBySymbol.get(p.symbol) || persistedMeta;
         const slPrice = existing?.sl_price ?? existing?.current_sl ?? (entry * (isLong ? 1 - (state.config.sl_distance_pct || 0.8) / 100 : 1 + (state.config.sl_distance_pct || 0.8) / 100));
         const initSl = existing?.initial_sl ?? existing?.initial_sl_price ?? slPrice;
         const riskDist = Math.abs(entry - initSl);
         const priceDiff = isLong ? mark - entry : entry - mark;
-        const liveRr = riskDist > 0 ? parseFloat((priceDiff / riskDist).toFixed(2)) : 0;
+        const liveRr = riskDist > 0 ? parseFloat((priceDiff / riskDist).toFixed(4)) : 0;
         const maxRr = Math.max(Number(existing?.max_rr_achieved ?? existing?.max_rr ?? 0) || 0, liveRr, 0);
         const minRr = Math.min(Number(existing?.min_rr_achieved ?? existing?.min_rr ?? 0) || 0, liveRr, 0);
-        return {
+        const mergedTrade = {
           ...existing,
           id: existing?.id || `live-${p.symbol}-${p.positionSide || 'BOTH'}`,
           sessionId: state.strategyId || 'default-session',
@@ -500,7 +502,30 @@ async function syncLiveAccountBaseline() {
           timestamp: existing?.timestamp || p.updateTime || Date.now(),
           margin_type: p.marginType || 'cross',
         };
+        state.livePositionMeta[p.symbol] = {
+          id: mergedTrade.id,
+          initial_sl: initSl,
+          initial_sl_price: initSl,
+          sl_price: slPrice,
+          current_sl: slPrice,
+          max_rr: maxRr,
+          max_rr_achieved: maxRr,
+          min_rr: minRr,
+          min_rr_achieved: minRr,
+          strategy_label: mergedTrade.strategy_label,
+          timestamp: mergedTrade.timestamp,
+          entry_price: entry,
+        };
+        return mergedTrade;
       });
+
+      // Clean up closed symbols from livePositionMeta
+      const activeSymSet = new Set(activePositions.map((p: any) => p.symbol));
+      for (const sym of Object.keys(state.livePositionMeta || {})) {
+        if (!activeSymSet.has(sym)) {
+          delete state.livePositionMeta[sym];
+        }
+      }
 
       state.liveAccount = {
         totalWalletBalance: liveWalletBal,
@@ -518,6 +543,7 @@ async function syncLiveAccountBaseline() {
         for (const oldTrade of prevActive) {
           if (!currentSyms.has(oldTrade.symbol)) {
             // Position was closed on exchange
+            delete state.livePositionMeta[oldTrade.symbol];
             const pInfo = prices.get(oldTrade.symbol);
             const exitPrice = pInfo?.price || oldTrade.current_price || oldTrade.entry_price;
             const isLong = oldTrade.side === 'LONG' || oldTrade.direction === 'long';
@@ -550,6 +576,7 @@ async function syncLiveAccountBaseline() {
 
         state.balance = liveWalletBal;
         state.activeTrades = mappedTrades;
+        saveSessionStateToDisk();
       }
       return state.liveAccount;
     }
@@ -1196,6 +1223,7 @@ setInterval(() => {
   if (state.sessionActive) {
     let slUsed = 0;
     const closedIndices: number[] = [];
+    let shouldPersistPeakRr = false;
 
     state.activeTrades.forEach((trade, idx) => {
       const pInfo = prices.get(trade.symbol);
@@ -1212,10 +1240,14 @@ setInterval(() => {
 
       const initSl = trade.initial_sl ?? trade.initial_sl_price ?? trade.sl_price;
       const riskDist = Math.abs(trade.entry_price - initSl);
-      const liveRr = riskDist > 0 ? parseFloat((priceDiff / riskDist).toFixed(2)) : 0;
+      const liveRr = riskDist > 0 ? parseFloat((priceDiff / riskDist).toFixed(4)) : 0;
       trade.rr = liveRr;
-      trade.max_rr_achieved = Math.max(Number(trade.max_rr_achieved ?? trade.max_rr ?? 0) || 0, liveRr, 0);
+      const prevMaxRr = Number(trade.max_rr_achieved ?? trade.max_rr ?? 0) || 0;
+      trade.max_rr_achieved = Math.max(prevMaxRr, liveRr, 0);
       trade.max_rr = trade.max_rr_achieved;
+      if (trade.max_rr_achieved > prevMaxRr) {
+        shouldPersistPeakRr = true;
+      }
       trade.min_rr_achieved = Math.min(Number(trade.min_rr_achieved ?? trade.min_rr ?? 0) || 0, liveRr, 0);
       trade.min_rr = trade.min_rr_achieved;
 
@@ -1366,16 +1398,24 @@ setInterval(() => {
     });
 
     // Move closed trades to history
+    let tradeStateMutated = false;
     if (closedIndices.length > 0) {
       for (let i = closedIndices.length - 1; i >= 0; i--) {
         const closed = state.activeTrades.splice(closedIndices[i], 1)[0];
+        if (state.livePositionMeta?.[closed.symbol]) {
+          delete state.livePositionMeta[closed.symbol];
+        }
         closed.sessionId = closed.sessionId || state.strategyId || 'default-session';
         closed.exit_ts = closed.closed_at || ts;
         closed.trading_mode = closed.trading_mode || state.config?.trading_mode || (state.config?.paper_mode ? 'paper' : 'live');
         closed.paper_mode = closed.paper_mode ?? !!state.config?.paper_mode;
         state.balance = parseFloat((state.balance + closed.pnl).toFixed(2));
+        if (closed.paper_mode) {
+          state.paperBalance = state.balance;
+        }
         state.tradeHistory.unshift(closed);
       }
+      tradeStateMutated = true;
     }
 
     state.totalSlUsed = parseFloat(slUsed.toFixed(2));
@@ -1430,8 +1470,15 @@ setInterval(() => {
         };
 
         state.activeTrades.push(newTrade);
+        tradeStateMutated = true;
         addLog(`Opened ${newTrade.side} position on ${newTrade.symbol} at ${entryPrice} (SL: ${slPrice}, TP: ${tpPrice})`, 'info');
       }
+    }
+
+    if (tradeStateMutated) {
+      scheduleDiskSave(true);
+    } else if (shouldPersistPeakRr) {
+      scheduleDiskSave(false);
     }
   }
 
@@ -2110,14 +2157,52 @@ app.post('/session/trigger-ban', (req, res) => {
   res.json({ success: true, apiStatus: state.apiStatus });
 });
 
+let lastDiskSaveTs = 0;
+
+function scheduleDiskSave(immediate = false) {
+  const nowTs = Date.now();
+  if (!immediate && nowTs - lastDiskSaveTs < 5000) return;
+  saveSessionStateToDisk();
+}
+
 function saveSessionStateToDisk() {
   try {
+    lastDiskSaveTs = Date.now();
+    // Refresh live position Peak R:R metadata from active trades
+    const nextMeta = { ...(state.livePositionMeta || {}) };
+    if (state.config?.trading_mode === 'live') {
+      for (const t of state.activeTrades || []) {
+        if (!t?.symbol) continue;
+        nextMeta[t.symbol] = {
+          id: t.id,
+          initial_sl: t.initial_sl ?? t.initial_sl_price ?? t.sl_price,
+          initial_sl_price: t.initial_sl_price ?? t.initial_sl ?? t.sl_price,
+          sl_price: t.sl_price ?? t.current_sl,
+          current_sl: t.current_sl ?? t.sl_price,
+          max_rr: Number(t.max_rr_achieved ?? t.max_rr ?? 0) || 0,
+          max_rr_achieved: Number(t.max_rr_achieved ?? t.max_rr ?? 0) || 0,
+          min_rr: Number(t.min_rr_achieved ?? t.min_rr ?? 0) || 0,
+          min_rr_achieved: Number(t.min_rr_achieved ?? t.min_rr ?? 0) || 0,
+          strategy_label: t.strategy_label,
+          timestamp: t.timestamp,
+          entry_price: t.entry_price,
+        };
+      }
+    }
+    state.livePositionMeta = nextMeta;
+
     const payload = {
       sessionActive: state.sessionActive,
       sessionPaused: state.sessionPaused,
       pausedStrategies: state.pausedStrategies,
       strategyId: state.strategyId || 'default-session',
       strategyLabel: state.strategyLabel,
+      balance: state.balance,
+      paperBalance: state.paperBalance,
+      totalPnl: state.totalPnl,
+      activeTrades: state.activeTrades,
+      livePositionMeta: state.livePositionMeta,
+      tradeHistory: (state.tradeHistory || []).slice(0, 200),
       config: state.config,
       presets: state.presets,
     };
@@ -2138,6 +2223,26 @@ function loadSessionStateFromDisk() {
       if (Array.isArray(saved.pausedStrategies)) state.pausedStrategies = saved.pausedStrategies;
       if (saved.strategyId) state.strategyId = saved.strategyId;
       if (saved.strategyLabel) state.strategyLabel = saved.strategyLabel;
+      if (typeof saved.balance === 'number' && Number.isFinite(saved.balance)) state.balance = saved.balance;
+      if (typeof saved.paperBalance === 'number' && Number.isFinite(saved.paperBalance)) state.paperBalance = saved.paperBalance;
+      if (typeof saved.totalPnl === 'number' && Number.isFinite(saved.totalPnl)) state.totalPnl = saved.totalPnl;
+      if (Array.isArray(saved.activeTrades)) {
+        state.activeTrades = saved.activeTrades.map((t: any) => {
+          const maxRr = Number(t?.max_rr_achieved ?? t?.max_rr ?? 0) || 0;
+          const minRr = Number(t?.min_rr_achieved ?? t?.min_rr ?? 0) || 0;
+          return {
+            ...t,
+            max_rr: maxRr,
+            max_rr_achieved: maxRr,
+            min_rr: minRr,
+            min_rr_achieved: minRr,
+          };
+        });
+      }
+      if (saved.livePositionMeta && typeof saved.livePositionMeta === 'object' && !Array.isArray(saved.livePositionMeta)) {
+        state.livePositionMeta = saved.livePositionMeta;
+      }
+      if (Array.isArray(saved.tradeHistory)) state.tradeHistory = saved.tradeHistory;
       if (saved.config && typeof saved.config === 'object') {
         state.config = deepMergeConfig(state.config, saved.config);
         if (state.config.strategy_label) state.strategyLabel = state.config.strategy_label;
@@ -2892,6 +2997,10 @@ async function startServer() {
     console.log(`✨ Momentum Engine server listening on http://0.0.0.0:${port}`);
     console.log(`📡 WebSocket ready at ws://0.0.0.0:${port}/session/ws`);
 
+    if (state.config?.trading_mode === 'live') {
+      syncLiveAccountBaseline().catch(() => {});
+    }
+
     try {
       const checklist = await runStartupChecklist(true);
       printStartupChecklistToConsole(checklist);
@@ -2900,6 +3009,13 @@ async function startServer() {
     }
   });
 }
+
+const handleServerShutdown = () => {
+  saveSessionStateToDisk();
+  process.exit(0);
+};
+process.on('SIGINT', handleServerShutdown);
+process.on('SIGTERM', handleServerShutdown);
 
 startServer().catch(err => {
   console.error('Failed to start server:', err);

@@ -3,7 +3,7 @@ import { shallow } from 'zustand/shallow'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { SectionLabel, StatCard, cn, ViewHeader, Btn, Tooltip } from '../components/ui/primitives'
-import { SmoothCollapse } from '../components/ui/SmoothMotion'
+import { SmoothCollapse, MotionSegmentedPill, MOTION_EASE } from '../components/ui/SmoothMotion'
 import { ActiveTradesSkeleton, ModalDrawerSkeleton } from '../components/ui/Skeletons'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -169,7 +169,7 @@ const TradesView = () => {
 
   return (
     <div className={cn(
-      "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 transition-all",
+      "max-w-[1160px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 transition-[padding] duration-300 ease-[var(--ease-glide)]",
       healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
     )}>
         <ViewHeader
@@ -271,7 +271,7 @@ const TradesView = () => {
                     <button
                       type="button"
                       onClick={resetAllFilters}
-                      className="min-h-[40px] sm:min-h-[30px] px-2.5 sm:px-3 py-1 rounded-xl text-[11px] font-semibold text-red hover:bg-red/10 border border-red/25 transition-all flex items-center justify-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none whitespace-nowrap"
+                      className="min-h-[40px] sm:min-h-[30px] px-2.5 sm:px-3 py-1 rounded-xl text-[11px] font-semibold text-red hover:bg-red/10 border border-red/25 transition-colors duration-200 flex items-center justify-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none whitespace-nowrap"
                       aria-label="Reset position filters"
                     >
                       <RotateCcw size={12} />
@@ -284,7 +284,7 @@ const TradesView = () => {
                     aria-expanded={filtersExpanded}
                     aria-label={filtersExpanded ? "Collapse active trade filters" : "Expand active trade filters"}
                     className={cn(
-                      "min-h-[40px] sm:min-h-[30px] px-3 py-1 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 whitespace-nowrap",
+                      "min-h-[40px] sm:min-h-[30px] px-3 py-1 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1.5 border transition-[background-color,border-color,color] duration-200 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 whitespace-nowrap",
                       filtersExpanded || hasActiveFilters
                         ? "bg-accent/15 border-accent/40 text-accent"
                         : "bg-surface-elevated border-border text-dim hover:text-text hover:border-accent/30"
@@ -330,11 +330,14 @@ const TradesView = () => {
                           onClick={() => handleStrategyFilterChange('ALL')}
                           aria-pressed={strategyFilter === 'ALL'}
                           className={cn(
-                            "min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
-                            strategyFilter === 'ALL' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                            "relative overflow-hidden min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold transition-colors duration-200 ease-[var(--ease-out-expo)] shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
+                            strategyFilter === 'ALL' ? "text-white" : "text-dim hover:text-text hover:bg-surface/60"
                           )}
                         >
-                          All
+                          {strategyFilter === 'ALL' && (
+                            <MotionSegmentedPill layoutId="trades-strategy-filter" className="rounded-lg bg-accent shadow-xs z-0" />
+                          )}
+                          <span className="relative z-10">All</span>
                         </button>
                         {availableStrategies.map(st => (
                           <button
@@ -343,11 +346,14 @@ const TradesView = () => {
                             onClick={() => handleStrategyFilterChange(st)}
                             aria-pressed={strategyFilter === st}
                             className={cn(
-                              "min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
-                              strategyFilter === st ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                              "relative overflow-hidden min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold transition-colors duration-200 ease-[var(--ease-out-expo)] shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
+                              strategyFilter === st ? "text-white" : "text-dim hover:text-text hover:bg-surface/60"
                             )}
                           >
-                            {st}
+                            {strategyFilter === st && (
+                              <MotionSegmentedPill layoutId="trades-strategy-filter" className="rounded-lg bg-accent shadow-xs z-0" />
+                            )}
+                            <span className="relative z-10">{st}</span>
                           </button>
                         ))}
                       </div>
@@ -365,11 +371,14 @@ const TradesView = () => {
                           onClick={() => handleDirectionFilterChange(d)}
                           aria-pressed={directionFilter === d}
                           className={cn(
-                            "min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
-                            directionFilter === d ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                            "relative overflow-hidden min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition-colors duration-200 ease-[var(--ease-out-expo)] shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
+                            directionFilter === d ? "text-white" : "text-dim hover:text-text hover:bg-surface/60"
                           )}
                         >
-                          {d}
+                          {directionFilter === d && (
+                            <MotionSegmentedPill layoutId="trades-dir-filter" className="rounded-lg bg-accent shadow-xs z-0" />
+                          )}
+                          <span className="relative z-10">{d}</span>
                         </button>
                       ))}
                     </div>
@@ -390,11 +399,14 @@ const TradesView = () => {
                           onClick={() => handleRiskFilterChange(r.id)}
                           aria-pressed={riskFilter === r.id}
                           className={cn(
-                            "min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
-                            riskFilter === r.id ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text hover:bg-surface/60"
+                            "relative overflow-hidden min-h-[38px] sm:min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold transition-colors duration-200 ease-[var(--ease-out-expo)] shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none whitespace-nowrap",
+                            riskFilter === r.id ? "text-white" : "text-dim hover:text-text hover:bg-surface/60"
                           )}
                         >
-                          {r.label}
+                          {riskFilter === r.id && (
+                            <MotionSegmentedPill layoutId="trades-risk-filter" className="rounded-lg bg-accent shadow-xs z-0" />
+                          )}
+                          <span className="relative z-10">{r.label}</span>
                         </button>
                       ))}
                     </div>
@@ -451,10 +463,11 @@ const TradesView = () => {
               {filteredTrades.map((trade, idx) => (
                 <motion.div
                   key={trade.id || trade.symbol}
-                  initial={{ opacity: 0, y: 12 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.2, delay: Math.min(idx * 0.03, 0.15), ease: [0.22, 1, 0.36, 1] }}
+                  exit={{ opacity: 0, y: -4, scale: 0.99 }}
+                  transition={{ duration: 0.22, delay: Math.min(idx * 0.02, 0.12), ease: MOTION_EASE.outExpo }}
+                  className="[contain:layout_style]"
                 >
                   <ActiveTradeCard
                     trade={trade}

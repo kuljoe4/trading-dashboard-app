@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, MoreVertical, SlidersHorizontal, ChevronDown, ChevronRight, Layers, Edit3, Filter } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
-import { SmoothCollapse } from './ui/SmoothMotion'
+import { SmoothCollapse, SmoothSwap, MotionSegmentedPill } from './ui/SmoothMotion'
 import { usePersistedFilter } from '../hooks/usePersistedFilter'
 import * as Switch from '@radix-ui/react-switch'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
@@ -111,7 +111,7 @@ const CollapsibleSection = ({ id, icon: Icon, title, subtitle, children, isOpen,
       aria-invalid={hasError}
       onFocusCapture={onInteract}
       className={cn(
-        "rounded-xl border shadow-sm overflow-hidden transition-all",
+        "rounded-xl border shadow-sm overflow-hidden transition-[background-color,border-color,box-shadow] duration-200",
         isDragging
           ? "border-accent/60 bg-surface shadow-lg"
           : hasError
@@ -156,7 +156,7 @@ const CollapsibleSection = ({ id, icon: Icon, title, subtitle, children, isOpen,
             aria-label={`Toggle ${title}`}
             aria-expanded={isOpen}
             className={cn(
-              "w-6 h-6 rounded-md border flex items-center justify-center transition-all cursor-pointer",
+              "w-6 h-6 rounded-md border flex items-center justify-center transition-[transform,color,border-color,background-color] duration-200 cursor-pointer",
               hasError
                 ? "border-red/40 text-red hover:border-red"
                 : "border-border/40 text-dim group-hover:border-accent/40 group-hover:text-accent",
@@ -172,20 +172,9 @@ const CollapsibleSection = ({ id, icon: Icon, title, subtitle, children, isOpen,
           <InfoDropdownBox>{subtitle}</InfoDropdownBox>
         </div>
       )}
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-          >
-            <div className="p-3 pt-0 border-t border-border/5">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <SmoothCollapse isOpen={isOpen} duration={0.24} innerClassName="p-3 pt-0 border-t border-border/5">
+        {children}
+      </SmoothCollapse>
     </section>
   );
 };
@@ -1462,9 +1451,9 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     active={active}
     onClick={() => onClick(id)}
     className={cn(
-      "flex items-center justify-center gap-1 relative transition-all duration-200 min-h-[26px] sm:min-h-[30px] px-1.5 sm:px-3 py-0.5 rounded-lg text-[10px] sm:text-xs font-bold tracking-tight sm:tracking-wider min-w-0 w-full sm:w-auto sm:shrink-0 snap-center cursor-pointer",
+      "flex items-center justify-center gap-1 relative overflow-hidden transition-colors duration-200 ease-[var(--ease-out-expo)] min-h-[26px] sm:min-h-[30px] px-1.5 sm:px-3 py-0.5 rounded-lg text-[10px] sm:text-xs font-bold tracking-tight sm:tracking-wider min-w-0 w-full sm:w-auto sm:shrink-0 snap-center cursor-pointer",
       active
-        ? "bg-accent text-white font-black border-accent shadow-[0_2px_10px_rgba(var(--accent-rgb),0.3)]"
+        ? "text-white font-black border-accent"
         : "border-border/70 bg-background/40 text-dim hover:border-dim/50 hover:text-text",
       hasError && !active && "border-red/50 text-red/90"
     )}
@@ -1475,10 +1464,16 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     id={`config-tab-${id}`}
     tabIndex={active ? 0 : -1}
   >
-    <Icon size={11} className={cn("hidden min-[420px]:inline sm:inline shrink-0", active ? "text-white" : "text-dim", hasError && !active && "text-red")} />
-    <span className="truncate whitespace-nowrap">{label}</span>
+    {active && (
+      <MotionSegmentedPill
+        layoutId="config-modal-tab-pill"
+        className="rounded-lg bg-accent shadow-[0_2px_10px_rgba(var(--accent-rgb),0.3)] z-0"
+      />
+    )}
+    <Icon size={11} className={cn("relative z-10 hidden min-[420px]:inline sm:inline shrink-0", active ? "text-white" : "text-dim", hasError && !active && "text-red")} />
+    <span className="relative z-10 truncate whitespace-nowrap">{label}</span>
     {hasError && !active && (
-      <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" aria-hidden="true" />
+      <span className="relative z-10 w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" aria-hidden="true" />
     )}
   </Chip>
 ))
@@ -6266,6 +6261,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       <ModalAlertTicker />
 
       <div ref={scrollBodyRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden no-scrollbar px-2.5 pt-1.5 sm:px-4 sm:pt-2.5 pb-2 sm:pb-3 overscroll-contain" data-vaul-no-drag>
+        <SmoothSwap contentKey={section} duration={0.18} yOffset={4}>
         {section === 'summary' && (
           <ActiveSummaryPanel
             cfg={cfg}
@@ -9008,6 +9004,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             </div>
           </div>
         )}
+        </SmoothSwap>
       </div>
 
       <div className="p-1.5 sm:p-2 border-t border-border bg-surface/95 backdrop-blur-md flex flex-col gap-1.5 sticky bottom-0 shrink-0 z-30">

@@ -727,17 +727,20 @@ export class TradingSessionService implements OnApplicationShutdown {
       if (activeTrades.length > 0) {
         for (let i = 0; i < activeTrades.length; i++) {
           const t = activeTrades[i];
+          const sc = t.strategy_config || strategyConfigs.find((c) => c.strategy_label === t.strategy_label) || this.config;
           const livePx = typeof (this.tickerCache as any)?.getPrice === "function"
             ? this.tickerCache.getPrice(t.symbol)
             : null;
           if (livePx && livePx > 0) {
             t.last_price = livePx;
             t.mark_price = livePx;
+            if (typeof (this.positionTracker as any)?.updateTradeRrExtremes === "function") {
+              (this.positionTracker as any).updateTradeRrExtremes(t, livePx, sc);
+            }
             if (typeof (this.klineStore as any)?.syncLivePrice === "function") {
               (this.klineStore as any).syncLivePrice(t.symbol, livePx);
             }
           }
-          const sc = t.strategy_config || strategyConfigs.find((c) => c.strategy_label === t.strategy_label) || this.config;
           const hasExitRules = Boolean(
             (sc as any)?.use_exit_signals ||
             sc?.trigger_candle_exit_enabled ||

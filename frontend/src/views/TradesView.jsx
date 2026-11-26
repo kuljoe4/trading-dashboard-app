@@ -21,7 +21,7 @@ const preloadTradeDetailModal = () => {
 import { Filter, SlidersHorizontal, ChevronDown, RotateCcw } from 'lucide-react'
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, activePnl: storeActivePnl, lastKnownPnl, totalRiskPct, totalSlUsed, config, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, isSyncing, initialStatusLoaded, sessionActive, totalEstPnlToRealize } = useTradingStore(state => ({
+  const { activeTrades, totalPnl, activePnl: storeActivePnl, lastKnownPnl, totalRiskPct, totalSlUsed, config, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, initialStatusLoaded, lastAuthoritativeUpdateTs, sessionActive, totalEstPnlToRealize } = useTradingStore(state => ({
     activeTrades: state.activeTrades,
     totalPnl: state.totalPnl,
     activePnl: state.activePnl,
@@ -33,8 +33,8 @@ const TradesView = () => {
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
     isSyncingOnResume: state.isSyncingOnResume,
-    isSyncing: state.isSyncing,
     initialStatusLoaded: state.initialStatusLoaded,
+    lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs,
     sessionActive: state.sessionActive,
     totalEstPnlToRealize: state.totalEstPnlToRealize,
   }), shallow)
@@ -91,11 +91,16 @@ const TradesView = () => {
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
+  const coldUnhydrated = !initialStatusLoaded && !lastAuthoritativeUpdateTs
 
   // BOLT OPTIMIZATION: Combine active trade calculations into a single-pass loop-fused useMemo
   const effectiveTotalPnl = (safeNum(totalPnl) === 0 && sessionActive && isResuming && safeNum(lastKnownPnl?.totalPnl) !== 0)
     ? safeNum(lastKnownPnl?.totalPnl)
     : safeNum(totalPnl);
+
+  const effectiveTotalRiskPct = (safeNum(totalRiskPct) === 0 && sessionActive && (isResuming || (activeTrades || []).length > 0) && safeNum(lastKnownPnl?.totalRiskPct) > 0)
+    ? safeNum(lastKnownPnl?.totalRiskPct)
+    : safeNum(totalRiskPct);
 
   const { activePnl, activeEstPnl, trueProjectedPnl, peakRr } = useMemo(() => {
     const trades = activeTrades || [];
@@ -113,6 +118,12 @@ const TradesView = () => {
     if (pnl === 0 && sessionActive && (isResuming || len > 0) && cachedActive !== 0) {
       pnl = cachedActive;
     }
+    if (estPnl === 0 && sessionActive && (isResuming || len > 0) && safeNum(totalEstPnlToRealize || lastKnownPnl?.totalEstPnlToRealize) !== 0) {
+      estPnl = safeNum(totalEstPnlToRealize || lastKnownPnl?.totalEstPnlToRealize);
+    }
+    if (maxRr === 0 && sessionActive && (isResuming || len > 0) && safeNum(lastKnownPnl?.maxRr) > 0) {
+      maxRr = safeNum(lastKnownPnl?.maxRr);
+    }
     const projected = (effectiveTotalPnl - pnl) + estPnl;
     return {
       activePnl: pnl,
@@ -120,7 +131,7 @@ const TradesView = () => {
       trueProjectedPnl: projected,
       peakRr: maxRr
     };
-  }, [activeTrades, effectiveTotalPnl, sessionActive, isResuming, storeActivePnl, lastKnownPnl]);
+  }, [activeTrades, effectiveTotalPnl, sessionActive, isResuming, storeActivePnl, lastKnownPnl, totalEstPnlToRealize]);
 
   const selectedTrade = (activeTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
 
@@ -175,16 +186,18 @@ const TradesView = () => {
           compact
           label="Active P&L"
           value={fmtUSD(activePnl)}
+          valueLoading={coldUnhydrated}
           color={pnlClass(activePnl)}
           subValue={`Session: ${fmtUSD(effectiveTotalPnl)} · Est: ${fmtUSD(activeEstPnl)}`}
-          syncing={showResumingFeedback}
+          subValueLoading={coldUnhydrated}
           tooltipText={`Session Return: ${fmtUSD(effectiveTotalPnl)} | Est. Target: ${fmtUSD(activeEstPnl)} | Projected: ${fmtUSD(trueProjectedPnl)}`}
         />
         <StatCard
           compact
           label="Active Risk"
-          value={`${Number(totalRiskPct || 0).toFixed(2)}%`}
-          color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
+          value={`${Number(effectiveTotalRiskPct || 0).toFixed(2)}%`}
+          valueLoading={coldUnhydrated}
+          color={effectiveTotalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
           subValue={`Cap: ${config.max_total_risk_pct || 5}% · SL: ${formatStopLossDescriptor(config).compactText}`}
           tooltipText="Combined stop-loss risk across all active trades relative to account balance."
         />
@@ -192,6 +205,7 @@ const TradesView = () => {
           compact
           label="Peak RR"
           value={`+${Number(peakRr || 0).toFixed(2)}`}
+          valueLoading={coldUnhydrated}
           color="text-accent"
           subValue={`Exit: ${formatTakeProfitDescriptor(config).compactText}`}
           tooltipText="Maximum Reward-to-Risk ratio achieved across currently open positions."
@@ -200,6 +214,7 @@ const TradesView = () => {
           compact
           label="Positions"
           value={`${activeTrades.length}/${config.max_open_trades || 5}`}
+          valueLoading={coldUnhydrated}
           color="text-accent"
           subValue={`Max: ${config.max_open_trades || 5} Slots · ${activeTrades.length > 0 ? 'Active' : 'Standby'}`}
           tooltipText={`Currently open trade slots: ${activeTrades.length} / ${config.max_open_trades || 5}`}
@@ -395,7 +410,7 @@ const TradesView = () => {
             </div>
 
         {(!activeTrades || activeTrades.length === 0) ? (
-          (showResumingFeedback || !initialStatusLoaded || isSyncing) ? (
+          (!initialStatusLoaded || (sessionActive && isResuming)) ? (
             <ActiveTradesSkeleton count={2} />
           ) : (
           <div className="bg-surface/20 border border-border border-dashed rounded-3xl p-20 flex flex-col items-center justify-center text-center">

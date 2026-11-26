@@ -8,9 +8,11 @@ import {
   PAST_WEEK_WINDOW_DAYS,
   roundRiskPct,
   computeDoubledRiskPlan,
+  computeHalvedRiskPlan,
   resolveStrategyTargetConfig,
   aggregatePastWeekStrategies,
   applyDoubledRiskToConfig,
+  applyHalvedRiskToConfig,
   buildActiveConfigPromotionUpdate,
   buildPromotedPresetPayload,
 } from '../utils/strategyPromotion.js';
@@ -362,16 +364,117 @@ describe('Past 7 Days Strategy Promotion (2x Risk)', () => {
     assert.equal(existingBase.payload.strategy_variants[0].strategy_label, 'Sub V1');
   });
 
-  test('PastWeekPromotionPanel, HistoryView, and ConfigModal follow accessibility and wiring contracts', () => {
+  test('computeHalvedRiskPlan halves risk per trade and max strategy risk with minimum bounds clamping', () => {
+    const plan = computeHalvedRiskPlan({
+      risk_pct_per_trade: 2.0,
+      max_total_risk_pct: 10.0,
+    });
+    assert.equal(plan.action, 'demote');
+    assert.equal(plan.currentRiskPerTrade, 2);
+    assert.equal(plan.currentMaxTotalRisk, 10);
+    assert.equal(plan.nextRiskPerTrade, 1);
+    assert.equal(plan.nextMaxTotalRisk, 5);
+    assert.equal(plan.canDemote, true);
+    assert.equal(plan.isAtMinCap, false);
+
+    const floorClamped = computeHalvedRiskPlan({
+      risk_pct_per_trade: 0.015,
+      max_total_risk_pct: 0.12,
+    });
+    assert.equal(floorClamped.nextRiskPerTrade, CONFIG_LIMITS.RISK_PER_TRADE_MIN);
+    assert.equal(floorClamped.nextMaxTotalRisk, CONFIG_LIMITS.MAX_TOTAL_RISK_MIN);
+    assert.ok(floorClamped.nextRiskPerTrade <= floorClamped.nextMaxTotalRisk);
+
+    const atMin = computeHalvedRiskPlan({
+      risk_pct_per_trade: CONFIG_LIMITS.RISK_PER_TRADE_MIN,
+      max_total_risk_pct: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN,
+    });
+    assert.equal(atMin.canDemote, false);
+    assert.equal(atMin.isAtMinCap, true);
+
+    const halvedCfg = applyHalvedRiskToConfig({
+      strategy_label: 'Slow Bleed',
+      risk_pct_per_trade: 4.0,
+      max_total_risk_pct: 12.0,
+    });
+    assert.equal(halvedCfg.risk_pct_per_trade, 2.0);
+    assert.equal(halvedCfg.max_total_risk_pct, 6.0);
+  });
+
+  test('aggregatePastWeekStrategies and promotion builders support demotion and optional pause-on-demote', () => {
+    const now = Date.UTC(2026, 10, 25, 12, 0, 0);
+    const dayMs = 24 * 60 * 60 * 1000;
+    const activeConfig = {
+      strategy_label: 'Weak Runner',
+      trading_mode: 'paper',
+      paper_mode: true,
+      risk_pct_per_trade: 2.0,
+      max_total_risk_pct: 8.0,
+      strategy_variants: [
+        { strategy_label: 'Strong Var', risk_pct_per_trade: 1.0, max_total_risk_pct: 4.0 },
+      ],
+    };
+
+    const agg = aggregatePastWeekStrategies({
+      trades: [
+        { id: 'd1', strategy_label: 'Weak Runner', trading_mode: 'paper', status: 'CLOSED', pnl: -120, exit_ts_ms: now - dayMs },
+        { id: 'd2', strategy_label: 'Strong Var', trading_mode: 'paper', status: 'CLOSED', pnl: 210, exit_ts_ms: now - dayMs },
+      ],
+      sessions: [],
+      activeConfig,
+      presets: [],
+      mode: 'paper',
+      nowTs: now,
+    });
+
+    assert.equal(agg.summary.profitableCount, 1);
+    assert.equal(agg.summary.underperformingCount, 1);
+    const weak = agg.strategies.find((s) => s.strategyLabel === 'Weak Runner');
+    assert.equal(weak.qualifiesForPromotion, false);
+    assert.equal(weak.qualifiesForDemotion, true);
+    assert.equal(weak.demoteRiskPlan.nextRiskPerTrade, 1.0);
+    assert.equal(weak.demoteRiskPlan.nextMaxTotalRisk, 4.0);
+
+    const demoteUpdate = buildActiveConfigPromotionUpdate({
+      activeConfig,
+      strategyLabel: 'Weak Runner',
+      riskPlan: weak.demoteRiskPlan,
+      action: 'demote',
+      pauseStrategy: true,
+    });
+    assert.equal(demoteUpdate.appliedAs, 'base');
+    assert.equal(demoteUpdate.updatedConfig.risk_pct_per_trade, 1.0);
+    assert.equal(demoteUpdate.updatedConfig.max_total_risk_pct, 4.0);
+    assert.ok(demoteUpdate.updatedConfig.paused_strategies.includes('Weak Runner'));
+    assert.equal(activeConfig.paused_strategies, undefined); // Immutable
+
+    const demotePreset = buildPromotedPresetPayload({
+      preset: {
+        name: 'Weak Runner',
+        config: { strategy_label: 'Weak Runner', risk_pct_per_trade: 2.0, max_total_risk_pct: 8.0 },
+      },
+      strategyLabel: 'Weak Runner',
+      riskPlan: weak.demoteRiskPlan,
+      action: 'demote',
+    });
+    assert.equal(demotePreset.payload.risk_pct_per_trade, 1.0);
+    assert.equal(demotePreset.payload.max_total_risk_pct, 4.0);
+  });
+
+  test('PastWeekPromotionPanel, HistoryView, and ConfigModal follow accessibility and promotion/demotion wiring contracts', () => {
     const panelSrc = fs.readFileSync(path.join(FRONTEND_SRC_DIR, 'components/PastWeekPromotionPanel.jsx'), 'utf-8');
     const historySrc = fs.readFileSync(path.join(FRONTEND_SRC_DIR, 'views/HistoryView.jsx'), 'utf-8');
     const configModalSrc = fs.readFileSync(path.join(FRONTEND_SRC_DIR, 'components/ConfigModal.jsx'), 'utf-8');
 
     assert.ok(panelSrc.includes('<Dialog.Title'), 'Confirmation dialog must render Dialog.Title');
     assert.ok(panelSrc.includes('<Dialog.Description'), 'Confirmation dialog must render Dialog.Description');
+    assert.ok(panelSrc.includes('Demote') && panelSrc.includes('0.5×'), 'PastWeekPromotionPanel must support 0.5x Demote action');
+    assert.ok(panelSrc.includes('pauseStrategyOpt'), 'PastWeekPromotionPanel must provide optional pause-on-demote toggle');
     assert.ok(historySrc.includes('<PastWeekPromotionPanel'), 'HistoryView must render PastWeekPromotionPanel');
     assert.ok(historySrc.includes('handlePromotePastWeekStrategy'), 'HistoryView must wire handlePromotePastWeekStrategy');
+    assert.ok(historySrc.includes('pauseStrategy'), 'HistoryView must pass pauseStrategy option');
     assert.ok(configModalSrc.includes('<PastWeekPromotionPanel'), 'ConfigModal must render PastWeekPromotionPanel');
     assert.ok(configModalSrc.includes('handlePromotePastWeekFromModal'), 'ConfigModal must wire handlePromotePastWeekFromModal');
+    assert.ok(configModalSrc.includes('pauseStrategy'), 'ConfigModal must support pauseStrategy on demote');
   });
 });

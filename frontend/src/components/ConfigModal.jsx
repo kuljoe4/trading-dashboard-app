@@ -3335,13 +3335,40 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
     const c = { ...flat, strategy_label: (flat.strategy_label || '').trim(), discovery_mode: flat.discovery_mode || 'volume' };
     delete c.__flattened;
 
+    // Collect schema-owned signal_params keys for currently active entry/exit signals
+    const activeSignalKeys = Array.from(new Set([
+      ...(Array.isArray(c.enabled_signals) ? c.enabled_signals : []),
+      ...(Array.isArray(c.exit_signals) ? c.exit_signals : []),
+    ]));
+    const activeSchemaParamNames = new Set();
+    activeSignalKeys.forEach(sigKey => {
+      const baseType = getBaseSignalType(sigKey);
+      const isEntry = (c.enabled_signals || []).includes(sigKey);
+      const isExit = (c.exit_signals || []).includes(sigKey);
+      getSignalParamsSchema(sigKey, baseType, isEntry, isExit).forEach(f => {
+        if (f?.key?.startsWith('signal_params_')) {
+          activeSchemaParamNames.add(f.key.substring('signal_params_'.length));
+        }
+      });
+    });
+    const isOrphanedSchemaKey = (paramKey) => {
+      if (activeSchemaParamNames.has(paramKey)) return false;
+      const schemaRoots = [
+        'ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period',
+        'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow',
+        'ema_dual_', 'engulfing_', 'macd_', 'supertrend_', 'htf_breakout_', 'trigger_candle_exit_',
+      ];
+      return schemaRoots.some(prefix => paramKey === prefix || paramKey.startsWith(prefix));
+    };
+
     // Dynamically reconstruct the signal_params map from any flat keys prefix-matched with signal_params_
     const sp = {};
     Object.keys(flat).forEach(k => {
       if (k.startsWith('signal_params_') && k !== 'signal_params') {
         const paramKey = k.substring('signal_params_'.length);
+        if (isOrphanedSchemaKey(paramKey)) return;
         const val = flat[k];
-        if (val !== undefined && val !== null) {
+        if (val !== undefined && val !== null && val !== '') {
           if (val === 'true' || val === true) {
             sp[paramKey] = true;
           } else if (val === 'false' || val === false) {
@@ -4658,13 +4685,39 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const c = { ...cfg, strategy_label: rawLabel };
     delete c.__flattened;
 
+    const activeSignalKeys = Array.from(new Set([
+      ...(Array.isArray(c.enabled_signals) ? c.enabled_signals : []),
+      ...(Array.isArray(c.exit_signals) ? c.exit_signals : []),
+    ]));
+    const activeSchemaParamNames = new Set();
+    activeSignalKeys.forEach(sigKey => {
+      const baseType = getBaseSignalType(sigKey);
+      const isEntry = (c.enabled_signals || []).includes(sigKey);
+      const isExit = (c.exit_signals || []).includes(sigKey);
+      getSignalParamsSchema(sigKey, baseType, isEntry, isExit).forEach(f => {
+        if (f?.key?.startsWith('signal_params_')) {
+          activeSchemaParamNames.add(f.key.substring('signal_params_'.length));
+        }
+      });
+    });
+    const isOrphanedSchemaKey = (paramKey) => {
+      if (activeSchemaParamNames.has(paramKey)) return false;
+      const schemaRoots = [
+        'ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period',
+        'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow',
+        'ema_dual_', 'engulfing_', 'macd_', 'supertrend_', 'htf_breakout_', 'trigger_candle_exit_',
+      ];
+      return schemaRoots.some(prefix => paramKey === prefix || paramKey.startsWith(prefix));
+    };
+
     // Dynamically reconstruct the signal_params map from any flat keys prefix-matched with signal_params_
     const sp = {};
     Object.keys(cfg).forEach(k => {
       if (k.startsWith('signal_params_') && k !== 'signal_params') {
         const paramKey = k.substring('signal_params_'.length);
+        if (isOrphanedSchemaKey(paramKey)) return;
         const val = cfg[k];
-        if (val !== undefined && val !== null) {
+        if (val !== undefined && val !== null && val !== '') {
           if (val === 'true' || val === true) {
             sp[paramKey] = true;
           } else if (val === 'false' || val === false) {
@@ -5240,12 +5293,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handlePromotePastWeekFromModal = React.useCallback(async (item, options = {}) => {
     if (!item) return false;
     const {
+      action = 'promote',
+      riskPlan: explicitPlan = null,
+      pauseStrategy = false,
       updateActive = false,
       activateIfInactive = false,
       activationMode = 'variant',
       savePreset = true,
     } = options;
-    const { strategyLabel: targetLabel, riskPlan, effectiveConfig, locationFlags } = item;
+    const resolvedAction = action === 'demote' ? 'demote' : 'promote';
+    const isDemote = resolvedAction === 'demote';
+    const { strategyLabel: targetLabel, effectiveConfig, locationFlags } = item;
+    const activePlan = explicitPlan || (isDemote ? item.demoteRiskPlan : item.riskPlan);
     setPromotingStrategyLabel(targetLabel);
 
     const actionsTaken = [];
@@ -5255,7 +5314,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         const activeResult = buildActiveConfigPromotionUpdate({
           activeConfig: canonicalBase,
           strategyLabel: targetLabel,
-          riskPlan,
+          riskPlan: activePlan,
+          action: resolvedAction,
+          pauseStrategy,
           fallbackConfig: effectiveConfig,
           activateIfInactive,
           activationMode,
@@ -5282,10 +5343,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               const next = {
                 ...prev,
                 strategy_variants: activeResult.updatedConfig.strategy_variants || [],
+                ...(activeResult.patch.paused_strategies
+                  ? { paused_strategies: activeResult.patch.paused_strategies }
+                  : {}),
               };
               if (activeResult.appliedAs === 'variant' && activeResult.variantIndex === editingVariantIdx) {
-                next.risk_pct_per_trade = riskPlan.nextRiskPerTrade;
-                next.max_total_risk_pct = riskPlan.nextMaxTotalRisk;
+                next.risk_pct_per_trade = activePlan.nextRiskPerTrade;
+                next.max_total_risk_pct = activePlan.nextMaxTotalRisk;
               }
               return next;
             });
@@ -5318,6 +5382,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             setHasPendingSessionChanges(true);
             actionsTaken.push('active config');
           }
+          if (isDemote && pauseStrategy) {
+            actionsTaken.push('paused');
+          }
           recordRecentlyUsed(targetLabel);
         }
       }
@@ -5327,7 +5394,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           preset: locationFlags?.matchedPreset || null,
           fallbackConfig: effectiveConfig,
           strategyLabel: targetLabel,
-          riskPlan,
+          riskPlan: activePlan,
+          action: resolvedAction,
         });
         const res = await presetsAPI.save(name, payload, { overwrite: true });
         if (res?.data) {
@@ -5346,15 +5414,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       addAlert({
         level: 'success',
-        title: 'Strategy Promoted (2× Risk)',
-        message: `"${targetLabel}" scaled to ${formatRiskPct(riskPlan.nextRiskPerTrade)}/trade · ${formatRiskPct(riskPlan.nextMaxTotalRisk)} max (${actionsTaken.join(' & ')}).`,
+        title: isDemote ? 'Strategy Demoted (0.5× Risk)' : 'Strategy Promoted (2× Risk)',
+        message: `"${targetLabel}" scaled to ${formatRiskPct(activePlan.nextRiskPerTrade)}/trade · ${formatRiskPct(activePlan.nextMaxTotalRisk)} max (${actionsTaken.join(' & ')}).`,
       });
       return true;
     } catch (err) {
       addAlert({
         level: 'error',
-        title: 'Promotion Failed',
-        message: err?.response?.data?.message || err?.message || 'Could not persist doubled risk limits.',
+        title: isDemote ? 'Demotion Failed' : 'Promotion Failed',
+        message: err?.response?.data?.message || err?.message || (isDemote ? 'Could not persist halved risk limits.' : 'Could not persist doubled risk limits.'),
       });
       return false;
     } finally {

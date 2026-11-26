@@ -75,8 +75,8 @@ test('Presets & Variant UX Verification', async (t) => {
 
   await t.test('5. Preset section search and filter tabs are clear and responsive', () => {
     // Search input is not hidden on sm/mobile
-    assert.doesNotMatch(configModalContent, /placeholder="Search presets by name or mode\.\.\. \(\/\)"[\s\S]*?hidden sm:block/);
-    assert.match(configModalContent, /Search presets by name or mode\.\.\./);
+    assert.doesNotMatch(configModalContent, /placeholder="Search presets"[\s\S]*?hidden sm:block/);
+    assert.match(configModalContent, /aria-label="Search presets by name or mode"/);
 
     // Filter tabs are horizontally scrollable with no-scrollbar
     assert.match(configModalContent, /overflow-x-auto no-scrollbar/);
@@ -123,6 +123,13 @@ test('Presets & Variant UX Verification', async (t) => {
     assert.match(configModalContent, /_isMergedRootConfig: true/);
     assert.match(dashboardViewContent, /const isMergedRootConfig = newConfig\._isMergedRootConfig === true;/);
     assert.match(dashboardViewContent, /delete newConfig\._isMergedRootConfig;/);
+  });
+
+  await t.test('8. ConfigModal prunes orphaned signal_params schema keys across coerceAndSanitizeConfig and buildConfigToSave', () => {
+    const orphanMatches = configModalContent.match(/const isOrphanedSchemaKey = \(paramKey\)/g) || [];
+    assert.equal(orphanMatches.length, 2, 'Both coerceAndSanitizeConfig and buildConfigToSave must prune orphaned schema keys');
+    assert.match(configModalContent, /if \(isOrphanedSchemaKey\(paramKey\)\) return;/);
+    assert.match(configModalContent, /if \(val !== undefined && val !== null && val !== ''\)/);
   });
 });
 

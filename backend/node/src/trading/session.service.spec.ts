@@ -299,6 +299,22 @@ describe('SessionService Validation', () => {
       expect(() => (service as any).validateConfig(config)).toThrow('exit_signal_delays cannot exceed 50 entries');
     });
 
+    it('allows >50 valid signal_params entries for multi-layer/variant presets and rejects >200 entries', () => {
+      const configOk = new SessionConfig();
+      configOk.signal_params = {};
+      for (let i = 0; i < 65; i++) {
+        configOk.signal_params[`param_${i}`] = i;
+      }
+      expect(() => (service as any).validateConfig(configOk)).not.toThrow();
+
+      const configTooMany = new SessionConfig();
+      configTooMany.signal_params = {};
+      for (let i = 0; i < 201; i++) {
+        configTooMany.signal_params[`param_${i}`] = i;
+      }
+      expect(() => (service as any).validateConfig(configTooMany)).toThrow('signal_params cannot exceed 200 entries');
+    });
+
     it('throws error for invalid key names or HTML tags in records', () => {
       const config = new SessionConfig();
       config.exit_signal_delays = { 'invalid<tag>': 10 };

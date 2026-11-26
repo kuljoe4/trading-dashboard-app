@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   TrendingUp,
+  TrendingDown,
   ChevronDown,
   ArrowRight,
   AlertTriangle,
@@ -54,8 +55,10 @@ export const PastWeekPromotionPanel = ({
   className = '',
 }) => {
   const [isExpanded, setIsExpanded] = usePersistedFilter(storageKey, defaultExpanded);
-  const [confirmItem, setConfirmItem] = useState(null);
+  const [reviewFilter, setReviewFilter] = useState('all'); // 'all' | 'winners' | 'underperformers'
+  const [confirmState, setConfirmState] = useState(null); // { item, action: 'promote' | 'demote' }
   const [updateActiveOpt, setUpdateActiveOpt] = useState(true);
+  const [pauseStrategyOpt, setPauseStrategyOpt] = useState(false);
   const [activateInactiveOpt, setActivateInactiveOpt] = useState(false);
   const [activationMode, setActivationMode] = useState('variant');
   const [savePresetOpt, setSavePresetOpt] = useState(true);
@@ -77,40 +80,71 @@ export const PastWeekPromotionPanel = ({
     [trades, sessions, activeConfig, presets, normalizedMode]
   );
 
-  // Sync sensible confirmation defaults whenever a strategy is opened for promotion
+  // Sync sensible confirmation defaults whenever a strategy modal opens
   useEffect(() => {
-    if (!confirmItem) return;
-    const isActive = Boolean(confirmItem.locationFlags?.isActive);
+    if (!confirmState?.item) return;
+    const isActive = Boolean(confirmState.item.locationFlags?.isActive);
     setUpdateActiveOpt(isActive);
+    setPauseStrategyOpt(false);
     setActivateInactiveOpt(false);
     setActivationMode('variant');
     setSavePresetOpt(true);
-  }, [confirmItem]);
+  }, [confirmState]);
 
   const topStrategy = strategies[0] || null;
+  const worstUnderperformer = useMemo(() => {
+    for (let i = strategies.length - 1; i >= 0; i--) {
+      if (strategies[i].qualifiesForDemotion) return strategies[i];
+    }
+    return null;
+  }, [strategies]);
+
+  // Reset filter automatically if category becomes empty
+  useEffect(() => {
+    if (reviewFilter === 'winners' && summary.profitableCount === 0) setReviewFilter('all');
+    if (reviewFilter === 'underperformers' && summary.underperformingCount === 0) setReviewFilter('all');
+  }, [reviewFilter, summary.profitableCount, summary.underperformingCount]);
+
+  const filteredStrategies = useMemo(() => {
+    if (reviewFilter === 'winners') return strategies.filter((s) => s.qualifiesForPromotion);
+    if (reviewFilter === 'underperformers') return strategies.filter((s) => s.qualifiesForDemotion);
+    return strategies;
+  }, [strategies, reviewFilter]);
+
   const isBusy = Boolean(submitting || promotingLabel);
 
-  const openConfirmModal = (item) => {
+  const openConfirmModal = (item, action = null) => {
     if (!item || isBusy) return;
-    setConfirmItem(item);
+    const resolvedAction = action === 'demote'
+      ? 'demote'
+      : action === 'promote'
+        ? 'promote'
+        : (item.qualifiesForDemotion && !item.qualifiesForPromotion ? 'demote' : 'promote');
+    setConfirmState({ item, action: resolvedAction });
   };
 
   const handleConfirmSubmit = async () => {
-    if (!confirmItem || !onPromoteStrategy || isBusy) return;
-    const isActive = Boolean(confirmItem.locationFlags?.isActive);
+    if (!confirmState?.item || !onPromoteStrategy || isBusy) return;
+    const { item, action } = confirmState;
+    const isDemote = action === 'demote';
+    const activePlan = isDemote ? item.demoteRiskPlan : item.riskPlan;
+    const isActive = Boolean(item.locationFlags?.isActive);
     const shouldUpdateActive = isActive ? updateActiveOpt : activateInactiveOpt;
     if (!shouldUpdateActive && !savePresetOpt) return;
 
     setSubmitting(true);
     try {
-      const ok = await onPromoteStrategy(confirmItem, {
+      const ok = await onPromoteStrategy(item, {
+        action,
+        riskPlan: activePlan,
+        pauseStrategy: isDemote && isActive && updateActiveOpt && pauseStrategyOpt,
         updateActive: shouldUpdateActive,
         activateIfInactive: !isActive && activateInactiveOpt,
         activationMode,
         savePreset: savePresetOpt,
       });
       if (ok !== false) {
-        setConfirmItem(null);
+        setConfirmState(null);
       }
     } finally {
       setSubmitting(false);
@@ -118,8 +152,11 @@ export const PastWeekPromotionPanel = ({
   };
 
   const renderConfirmDialog = () => {
-    if (!confirmItem) return null;
-    const { riskPlan, locationFlags } = confirmItem;
+    if (!confirmState?.item) return null;
+    const confirmItem = confirmState.item;
+    const isDemote = confirmState.action === 'demote';
+    const activePlan = isDemote ? confirmItem.demoteRiskPlan : confirmItem.riskPlan;
+    const { locationFlags } = confirmItem;
     const isActive = Boolean(locationFlags?.isActive);
     const matchesActiveMode = Boolean(locationFlags?.matchesActiveMode);
     const canActivateWhileIdleOrMatching = !sessionActive || matchesActiveMode;
@@ -129,13 +166,13 @@ export const PastWeekPromotionPanel = ({
 
     return (
       <Dialog.Root
-        open={Boolean(confirmItem)}
+        open={Boolean(confirmState)}
         onOpenChange={(open) => {
-          if (!open && !submitting) setConfirmItem(null);
+          if (!open && !submitting) setConfirmState(null);
         }}
       >
         <AnimatePresence>
-          {confirmItem && (
+          {confirmState && (
             <Dialog.Portal forceMount>
               <Dialog.Overlay asChild>
                 <motion.div
@@ -161,17 +198,19 @@ export const PastWeekPromotionPanel = ({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <Dialog.Title className="text-sm sm:text-base font-bold tracking-tight text-text truncate">
-                        Promote "{confirmItem.strategyLabel}"
+                        {isDemote ? `Demote "${confirmItem.strategyLabel}"` : `Promote "${confirmItem.strategyLabel}"`}
                       </Dialog.Title>
                       <Dialog.Description className="text-[11px] text-dim mt-0.5 leading-snug">
-                        Double risk per trade and strategy risk allocation based on past 7-day results ({modeLabel}).
+                        {isDemote
+                          ? `Halve risk per trade and strategy risk allocation (0.5×) based on past 7-day results (${modeLabel}).`
+                          : `Double risk per trade and strategy risk allocation (2×) based on past 7-day results (${modeLabel}).`}
                       </Dialog.Description>
                     </div>
                     <Dialog.Close asChild disabled={submitting}>
                       <button
                         type="button"
                         disabled={submitting}
-                        aria-label="Close promotion confirmation"
+                        aria-label={isDemote ? 'Close demotion confirmation' : 'Close promotion confirmation'}
                         className="min-w-[34px] min-h-[34px] flex items-center justify-center rounded-lg text-dim hover:text-text hover:bg-white/5 transition-colors cursor-pointer shrink-0"
                       >
                         <X size={15} />
@@ -200,29 +239,33 @@ export const PastWeekPromotionPanel = ({
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span className="text-dim font-medium">Risk per Trade</span>
                       <div className="flex items-center gap-1.5 font-mono tabular-nums font-bold">
-                        <span className="text-dim">{formatRiskPct(riskPlan.currentRiskPerTrade)}</span>
-                        <ArrowRight size={12} className="text-accent shrink-0" />
-                        <span className="text-accent">{formatRiskPct(riskPlan.nextRiskPerTrade)}</span>
+                        <span className="text-dim">{formatRiskPct(activePlan.currentRiskPerTrade)}</span>
+                        <ArrowRight size={12} className={cn('shrink-0', isDemote ? 'text-amber' : 'text-accent')} />
+                        <span className={isDemote ? 'text-amber' : 'text-accent'}>
+                          {formatRiskPct(activePlan.nextRiskPerTrade)}
+                        </span>
                       </div>
                     </div>
                     <div className="flex items-center justify-between gap-2 text-xs pt-2 border-t border-border/35">
                       <span className="text-dim font-medium">Max Strategy Risk</span>
                       <div className="flex items-center gap-1.5 font-mono tabular-nums font-bold">
-                        <span className="text-dim">{formatRiskPct(riskPlan.currentMaxTotalRisk)}</span>
-                        <ArrowRight size={12} className="text-green shrink-0" />
-                        <span className="text-green">{formatRiskPct(riskPlan.nextMaxTotalRisk)}</span>
+                        <span className="text-dim">{formatRiskPct(activePlan.currentMaxTotalRisk)}</span>
+                        <ArrowRight size={12} className={cn('shrink-0', isDemote ? 'text-amber' : 'text-green')} />
+                        <span className={isDemote ? 'text-amber' : 'text-green'}>
+                          {formatRiskPct(activePlan.nextMaxTotalRisk)}
+                        </span>
                       </div>
                     </div>
                     <div className="flex items-center justify-between gap-2 text-[11px] pt-2 border-t border-border/35 text-dim">
                       <span>Concurrent Full-Risk Slots</span>
                       <span className="font-mono tabular-nums text-text">
-                        {riskPlan.currentConcurrentSlots} → {riskPlan.nextConcurrentSlots}
+                        {activePlan.currentConcurrentSlots} → {activePlan.nextConcurrentSlots}
                       </span>
                     </div>
                   </div>
 
                   {/* Safety / Cap Notices */}
-                  {!confirmItem.qualifiesForPromotion && (
+                  {!isDemote && !confirmItem.qualifiesForPromotion && (
                     <div className="rounded-xl border border-amber/35 bg-amber/8 px-3 py-2 flex items-start gap-2 text-[11px] text-amber leading-snug">
                       <AlertTriangle size={14} className="shrink-0 mt-0.5" />
                       <span>
@@ -231,25 +274,43 @@ export const PastWeekPromotionPanel = ({
                     </div>
                   )}
 
-                  {(riskPlan.maxRiskClampedByCap || riskPlan.riskClampedByCap) && (
+                  {isDemote && confirmItem.qualifiesForPromotion && (
+                    <div className="rounded-xl border border-amber/35 bg-amber/8 px-3 py-2 flex items-start gap-2 text-[11px] text-amber leading-snug">
+                      <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                      <span>
+                        Past 7-day net P&amp;L is positive (+{fmtUSD(confirmItem.netPnl)}). Confirm only if you intentionally want to halve this strategy&apos;s risk limits.
+                      </span>
+                    </div>
+                  )}
+
+                  {!isDemote && (activePlan.maxRiskClampedByCap || activePlan.riskClampedByCap) && (
                     <div className="rounded-xl border border-border/70 bg-background/50 px-3 py-2 flex items-start gap-2 text-[11px] text-dim leading-snug">
                       <AlertTriangle size={14} className="text-amber shrink-0 mt-0.5" />
                       <span>
-                        Doubled value exceeded maximum bounds and was clamped cleanly to {formatRiskPct(riskPlan.nextRiskPerTrade)} / {formatRiskPct(riskPlan.nextMaxTotalRisk)} (100% max).
+                        Doubled value exceeded maximum bounds and was clamped cleanly to {formatRiskPct(activePlan.nextRiskPerTrade)} / {formatRiskPct(activePlan.nextMaxTotalRisk)} (100% max).
                       </span>
                     </div>
                   )}
 
-                  {riskPlan.hardCapWarning && (
+                  {isDemote && (activePlan.maxRiskClampedByMin || activePlan.riskClampedByMin) && (
+                    <div className="rounded-xl border border-border/70 bg-background/50 px-3 py-2 flex items-start gap-2 text-[11px] text-dim leading-snug">
+                      <AlertTriangle size={14} className="text-amber shrink-0 mt-0.5" />
+                      <span>
+                        Halved value reached minimum bounds and was clamped cleanly to {formatRiskPct(activePlan.nextRiskPerTrade)} / {formatRiskPct(activePlan.nextMaxTotalRisk)} (0.01% / 0.1% min).
+                      </span>
+                    </div>
+                  )}
+
+                  {!isDemote && activePlan.hardCapWarning && (
                     <div className="rounded-xl border border-amber/35 bg-amber/8 px-3 py-2 flex items-start gap-2 text-[11px] text-amber leading-snug">
                       <ShieldAlert size={14} className="shrink-0 mt-0.5" />
                       <span>
-                        Risk Hardening is enabled with a {formatRiskPct(riskPlan.maxSingleTradeRiskPct)} single-trade ceiling; new risk per trade ({formatRiskPct(riskPlan.nextRiskPerTrade)}) exceeds that hardening cap.
+                        Risk Hardening is enabled with a {formatRiskPct(activePlan.maxSingleTradeRiskPct)} single-trade ceiling; new risk per trade ({formatRiskPct(activePlan.nextRiskPerTrade)}) exceeds that hardening cap.
                       </span>
                     </div>
                   )}
 
-                  {isLiveTarget && (
+                  {!isDemote && isLiveTarget && (
                     <div className="rounded-xl border border-red/35 bg-red/8 px-3 py-2 flex items-start gap-2 text-[11px] text-red leading-snug">
                       <ShieldAlert size={14} className="shrink-0 mt-0.5" />
                       <span>
@@ -261,24 +322,45 @@ export const PastWeekPromotionPanel = ({
                   {/* Apply Targets */}
                   <div className="flex flex-col gap-2 pt-0.5">
                     {isActive ? (
-                      <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-border/60 bg-background/45 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={updateActiveOpt}
-                          onChange={(e) => setUpdateActiveOpt(e.target.checked)}
-                          className="mt-0.5 w-4 h-4 rounded border-border accent-accent cursor-pointer shrink-0"
-                        />
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-xs font-semibold text-text">
-                            Update active {locationFlags.isActiveBase ? 'Base Strategy' : `Variant #${locationFlags.variantIndex + 1}`}
-                          </span>
-                          <span className="text-[11px] text-dim">
-                            {sessionActive
-                              ? 'Hot-reloads running session limits immediately'
-                              : 'Saves updated risk limits to active draft'}
-                          </span>
-                        </div>
-                      </label>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-border/60 bg-background/45 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={updateActiveOpt}
+                            onChange={(e) => setUpdateActiveOpt(e.target.checked)}
+                            className="mt-0.5 w-4 h-4 rounded border-border accent-accent cursor-pointer shrink-0"
+                          />
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-semibold text-text">
+                              Update active {locationFlags.isActiveBase ? 'Base Strategy' : `Variant #${locationFlags.variantIndex + 1}`}
+                            </span>
+                            <span className="text-[11px] text-dim">
+                              {sessionActive
+                                ? 'Hot-reloads running session limits immediately'
+                                : 'Saves updated risk limits to active draft'}
+                            </span>
+                          </div>
+                        </label>
+
+                        {isDemote && updateActiveOpt && (
+                          <label className="flex items-start gap-2.5 p-2.5 pl-4 rounded-xl border border-amber/30 bg-amber/[0.04] cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={pauseStrategyOpt}
+                              onChange={(e) => setPauseStrategyOpt(e.target.checked)}
+                              className="mt-0.5 w-4 h-4 rounded border-border accent-amber cursor-pointer shrink-0"
+                            />
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-xs font-semibold text-text">
+                                Also pause strategy in active config
+                              </span>
+                              <span className="text-[11px] text-dim">
+                                Halts new entries for &quot;{confirmItem.strategyLabel}&quot; while keeping existing exits managed
+                              </span>
+                            </div>
+                          </label>
+                        )}
+                      </div>
                     ) : (
                       <div className="p-2.5 rounded-xl border border-border/60 bg-background/45 flex flex-col gap-2">
                         <label className={cn(
@@ -348,7 +430,9 @@ export const PastWeekPromotionPanel = ({
                             : `Save as preset "${confirmItem.strategyLabel}"`}
                         </span>
                         <span className="text-[11px] text-dim">
-                          Persists doubled 2× risk limits in Presets Library
+                          {isDemote
+                            ? 'Persists halved 0.5× risk limits in Presets Library'
+                            : 'Persists doubled 2× risk limits in Presets Library'}
                         </span>
                       </div>
                     </label>
@@ -372,10 +456,13 @@ export const PastWeekPromotionPanel = ({
                       loading={submitting}
                       disabled={submitting || nothingSelected}
                       onClick={handleConfirmSubmit}
-                      className="flex-1 min-h-[42px] sm:min-h-[36px] text-xs bg-accent text-white font-semibold"
+                      className={cn(
+                        'flex-1 min-h-[42px] sm:min-h-[36px] text-xs font-semibold',
+                        isDemote ? 'bg-amber text-black hover:bg-amber/90' : 'bg-accent text-white'
+                      )}
                     >
                       <Check size={14} />
-                      <span>Apply 2× Risk</span>
+                      <span>{isDemote ? 'Apply 0.5× Risk' : 'Apply 2× Risk'}</span>
                     </Btn>
                   </div>
                 </motion.div>
@@ -387,7 +474,7 @@ export const PastWeekPromotionPanel = ({
     );
   };
 
-  // Empty 7D state: super quiet single-line summary bar
+  // Empty 7D state: quiet single-line summary bar
   if (strategies.length === 0) {
     return (
       <div
@@ -399,7 +486,7 @@ export const PastWeekPromotionPanel = ({
       >
         <div className="flex items-center gap-2 min-w-0">
           <TrendingUp size={14} className="text-dim shrink-0" />
-          <span className="font-semibold text-text truncate">Past 7 Days Promotion</span>
+          <span className="font-semibold text-text truncate">Past 7 Days Risk Review</span>
           <span aria-hidden="true" className="text-dim/40">·</span>
           <span className="text-[11px] text-dim truncate">
             No closed {modeLabel.toLowerCase()} trades in the last 7 days
@@ -410,48 +497,58 @@ export const PastWeekPromotionPanel = ({
     );
   }
 
+  // Collapsed headline candidate: #1 winner if any exist, otherwise deepest drag for immediate demotion
+  const featuredItem = (topStrategy && !topStrategy.qualifiesForPromotion && worstUnderperformer)
+    ? worstUnderperformer
+    : topStrategy;
+  const featuredIsDemote = Boolean(featuredItem?.qualifiesForDemotion && !featuredItem?.qualifiesForPromotion);
+  const featuredPlan = featuredIsDemote ? featuredItem?.demoteRiskPlan : featuredItem?.riskPlan;
+  const featuredAtBound = featuredIsDemote ? featuredPlan?.isAtMinCap : featuredPlan?.isAtMaxCap;
+
   return (
     <section
       data-testid="past-week-promotion-panel"
-      aria-label="Past 7 Days Strategy Promotion"
+      aria-label="Past 7 Days Strategy Promotion and Demotion"
       className={cn(
         'rounded-2xl border border-border/55 bg-surface/45 transition-colors overflow-hidden',
         className
       )}
     >
-      {/* Compact Header & #1 Leader Inline Summary */}
+      {/* Compact Header & Featured Leader/Drag Inline Summary */}
       <div className={cn('px-3 flex flex-col gap-2', compact ? 'py-2' : 'py-2.5 sm:px-4 sm:py-3')}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <TrendingUp size={15} className="text-green shrink-0" />
+            {featuredIsDemote
+              ? <TrendingDown size={15} className="text-amber shrink-0" />
+              : <TrendingUp size={15} className="text-green shrink-0" />}
             <div className="min-w-0 flex-1 flex flex-col">
               <div className="flex items-center gap-1.5 flex-wrap text-xs">
-                <span className="font-bold text-text tracking-tight">Past 7 Days Promotion</span>
+                <span className="font-bold text-text tracking-tight">Past 7 Days Risk Review</span>
                 <span aria-hidden="true" className="text-dim/40">·</span>
                 <span className="font-mono text-[11px] text-dim tabular-nums">
-                  {modeLabel} · {summary.profitableCount}/{summary.totalStrategies} profitable
+                  {modeLabel} · {summary.profitableCount} up · {summary.underperformingCount} down
                 </span>
               </div>
 
-              {!isExpanded && topStrategy && (
+              {!isExpanded && featuredItem && featuredPlan && (
                 <div className="text-[11px] font-mono tabular-nums text-dim flex items-center gap-x-1.5 gap-y-0.5 flex-wrap mt-0.5">
                   <span className="text-text font-semibold truncate max-w-[180px] sm:max-w-[260px]">
-                    #1 {topStrategy.strategyLabel}
+                    #{featuredItem.rank} {featuredItem.strategyLabel}
                   </span>
                   <span aria-hidden="true" className="opacity-40">·</span>
-                  <span className={cn('font-bold', pnlClass(topStrategy.netPnl))}>
-                    {topStrategy.netPnl > 0 ? `+${fmtUSD(topStrategy.netPnl)}` : fmtUSD(topStrategy.netPnl)}
+                  <span className={cn('font-bold', pnlClass(featuredItem.netPnl))}>
+                    {featuredItem.netPnl > 0 ? `+${fmtUSD(featuredItem.netPnl)}` : fmtUSD(featuredItem.netPnl)}
                   </span>
                   <span aria-hidden="true" className="opacity-40">·</span>
-                  <span>{topStrategy.winRate.toFixed(0)}% WR</span>
+                  <span>{featuredItem.winRate.toFixed(0)}% WR</span>
                   <span aria-hidden="true" className="opacity-40 hidden xs:inline">·</span>
-                  <span className="hidden xs:inline">{topStrategy.profitFactor.toFixed(2)} PF</span>
+                  <span className="hidden xs:inline">{featuredItem.profitFactor.toFixed(2)} PF</span>
                   <span aria-hidden="true" className="opacity-40">·</span>
-                  <span className="text-accent font-semibold">
-                    {formatRiskPct(topStrategy.riskPlan.currentRiskPerTrade)}→{formatRiskPct(topStrategy.riskPlan.nextRiskPerTrade)}
+                  <span className={cn('font-semibold', featuredIsDemote ? 'text-amber' : 'text-accent')}>
+                    {formatRiskPct(featuredPlan.currentRiskPerTrade)}→{formatRiskPct(featuredPlan.nextRiskPerTrade)}
                   </span>
                   <span className="text-dim/75">
-                    ({formatRiskPct(topStrategy.riskPlan.currentMaxTotalRisk)}→{formatRiskPct(topStrategy.riskPlan.nextMaxTotalRisk)} cap)
+                    ({formatRiskPct(featuredPlan.currentMaxTotalRisk)}→{formatRiskPct(featuredPlan.nextMaxTotalRisk)} cap)
                   </span>
                 </div>
               )}
@@ -459,28 +556,48 @@ export const PastWeekPromotionPanel = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
-            {!isExpanded && topStrategy && (
+            {!isExpanded && featuredItem && (
               <button
                 type="button"
-                data-testid="promote-top-strategy-btn"
-                disabled={topStrategy.riskPlan.isAtMaxCap || isBusy}
-                onClick={() => openConfirmModal(topStrategy)}
+                data-testid={featuredIsDemote ? 'demote-featured-strategy-btn' : 'promote-top-strategy-btn'}
+                disabled={featuredAtBound || isBusy}
+                onClick={() => openConfirmModal(featuredItem, featuredIsDemote ? 'demote' : 'promote')}
                 className={cn(
                   'min-h-[38px] sm:min-h-[32px] px-3 rounded-xl text-xs font-semibold border transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
-                  topStrategy.riskPlan.isAtMaxCap
+                  featuredAtBound
                     ? 'bg-background/40 border-border/50 text-dim cursor-not-allowed'
-                    : topStrategy.qualifiesForPromotion
-                      ? 'bg-green/15 border-green/40 text-green hover:bg-green/25'
-                      : 'bg-background/70 border-border/70 text-text hover:border-accent/45 hover:text-accent'
+                    : featuredIsDemote
+                      ? 'bg-amber/15 border-amber/40 text-amber hover:bg-amber/25'
+                      : featuredItem.qualifiesForPromotion
+                        ? 'bg-green/15 border-green/40 text-green hover:bg-green/25'
+                        : 'bg-background/70 border-border/70 text-text hover:border-accent/45 hover:text-accent'
                 )}
               >
                 <span>
-                  {promotingLabel === topStrategy.strategyLabel
-                    ? 'Promoting...'
-                    : topStrategy.riskPlan.isAtMaxCap
-                      ? 'At 100% Cap'
-                      : 'Promote 2×'}
+                  {promotingLabel === featuredItem.strategyLabel
+                    ? (featuredIsDemote ? 'Demoting...' : 'Promoting...')
+                    : featuredAtBound
+                      ? (featuredIsDemote ? 'At Min Floor' : 'At 100% Cap')
+                      : (featuredIsDemote ? 'Demote 0.5×' : 'Promote 2×')}
                 </span>
+              </button>
+            )}
+
+            {!isExpanded && worstUnderperformer && topStrategy?.qualifiesForPromotion && worstUnderperformer.strategyLabel !== featuredItem?.strategyLabel && (
+              <button
+                type="button"
+                data-testid="demote-drag-strategy-btn"
+                disabled={worstUnderperformer.demoteRiskPlan.isAtMinCap || isBusy}
+                onClick={() => openConfirmModal(worstUnderperformer, 'demote')}
+                title={`Halve risk for #${worstUnderperformer.rank} ${worstUnderperformer.strategyLabel} (${fmtUSD(worstUnderperformer.netPnl)})`}
+                className={cn(
+                  'min-h-[38px] sm:min-h-[32px] px-2.5 rounded-xl text-xs font-semibold border transition-colors hidden md:flex items-center gap-1 whitespace-nowrap cursor-pointer focus-visible:ring-2 focus-visible:ring-amber focus-visible:outline-none',
+                  worstUnderperformer.demoteRiskPlan.isAtMinCap
+                    ? 'bg-background/40 border-border/50 text-dim cursor-not-allowed'
+                    : 'bg-amber/10 border-amber/35 text-amber hover:bg-amber/20'
+                )}
+              >
+                <span>Demote 0.5×</span>
               </button>
             )}
 
@@ -509,11 +626,40 @@ export const PastWeekPromotionPanel = ({
       {/* Expanded Ranked Strategy Cards */}
       <SmoothCollapse isOpen={isExpanded}>
         <div className="px-3 pb-3 sm:px-4 sm:pb-3.5 pt-2 border-t border-border/35 flex flex-col gap-2 bg-background/20">
+          {summary.profitableCount > 0 && summary.underperformingCount > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[
+                { id: 'all', label: `All (${strategies.length})` },
+                { id: 'winners', label: `Winners (${summary.profitableCount})` },
+                { id: 'underperformers', label: `Underperformers (${summary.underperformingCount})` },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setReviewFilter(tab.id)}
+                  aria-pressed={reviewFilter === tab.id}
+                  className={cn(
+                    'min-h-[32px] sm:min-h-[26px] px-2.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer',
+                    reviewFilter === tab.id
+                      ? 'bg-accent/15 border-accent/40 text-accent'
+                      : 'bg-background/50 border-border/50 text-dim hover:text-text'
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {strategies.map((item) => {
+            {filteredStrategies.map((item) => {
               const role = getRoleDescriptor(item);
-              const { riskPlan } = item;
-              const isPromotingThis = promotingLabel === item.strategyLabel;
+              const primaryIsDemote = item.qualifiesForDemotion;
+              const primaryPlan = primaryIsDemote ? item.demoteRiskPlan : item.riskPlan;
+              const secondaryPlan = primaryIsDemote ? item.riskPlan : item.demoteRiskPlan;
+              const isScalingThis = promotingLabel === item.strategyLabel;
+              const primaryAtBound = primaryIsDemote ? primaryPlan.isAtMinCap : primaryPlan.isAtMaxCap;
+              const secondaryAtBound = primaryIsDemote ? secondaryPlan.isAtMaxCap : secondaryPlan.isAtMinCap;
 
               return (
                 <div
@@ -523,7 +669,9 @@ export const PastWeekPromotionPanel = ({
                     'rounded-xl border p-2.5 sm:p-3 flex flex-col gap-2 transition-colors',
                     item.qualifiesForPromotion && item.rank === 1
                       ? 'border-green/35 bg-green/[0.03]'
-                      : 'border-border/55 bg-surface/65'
+                      : item.qualifiesForDemotion
+                        ? 'border-amber/30 bg-amber/[0.025]'
+                        : 'border-border/55 bg-surface/65'
                   )}
                 >
                   {/* Top Row: Rank + Strategy Label + Net P&L */}
@@ -553,7 +701,7 @@ export const PastWeekPromotionPanel = ({
                     </div>
                   </div>
 
-                  {/* Metrics + 2x Risk Preview Row */}
+                  {/* Metrics + Scaled Risk Preview Row */}
                   <div className="grid grid-cols-3 gap-2 pt-1.5 border-t border-border/30 text-[11px] font-mono tabular-nums">
                     <div className="flex flex-col min-w-0">
                       <span className="text-[9.5px] font-sans text-dim leading-none mb-0.5">Win / PF</span>
@@ -564,17 +712,21 @@ export const PastWeekPromotionPanel = ({
                     <div className="flex flex-col min-w-0">
                       <span className="text-[9.5px] font-sans text-dim leading-none mb-0.5">Risk / Trade</span>
                       <span className="font-semibold truncate flex items-center gap-1">
-                        <span className="text-dim">{formatRiskPct(riskPlan.currentRiskPerTrade)}</span>
+                        <span className="text-dim">{formatRiskPct(primaryPlan.currentRiskPerTrade)}</span>
                         <span className="text-dim/50">→</span>
-                        <span className="text-accent">{formatRiskPct(riskPlan.nextRiskPerTrade)}</span>
+                        <span className={primaryIsDemote ? 'text-amber' : 'text-accent'}>
+                          {formatRiskPct(primaryPlan.nextRiskPerTrade)}
+                        </span>
                       </span>
                     </div>
                     <div className="flex flex-col min-w-0 text-right">
                       <span className="text-[9.5px] font-sans text-dim leading-none mb-0.5">Max Strategy</span>
                       <span className="font-semibold truncate">
-                        <span className="text-dim">{formatRiskPct(riskPlan.currentMaxTotalRisk)}</span>
+                        <span className="text-dim">{formatRiskPct(primaryPlan.currentMaxTotalRisk)}</span>
                         <span className="text-dim/50"> → </span>
-                        <span className="text-green">{formatRiskPct(riskPlan.nextMaxTotalRisk)}</span>
+                        <span className={primaryIsDemote ? 'text-amber' : 'text-green'}>
+                          {formatRiskPct(primaryPlan.nextMaxTotalRisk)}
+                        </span>
                       </span>
                     </div>
                   </div>
@@ -589,31 +741,54 @@ export const PastWeekPromotionPanel = ({
                       ) : (
                         <span>7D window</span>
                       )}
-                      {riskPlan.hardCapWarning && ' · Exceeds hardening cap'}
+                      {!primaryIsDemote && primaryPlan.hardCapWarning && ' · Exceeds hardening cap'}
                     </span>
 
-                    <button
-                      type="button"
-                      disabled={riskPlan.isAtMaxCap || isBusy}
-                      onClick={() => openConfirmModal(item)}
-                      className={cn(
-                        'min-h-[38px] sm:min-h-[32px] px-3 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
-                        riskPlan.isAtMaxCap
-                          ? 'bg-background/40 border-border/50 text-dim cursor-not-allowed'
-                          : item.qualifiesForPromotion
-                            ? 'bg-green/15 border-green/40 text-green hover:bg-green/25'
-                            : 'bg-background/70 border-border/70 text-text hover:border-accent/45 hover:text-accent'
-                      )}
-                    >
-                      {!riskPlan.isAtMaxCap && <Layers size={12} className="shrink-0" />}
-                      <span>
-                        {isPromotingThis
-                          ? 'Promoting...'
-                          : riskPlan.isAtMaxCap
-                            ? 'At 100% Cap'
-                            : 'Promote 2× Risk'}
-                      </span>
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        data-testid={primaryIsDemote ? `promote-card-btn-${item.rank}` : `demote-card-btn-${item.rank}`}
+                        disabled={secondaryAtBound || isBusy}
+                        onClick={() => openConfirmModal(item, primaryIsDemote ? 'promote' : 'demote')}
+                        title={primaryIsDemote ? 'Promote (2× Risk)' : 'Demote (0.5× Risk)'}
+                        className={cn(
+                          'min-h-[38px] sm:min-h-[32px] px-2.5 rounded-lg text-[11px] font-semibold border transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
+                          secondaryAtBound
+                            ? 'bg-background/30 border-border/40 text-dim/50 cursor-not-allowed'
+                            : primaryIsDemote
+                              ? 'bg-background/60 border-border/60 text-dim hover:text-green hover:border-green/40'
+                              : 'bg-background/60 border-border/60 text-dim hover:text-amber hover:border-amber/40'
+                        )}
+                      >
+                        {primaryIsDemote ? '2×' : '0.5×'}
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid={primaryIsDemote ? `demote-card-btn-${item.rank}` : `promote-card-btn-${item.rank}`}
+                        disabled={primaryAtBound || isBusy}
+                        onClick={() => openConfirmModal(item, primaryIsDemote ? 'demote' : 'promote')}
+                        className={cn(
+                          'min-h-[38px] sm:min-h-[32px] px-3 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
+                          primaryAtBound
+                            ? 'bg-background/40 border-border/50 text-dim cursor-not-allowed'
+                            : primaryIsDemote
+                              ? 'bg-amber/15 border-amber/40 text-amber hover:bg-amber/25'
+                              : item.qualifiesForPromotion
+                                ? 'bg-green/15 border-green/40 text-green hover:bg-green/25'
+                                : 'bg-background/70 border-border/70 text-text hover:border-accent/45 hover:text-accent'
+                        )}
+                      >
+                        {!primaryAtBound && <Layers size={12} className="shrink-0" />}
+                        <span>
+                          {isScalingThis
+                            ? (primaryIsDemote ? 'Demoting...' : 'Promoting...')
+                            : primaryAtBound
+                              ? (primaryIsDemote ? 'At Min Floor' : 'At 100% Cap')
+                              : (primaryIsDemote ? 'Demote 0.5× Risk' : 'Promote 2× Risk')}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );

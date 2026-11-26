@@ -220,11 +220,26 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
 })
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText, compact, wrapSubValue = false, ariaLabel, className }) => {
+export const StatCard = React.memo(({
+  label,
+  value,
+  color = "text-text",
+  subValue,
+  syncing,
+  valueLoading = false,
+  subValueLoading = false,
+  tooltipText,
+  compact,
+  wrapSubValue = false,
+  ariaLabel,
+  className,
+}) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
   const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲') || value.includes('▾') || value.includes('▴')) && value.includes('-')
     ? value.replace('-', '') // Remove the minus if an arrow is already present
     : value;
+
+  const isBusy = Boolean(syncing || valueLoading || subValueLoading);
 
   const content = (
     <div
@@ -236,40 +251,54 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
         className
       )}
       role="region"
-      aria-label={ariaLabel || `${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
-      aria-busy={syncing}
+      aria-label={ariaLabel || `${label}: ${valueLoading ? 'Loading' : value}${tooltipText ? '. ' + tooltipText : ''}`}
+      aria-busy={isBusy}
       tabIndex={tooltipText ? 0 : undefined}
     >
-      {syncing && (
-        <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
-      )}
       <div className="flex flex-col items-start justify-between self-start w-full h-full gap-1.5 min-w-0">
         <div className="flex items-center justify-between gap-1.5 w-full min-w-0">
-          <div className={cn("text-dim tracking-wider uppercase font-bold leading-snug flex-1 min-w-0 truncate", compact ? "text-[8.5px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">
-            {label}
+          <div className={cn("text-dim tracking-wider uppercase font-bold leading-snug flex-1 min-w-0 truncate flex items-center gap-1.5", compact ? "text-[8.5px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">
+            <span className="truncate">{label}</span>
+            {syncing && !valueLoading && (
+              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
+            )}
           </div>
           {tooltipText && <Info size={compact ? 9 : 11} className="text-dim/40 group-hover:text-accent group-focus-visible:text-accent transition-colors shrink-0 cursor-help" />}
         </div>
         <div className="flex flex-col items-start w-full min-w-0 mt-auto">
-          <div className={cn(
-            "font-bold font-mono tabular-nums tracking-tight transition-colors duration-200 leading-tight w-full",
-            wrapSubValue ? "whitespace-normal break-words" : "truncate",
-            color,
-            compact ? "text-xs md:text-sm lg:text-base" : "text-sm md:text-base lg:text-xl",
-            syncing && "opacity-75"
-          )}>
-            {sanitizedValue}
-          </div>
+          {valueLoading ? (
+            <span
+              aria-hidden="true"
+              className={cn(
+                "inline-block rounded-md bg-surface/70 border border-border/25 skeleton-shimmer motion-reduce:animate-none",
+                compact ? "h-4 md:h-[18px] w-20" : "h-5 md:h-6 w-24"
+              )}
+            />
+          ) : (
+            <div className={cn(
+              "font-bold font-mono tabular-nums tracking-tight transition-colors duration-200 leading-tight w-full",
+              wrapSubValue ? "whitespace-normal break-words" : "truncate",
+              color,
+              compact ? "text-xs md:text-sm lg:text-base" : "text-sm md:text-base lg:text-xl"
+            )}>
+              {sanitizedValue}
+            </div>
+          )}
           {subValue !== undefined && subValue !== null && (
             <div className={cn(
               "text-dim font-mono tabular-nums font-medium flex items-start gap-1.5 min-w-0 w-full min-h-[14px] mt-1",
-              wrapSubValue ? "text-[10px] leading-relaxed" : (compact ? "text-[7.5px] md:text-[8px] leading-tight" : "text-[8.5px] md:text-[9.5px] leading-tight"),
-              syncing && "text-accent/80 font-bold"
+              wrapSubValue ? "text-[10px] leading-relaxed" : (compact ? "text-[7.5px] md:text-[8px] leading-tight" : "text-[8.5px] md:text-[9.5px] leading-tight")
             )}>
-              {syncing && <RefreshCw size={compact ? 6 : 8} className="animate-spin shrink-0 text-accent mt-0.5" aria-hidden="true" />}
-              <div className={cn("min-w-0 w-full", wrapSubValue ? "whitespace-normal break-words" : "truncate whitespace-nowrap")}>
-                {subValue}
-              </div>
+              {subValueLoading ? (
+                <span
+                  aria-hidden="true"
+                  className="inline-block h-2.5 w-24 rounded bg-surface/70 border border-border/25 skeleton-shimmer motion-reduce:animate-none"
+                />
+              ) : (
+                <div className={cn("min-w-0 w-full", wrapSubValue ? "whitespace-normal break-words" : "truncate whitespace-nowrap")}>
+                  {subValue}
+                </div>
+              )}
             </div>
           )}
         </div>

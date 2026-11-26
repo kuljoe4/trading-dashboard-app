@@ -1,5 +1,7 @@
 import React from 'react'
-import { cn } from './primitives'
+import { cn } from './utils'
+import { selectedEngine } from '../../utils/engineMode.js'
+import { EngineSwitch } from '../EngineSwitch'
 
 /**
  * Base GPU-composited zero-CLS shimmer block.
@@ -17,6 +19,40 @@ export const SkeletonBlock = ({ className = '', style }) => (
 )
 
 /**
+ * Internal helper: Renders real static metric card border & static uppercase label
+ * while placing shimmer ONLY on dynamic numeric values/subvalues.
+ */
+const StaticMetricSkeletonCard = ({
+  label,
+  compact = true,
+  hasSubValue = false,
+  valueWidth = 'w-20',
+  subWidth = 'w-24',
+}) => (
+  <div
+    className={cn(
+      'bg-surface border border-border rounded-xl flex flex-col items-start justify-between h-full w-full min-w-0',
+      compact ? 'p-2.5 min-h-[48px] md:min-h-[56px]' : 'p-3.5 md:p-4 min-h-[64px] md:min-h-[76px]'
+    )}
+  >
+    <span
+      className={cn(
+        'text-dim tracking-wider uppercase font-bold leading-snug truncate w-full',
+        compact ? 'text-[8.5px] md:text-[9px]' : 'text-[9px] md:text-[10px]'
+      )}
+    >
+      {label}
+    </span>
+    <div className="flex flex-col items-start w-full min-w-0 mt-auto pt-1.5">
+      <SkeletonBlock className={cn(compact ? 'h-4 md:h-[18px]' : 'h-5 md:h-6', valueWidth)} />
+      {hasSubValue && (
+        <SkeletonBlock className={cn('h-2.5 mt-1.5 opacity-65', subWidth)} />
+      )}
+    </div>
+  </div>
+)
+
+/**
  * Matches StrategyDetailView geometry (ViewHeader + 4 KPI cards + tab bar + Inspect Live + 4 dial cards).
  */
 export const StrategyDetailSkeleton = () => (
@@ -26,50 +62,62 @@ export const StrategyDetailSkeleton = () => (
     aria-busy="true"
     aria-label="Loading strategy details"
   >
-    {/* Header bar */}
-    <div className="min-h-[56px] w-full rounded-2xl bg-surface/45 border border-border/35 px-4 py-3 flex items-center justify-between gap-3">
+    {/* Header bar: back affordance & static action slot frame, title/status values shimmer */}
+    <div className="min-h-[56px] w-full rounded-2xl bg-surface/65 border border-border/50 px-4 py-3 flex items-center justify-between gap-3">
       <div className="flex items-center gap-3 min-w-0">
-        <SkeletonBlock className="w-8 h-8 rounded-lg shrink-0" />
+        <div className="w-8 h-8 rounded-lg border border-border/50 bg-background/50 flex items-center justify-center text-dim text-xs font-bold shrink-0">
+          ←
+        </div>
         <div className="space-y-1.5">
-          <SkeletonBlock className="w-44 sm:w-56 h-4 rounded" />
-          <SkeletonBlock className="w-28 sm:w-40 h-2.5 rounded opacity-70" />
+          <SkeletonBlock className="w-40 sm:w-52 h-4 rounded" />
+          <div className="flex items-center gap-2 text-[10px] font-mono text-dim">
+            <span>Strategy</span>
+            <span aria-hidden="true" className="opacity-40">·</span>
+            <SkeletonBlock className="w-20 h-2.5 rounded opacity-70" />
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <SkeletonBlock className="w-20 h-8 rounded-lg hidden sm:block" />
-        <SkeletonBlock className="w-20 h-8 rounded-lg" />
+        <div className="hidden sm:flex h-8 px-3 rounded-lg border border-border/50 bg-background/50 items-center text-xs font-semibold text-dim">
+          Scanner
+        </div>
+        <div className="h-8 px-3 rounded-lg border border-border/50 bg-background/50 flex items-center text-xs font-semibold text-dim">
+          Config
+        </div>
       </div>
     </div>
 
-    {/* 4 KPI cards */}
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
-      {[0, 1, 2, 3].map((i) => (
+    {/* 4 KPI cards with real static labels */}
+    <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2 sm:gap-2.5">
+      <StaticMetricSkeletonCard label="Active P&L" hasSubValue valueWidth="w-24" subWidth="w-28" />
+      <StaticMetricSkeletonCard label="Exposure & Slots" hasSubValue valueWidth="w-24" subWidth="w-24" />
+      <StaticMetricSkeletonCard label="Win Rate" hasSubValue valueWidth="w-16" subWidth="w-28" />
+      <StaticMetricSkeletonCard label="Profit Factor" hasSubValue valueWidth="w-16" subWidth="w-20" />
+    </div>
+
+    {/* Static 3-tab strip */}
+    <div className="h-[42px] w-full sm:w-[340px] rounded-xl bg-surface/60 border border-border/50 p-1 grid grid-cols-3 gap-1">
+      {['Signals', 'Performance', 'History'].map((tab, idx) => (
         <div
-          key={i}
-          className="h-[64px] rounded-xl bg-surface/45 border border-border/35 px-3 py-2.5 flex flex-col justify-between"
+          key={tab}
+          className={cn(
+            'h-full rounded-lg flex items-center justify-center text-[11px] font-bold uppercase tracking-wider',
+            idx === 0 ? 'bg-accent/15 text-accent border border-accent/25' : 'text-dim'
+          )}
         >
-          <SkeletonBlock className="w-20 h-2.5 rounded opacity-75" />
-          <SkeletonBlock className="w-28 h-4 rounded" />
+          {tab}
         </div>
       ))}
     </div>
 
-    {/* 3-tab strip */}
-    <div className="h-[42px] w-full sm:w-[340px] rounded-xl bg-surface/40 border border-border/35 p-1 grid grid-cols-3 gap-1">
-      <SkeletonBlock className="h-full rounded-lg" />
-      <SkeletonBlock className="h-full rounded-lg opacity-55" />
-      <SkeletonBlock className="h-full rounded-lg opacity-55" />
-    </div>
-
     {/* Inspect Live + Condition Cards panel */}
-    <div className="rounded-2xl bg-surface/35 border border-border/40 overflow-hidden">
-      <div className="px-3.5 py-2.5 border-b border-border/30 flex items-center justify-between gap-2">
+    <div className="rounded-2xl bg-surface/45 border border-border/50 overflow-hidden">
+      <div className="px-3.5 py-2.5 border-b border-border/40 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <SkeletonBlock className="w-24 h-6 rounded-lg" />
-          <SkeletonBlock className="w-20 h-6 rounded-lg opacity-70" />
-          <SkeletonBlock className="w-20 h-6 rounded-lg opacity-55 hidden sm:block" />
+          <span className="text-[11px] font-bold uppercase tracking-wider text-text">Inspect Live</span>
+          <SkeletonBlock className="w-20 h-5 rounded-md opacity-70" />
         </div>
-        <SkeletonBlock className="w-24 h-6 rounded-lg opacity-70" />
+        <SkeletonBlock className="w-20 h-5 rounded-md opacity-70" />
       </div>
       <div className="p-3.5">
         <ConditionCardsSkeleton count={4} />
@@ -98,17 +146,17 @@ export const ConditionCardsSkeleton = ({ compact = false, count = 4 }) => {
       {Array.from({ length: safeCount }).map((_, idx) => (
         <div
           key={idx}
-          className="relative overflow-hidden rounded-xl border border-border/40 bg-surface/35 p-2.5 flex flex-col justify-between gap-2 min-h-[168px]"
+          className="relative overflow-hidden rounded-xl border border-border/40 bg-surface/40 p-2.5 flex flex-col justify-between gap-2 min-h-[168px]"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="space-y-1.5 min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <SkeletonBlock className="w-8 h-3.5 rounded" />
-                <SkeletonBlock className="w-24 h-3.5 rounded" />
+                <span className="text-[9px] font-mono uppercase text-dim font-semibold">Signal</span>
+                <SkeletonBlock className="w-20 h-3.5 rounded" />
               </div>
-              <SkeletonBlock className="w-28 h-2.5 rounded opacity-65" />
+              <SkeletonBlock className="w-24 h-2.5 rounded opacity-65" />
             </div>
-            <SkeletonBlock className="w-16 h-4 rounded-full shrink-0" />
+            <SkeletonBlock className="w-14 h-4 rounded-full shrink-0" />
           </div>
 
           {/* Semicircular dial silhouette */}
@@ -118,9 +166,9 @@ export const ConditionCardsSkeleton = ({ compact = false, count = 4 }) => {
             </div>
           </div>
 
-          {/* Telemetry readout footer */}
+          {/* Static labels + dynamic readout values */}
           <div className="rounded-lg bg-bg/40 border border-border/30 px-2.5 py-1.5 flex items-center justify-between gap-2">
-            <SkeletonBlock className="w-14 h-3 rounded opacity-75" />
+            <span className="text-[9px] font-mono uppercase text-dim">Live</span>
             <SkeletonBlock className="w-16 h-3 rounded" />
           </div>
         </div>
@@ -141,17 +189,11 @@ export const ScannerRowsSkeleton = ({ rows = 6, showHeader = true, label = 'Load
   >
     {showHeader && (
       <div className="px-4 py-3 border-b border-border/40 flex items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <SkeletonBlock className="w-7 h-7 rounded-lg" />
-          <div className="space-y-1">
-            <SkeletonBlock className="w-36 h-3.5 rounded" />
-            <SkeletonBlock className="w-24 h-2.5 rounded opacity-65" />
-          </div>
+        <div className="min-w-0">
+          <div className="text-xs font-bold uppercase tracking-wider text-text">Live Market Scanner</div>
+          <div className="text-[10px] text-dim font-mono">Scanning candidate momentum</div>
         </div>
-        <div className="flex items-center gap-2">
-          <SkeletonBlock className="w-28 h-7 rounded-lg hidden sm:block" />
-          <SkeletonBlock className="w-7 h-7 rounded-lg" />
-        </div>
+        <SkeletonBlock className="w-24 h-7 rounded-lg hidden sm:block" />
       </div>
     )}
     <div className="divide-y divide-border/25 flex-1 overflow-hidden">
@@ -160,7 +202,7 @@ export const ScannerRowsSkeleton = ({ rows = 6, showHeader = true, label = 'Load
           key={i}
           className="px-4 py-3 grid grid-cols-[1fr_auto] md:grid-cols-[28px_1.5fr_1fr_1.2fr_110px] items-center gap-3 min-h-[56px]"
         >
-          <SkeletonBlock className="hidden md:block w-5 h-3.5 rounded opacity-60" />
+          <span className="hidden md:block text-[10px] font-mono text-dim tabular-nums">#{i + 1}</span>
           <div className="flex items-center gap-2.5 min-w-0">
             <SkeletonBlock className="w-20 h-4 rounded" />
             <SkeletonBlock className="w-12 h-4 rounded-full opacity-70" />
@@ -222,11 +264,21 @@ export const DecisionLogSkeleton = ({ rows = 5 }) => (
   >
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-1.5">
-        <SkeletonBlock className="w-14 h-7 rounded-lg" />
-        <SkeletonBlock className="w-16 h-7 rounded-lg opacity-70" />
-        <SkeletonBlock className="w-16 h-7 rounded-lg opacity-55" />
+        {['All', 'Info', 'Warn', 'Error'].map((lvl, idx) => (
+          <span
+            key={lvl}
+            className={cn(
+              'px-2.5 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wider',
+              idx === 0 ? 'bg-accent/15 border-accent/35 text-accent' : 'bg-surface border-border/50 text-dim'
+            )}
+          >
+            {lvl}
+          </span>
+        ))}
       </div>
-      <SkeletonBlock className="w-40 h-7 rounded-lg opacity-75" />
+      <div className="h-7 px-3 rounded-lg border border-border/50 bg-background/50 flex items-center text-[10px] text-dim font-mono">
+        Filter logs...
+      </div>
     </div>
     <div className="rounded-xl border border-border/35 bg-surface/25 divide-y divide-border/25 overflow-hidden">
       {Array.from({ length: rows }).map((_, i) => (
@@ -303,9 +355,11 @@ export const CalendarGridSkeleton = () => (
     aria-label="Loading daily calendar breakdown"
     className="w-full min-h-[120px] rounded-xl bg-surface/30 border border-border/35 p-3 space-y-2"
   >
-    <div className="grid grid-cols-7 gap-1.5">
-      {Array.from({ length: 7 }).map((_, i) => (
-        <SkeletonBlock key={i} className="h-3 rounded opacity-60" />
+    <div className="grid grid-cols-7 gap-1.5 text-center">
+      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+        <span key={day} className="text-[9px] font-bold uppercase tracking-wider text-dim">
+          {day}
+        </span>
       ))}
     </div>
     <div className="grid grid-cols-7 gap-1.5">
@@ -318,7 +372,7 @@ export const CalendarGridSkeleton = () => (
 
 /**
  * Matches TradeDetailView (`max-w-[1200px]`, ViewHeader + 4 KPI StatCards + 2-col tactical panels).
- * Prevents premature "Trade Not Found" flash during initial REST hydration.
+ * Keeps static headings and metric labels visible while dynamic telemetry shimmers.
  */
 export const TradeDetailSkeleton = () => (
   <div
@@ -327,12 +381,17 @@ export const TradeDetailSkeleton = () => (
     aria-busy="true"
     aria-label="Loading trade details"
   >
-    <div className="min-h-[58px] rounded-2xl bg-surface/45 border border-border/35 px-4 py-3 flex items-center justify-between gap-3">
+    <div className="min-h-[58px] rounded-2xl bg-surface/65 border border-border/50 px-4 py-3 flex items-center justify-between gap-3">
       <div className="flex items-center gap-3">
-        <SkeletonBlock className="w-8 h-8 rounded-lg" />
+        <div className="w-8 h-8 rounded-lg border border-border/50 bg-background/50 flex items-center justify-center text-dim text-xs font-bold">
+          ←
+        </div>
         <div className="space-y-1.5">
-          <SkeletonBlock className="w-36 h-4 rounded" />
-          <SkeletonBlock className="w-48 h-2.5 rounded opacity-65" />
+          <SkeletonBlock className="w-32 h-4 rounded" />
+          <div className="flex items-center gap-2 text-[10px] font-mono text-dim">
+            <span>Position Telemetry</span>
+            <SkeletonBlock className="w-20 h-2.5 rounded opacity-65" />
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -341,29 +400,27 @@ export const TradeDetailSkeleton = () => (
       </div>
     </div>
 
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-[74px] rounded-xl bg-surface/45 border border-border/35 p-3 flex flex-col justify-between">
-          <SkeletonBlock className="w-20 h-2.5 rounded opacity-70" />
-          <SkeletonBlock className="w-24 h-5 rounded" />
-        </div>
-      ))}
+    <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-3">
+      <StaticMetricSkeletonCard label="Unrealized P&L" compact={false} valueWidth="w-24" />
+      <StaticMetricSkeletonCard label="Reward : Risk" compact={false} valueWidth="w-20" />
+      <StaticMetricSkeletonCard label="Position Size" compact={false} valueWidth="w-24" />
+      <StaticMetricSkeletonCard label="Stop Distance" compact={false} valueWidth="w-20" />
     </div>
 
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div className="h-[220px] rounded-2xl bg-surface/35 border border-border/35 p-4 flex flex-col justify-between">
-        <SkeletonBlock className="w-40 h-3.5 rounded" />
+      <div className="h-[220px] rounded-2xl bg-surface/45 border border-border/45 p-4 flex flex-col justify-between">
+        <span className="text-[11px] font-bold uppercase tracking-widest text-dim">Price & Risk Ladder</span>
         <SkeletonBlock className="w-full h-24 rounded-xl opacity-75" />
-        <div className="flex justify-between">
-          <SkeletonBlock className="w-24 h-3 rounded opacity-65" />
-          <SkeletonBlock className="w-24 h-3 rounded opacity-65" />
+        <div className="flex justify-between text-[10px] font-mono text-dim">
+          <span>Entry Price</span>
+          <span>Stop Loss</span>
         </div>
       </div>
-      <div className="h-[220px] rounded-2xl bg-surface/35 border border-border/35 p-4 space-y-3">
-        <SkeletonBlock className="w-36 h-3.5 rounded" />
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="flex items-center justify-between">
-            <SkeletonBlock className="w-28 h-3 rounded opacity-70" />
+      <div className="h-[220px] rounded-2xl bg-surface/45 border border-border/45 p-4 space-y-3">
+        <span className="text-[11px] font-bold uppercase tracking-widest text-dim block">Signal & Execution Context</span>
+        {['Strategy', 'Side', 'Duration', 'Fee Impact'].map((fieldLabel) => (
+          <div key={fieldLabel} className="flex items-center justify-between text-xs">
+            <span className="text-dim">{fieldLabel}</span>
             <SkeletonBlock className="w-20 h-3 rounded" />
           </div>
         ))}
@@ -373,7 +430,7 @@ export const TradeDetailSkeleton = () => (
 )
 
 /**
- * Matches ActiveTradeCard stacked layout during session resume/hydration (prevents premature "No Active Trades" flash).
+ * Matches ActiveTradeCard stacked layout during session resume/hydration (keeps static cell labels visible).
  */
 export const ActiveTradesSkeleton = ({ count = 2 }) => (
   <div
@@ -385,7 +442,7 @@ export const ActiveTradesSkeleton = ({ count = 2 }) => (
     {Array.from({ length: count }).map((_, idx) => (
       <div
         key={idx}
-        className="rounded-2xl bg-surface/40 border border-border/40 p-4 space-y-3 min-h-[146px]"
+        className="rounded-2xl bg-surface/50 border border-border/50 p-4 space-y-3 min-h-[146px]"
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -399,9 +456,9 @@ export const ActiveTradesSkeleton = ({ count = 2 }) => (
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          {[0, 1, 2, 3].map((m) => (
-            <div key={m} className="rounded-lg bg-bg/40 border border-border/25 p-2 space-y-1.5">
-              <SkeletonBlock className="w-14 h-2.5 rounded opacity-65" />
+          {['Entry', 'Mark Price', 'Stop Loss', 'Risk / Target'].map((metricLabel) => (
+            <div key={metricLabel} className="rounded-lg bg-bg/40 border border-border/25 p-2 space-y-1.5">
+              <span className="text-[9px] uppercase tracking-wider text-dim font-bold block">{metricLabel}</span>
               <SkeletonBlock className="w-20 h-3.5 rounded" />
             </div>
           ))}
@@ -425,7 +482,7 @@ export const HistorySessionsSkeleton = ({ count = 3 }) => (
     {Array.from({ length: count }).map((_, idx) => (
       <div
         key={idx}
-        className="rounded-2xl bg-surface/40 border border-border/35 px-4 py-3.5 min-h-[76px] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        className="rounded-2xl bg-surface/50 border border-border/45 px-4 py-3.5 min-h-[76px] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
       >
         <div className="flex items-center gap-3 min-w-0">
           <SkeletonBlock className="w-8 h-8 rounded-lg shrink-0" />
@@ -439,12 +496,12 @@ export const HistorySessionsSkeleton = ({ count = 3 }) => (
         </div>
         <div className="flex items-center gap-4 sm:gap-6 shrink-0">
           <div className="space-y-1">
-            <SkeletonBlock className="w-12 h-2 rounded opacity-60" />
-            <SkeletonBlock className="w-16 h-3.5 rounded" />
+            <span className="text-[9px] uppercase tracking-wider text-dim font-bold block">Trades</span>
+            <SkeletonBlock className="w-12 h-3.5 rounded" />
           </div>
           <div className="space-y-1">
-            <SkeletonBlock className="w-12 h-2 rounded opacity-60" />
-            <SkeletonBlock className="w-14 h-3.5 rounded" />
+            <span className="text-[9px] uppercase tracking-wider text-dim font-bold block">Net P&L</span>
+            <SkeletonBlock className="w-16 h-3.5 rounded" />
           </div>
           <SkeletonBlock className="w-6 h-6 rounded-lg opacity-70" />
         </div>
@@ -454,7 +511,9 @@ export const HistorySessionsSkeleton = ({ count = 3 }) => (
 )
 
 /**
- * Matches DashboardView (Overview) geometry: ViewHeader + 4 Global Metric StatCards + Strategy Cards + Secondary Drawers.
+ * Matches DashboardView (Overview) geometry:
+ * Renders real static Overview header, real interactive Live|Paper EngineSwitch (never skeletonized),
+ * real Global Metrics labels/toolbar with value-only shimmers, and dynamic Strategy card telemetry placeholders.
  */
 export const DashboardSkeleton = () => (
   <div
@@ -463,66 +522,96 @@ export const DashboardSkeleton = () => (
     aria-busy="true"
     aria-label="Loading cockpit overview"
   >
-    <div className="min-h-[58px] w-full rounded-2xl bg-surface/45 border border-border/35 px-4 py-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <SkeletonBlock className="w-8 h-8 rounded-xl shrink-0" />
-        <div className="space-y-1.5">
-          <SkeletonBlock className="w-32 sm:w-44 h-4 rounded" />
-          <SkeletonBlock className="w-44 sm:w-64 h-2.5 rounded opacity-65" />
-        </div>
+    {/* Static ViewHeader chrome */}
+    <div className="min-h-[58px] w-full rounded-2xl bg-surface/75 border border-border/60 px-4 py-3 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <h1 className="text-sm sm:text-base font-black uppercase tracking-tight text-text truncate">Overview</h1>
+        <p className="text-[10px] sm:text-xs text-dim truncate">Real-time strategy management & market oversight</p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <SkeletonBlock className="w-20 h-8 rounded-xl hidden sm:block" />
-        <SkeletonBlock className="w-8 h-8 rounded-xl" />
+        <span className="hidden md:inline-flex h-8 px-2.5 items-center rounded-xl border border-border/60 bg-surface text-[9px] font-bold uppercase tracking-widest text-dim">
+          Eco Mode
+        </span>
       </div>
     </div>
 
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-      {[0, 1, 2, 3].map((i) => (
-        <div
-          key={i}
-          className="h-[68px] rounded-xl bg-surface/45 border border-border/35 px-3 py-2.5 flex flex-col justify-between"
-        >
-          <SkeletonBlock className="w-20 h-2.5 rounded opacity-70" />
-          <SkeletonBlock className="w-28 h-4 rounded" />
+    {/* Static EngineSwitch remains untouched and interactive between Live & Paper transitions */}
+    {selectedEngine && (
+      <div>
+        <EngineSwitch running={null} />
+      </div>
+    )}
+
+    {/* Global Metrics Header + Control Track */}
+    <div className="space-y-2.5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 w-full">
+        <div className="text-[11px] text-dim tracking-widest uppercase font-bold flex items-center gap-1.5">
+          Global Metrics
         </div>
-      ))}
+        <div className="grid grid-cols-2 sm:inline-flex items-stretch gap-1 p-1 bg-surface/90 border border-border/60 rounded-xl w-full sm:w-auto shrink-0">
+          <span className="h-9 sm:h-7 px-3 rounded-lg flex items-center justify-center text-[10px] font-mono font-bold uppercase tracking-wider text-dim">
+            Risk Limits
+          </span>
+          <span className="h-9 sm:h-7 px-3 rounded-lg flex items-center justify-center text-[10px] font-mono font-bold uppercase tracking-wider text-dim">
+            Expand
+          </span>
+        </div>
+      </div>
+
+      {/* 4 Global Metric StatCards: static labels remain visible, ONLY dynamic values shimmer */}
+      <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-2.5">
+        <StaticMetricSkeletonCard label="Account Balance" valueWidth="w-24" />
+        <StaticMetricSkeletonCard label="Active P&L" valueWidth="w-28" />
+        <StaticMetricSkeletonCard label="Live Risk" valueWidth="w-16" />
+        <StaticMetricSkeletonCard label="Peak RR" valueWidth="w-16" />
+      </div>
     </div>
 
-    <div className="rounded-xl bg-surface/40 border border-border/40 p-3 sm:p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <SkeletonBlock className="w-32 h-3.5 rounded" />
-        <SkeletonBlock className="w-40 h-7 rounded-lg opacity-75" />
+    {/* Active Strategy panel: static title + static view-mode tabs, dynamic strategy rows/numbers shimmer */}
+    <div className="rounded-xl bg-surface border border-border p-3 sm:p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2 min-h-[30px]">
+        <span className="text-[11px] text-dim tracking-widest uppercase font-bold">Active Strategy</span>
+        <div className="inline-flex items-center bg-background/60 border border-border/40 p-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider">
+          <span className="h-6 px-2.5 rounded-md bg-accent/20 text-accent inline-flex items-center">Detailed</span>
+          <span className="h-6 px-2.5 rounded-md text-dim inline-flex items-center">Compact</span>
+          <span className="h-6 px-2.5 rounded-md text-dim inline-flex items-center">List</span>
+        </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3">
         {[0, 1].map((i) => (
-          <div key={i} className="h-[132px] rounded-xl bg-background/50 border border-border/35 p-3.5 flex flex-col justify-between">
-            <div className="flex items-center justify-between">
+          <div key={i} className="h-[132px] rounded-xl bg-background/50 border border-border/40 p-3.5 flex flex-col justify-between">
+            <div className="flex items-center justify-between gap-2">
               <SkeletonBlock className="w-36 h-4 rounded" />
               <SkeletonBlock className="w-16 h-5 rounded-full opacity-75" />
             </div>
             <div className="grid grid-cols-3 gap-2">
-              <SkeletonBlock className="h-9 rounded-lg opacity-70" />
-              <SkeletonBlock className="h-9 rounded-lg opacity-70" />
-              <SkeletonBlock className="h-9 rounded-lg opacity-70" />
+              <div className="rounded-lg bg-surface/50 border border-border/30 p-2 space-y-1">
+                <span className="text-[9px] uppercase text-dim font-bold block">Active</span>
+                <SkeletonBlock className="w-14 h-3 rounded" />
+              </div>
+              <div className="rounded-lg bg-surface/50 border border-border/30 p-2 space-y-1">
+                <span className="text-[9px] uppercase text-dim font-bold block">Session</span>
+                <SkeletonBlock className="w-14 h-3 rounded" />
+              </div>
+              <div className="rounded-lg bg-surface/50 border border-border/30 p-2 space-y-1">
+                <span className="text-[9px] uppercase text-dim font-bold block">Slots</span>
+                <SkeletonBlock className="w-10 h-3 rounded" />
+              </div>
             </div>
           </div>
         ))}
       </div>
     </div>
 
-    <div className="rounded-2xl bg-surface/35 border border-border/35 px-4 py-3.5 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <SkeletonBlock className="w-8 h-8 rounded-xl" />
-        <SkeletonBlock className="w-44 h-3.5 rounded" />
-      </div>
-      <SkeletonBlock className="w-24 h-6 rounded-lg opacity-65" />
+    <div className="rounded-2xl bg-surface/55 border border-border/50 px-4 py-3.5 flex items-center justify-between">
+      <span className="text-xs font-black uppercase tracking-wider text-text">Periodic P&L</span>
+      <SkeletonBlock className="w-24 h-5 rounded-lg opacity-65" />
     </div>
   </div>
 )
 
 /**
- * Matches TradesView geometry: ViewHeader + 4 KPI cards + Tactical Filters toolbar + ActiveTradesSkeleton.
+ * Matches TradesView geometry: Static ViewHeader + real KPI labels with value shimmers + static filter bar + ActiveTradesSkeleton.
  */
 export const TradesSkeleton = () => (
   <div
@@ -531,32 +620,25 @@ export const TradesSkeleton = () => (
     aria-busy="true"
     aria-label="Loading active positions"
   >
-    <div className="min-h-[58px] w-full rounded-2xl bg-surface/45 border border-border/35 px-4 py-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <SkeletonBlock className="w-8 h-8 rounded-xl shrink-0" />
-        <div className="space-y-1.5">
-          <SkeletonBlock className="w-36 h-4 rounded" />
-          <SkeletonBlock className="w-48 h-2.5 rounded opacity-65" />
-        </div>
+    <div className="min-h-[58px] w-full rounded-2xl bg-surface/75 border border-border/60 px-4 py-3 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <h1 className="text-sm sm:text-base font-black uppercase tracking-tight text-text truncate">Active Positions</h1>
+        <p className="text-[10px] sm:text-xs text-dim truncate">Live monitoring across all strategies</p>
       </div>
     </div>
 
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-[72px] rounded-xl bg-surface/45 border border-border/35 p-3 flex flex-col justify-between">
-          <SkeletonBlock className="w-16 h-2.5 rounded opacity-70" />
-          <SkeletonBlock className="w-24 h-4 rounded" />
-          <SkeletonBlock className="w-28 h-2 rounded opacity-55" />
-        </div>
-      ))}
+    <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-2.5">
+      <StaticMetricSkeletonCard label="Active P&L" hasSubValue valueWidth="w-24" subWidth="w-28" />
+      <StaticMetricSkeletonCard label="Active Risk" hasSubValue valueWidth="w-16" subWidth="w-24" />
+      <StaticMetricSkeletonCard label="Peak RR" hasSubValue valueWidth="w-16" subWidth="w-24" />
+      <StaticMetricSkeletonCard label="Positions" hasSubValue valueWidth="w-14" subWidth="w-24" />
     </div>
 
-    <div className="h-[52px] rounded-xl bg-surface/45 border border-border/35 px-3 flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <SkeletonBlock className="w-6 h-6 rounded-lg" />
-        <SkeletonBlock className="w-28 h-3 rounded" />
-      </div>
-      <SkeletonBlock className="w-20 h-7 rounded-lg opacity-75" />
+    <div className="h-[52px] rounded-xl bg-surface border border-border px-3.5 flex items-center justify-between">
+      <span className="text-xs font-semibold text-text">Tactical Filters</span>
+      <span className="px-3 py-1 rounded-xl border border-border bg-surface-elevated text-[11px] font-semibold text-dim">
+        Filters
+      </span>
     </div>
 
     <ActiveTradesSkeleton count={2} />
@@ -564,7 +646,7 @@ export const TradesSkeleton = () => (
 )
 
 /**
- * Matches HistoryView geometry: ViewHeader + filter toolbar + Lifetime Analytics card + Session rows.
+ * Matches HistoryView geometry: Static ViewHeader + static filter toolbar + Lifetime Analytics labels with value shimmers + Session rows.
  */
 export const HistorySkeleton = () => (
   <div
@@ -573,40 +655,50 @@ export const HistorySkeleton = () => (
     aria-busy="true"
     aria-label="Loading trade history"
   >
-    <div className="min-h-[58px] w-full rounded-2xl bg-surface/45 border border-border/35 px-4 py-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <SkeletonBlock className="w-8 h-8 rounded-xl shrink-0" />
-        <div className="space-y-1.5">
-          <SkeletonBlock className="w-32 h-4 rounded" />
-          <SkeletonBlock className="w-52 h-2.5 rounded opacity-65" />
-        </div>
+    <div className="min-h-[58px] w-full rounded-2xl bg-surface/75 border border-border/60 px-4 py-3 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <h1 className="text-sm sm:text-base font-black uppercase tracking-tight text-text truncate">Trade History</h1>
+        <p className="text-[10px] sm:text-xs text-dim truncate">Session performance, analytics & backtest studio</p>
       </div>
-      <SkeletonBlock className="w-36 h-8 rounded-xl opacity-80" />
+      <div className="inline-flex items-center gap-1 p-1 rounded-xl border border-border bg-background/60 text-[11px] font-bold">
+        <span className="px-3 py-1 rounded-lg bg-accent/15 text-accent">History</span>
+        <span className="px-3 py-1 rounded-lg text-dim">Backtest</span>
+      </div>
     </div>
 
-    <div className="rounded-2xl bg-surface/40 border border-border/40 p-3 space-y-2.5">
+    <div className="rounded-2xl bg-surface/60 border border-border/50 p-3 space-y-2.5">
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
-        <SkeletonBlock className="w-full md:w-52 h-9 rounded-xl" />
-        <div className="flex items-center gap-2">
-          <SkeletonBlock className="flex-1 md:w-60 h-9 rounded-xl" />
-          <SkeletonBlock className="w-20 h-9 rounded-xl opacity-75" />
+        <div className="flex items-center gap-1 text-[11px] font-semibold">
+          <span className="px-3 py-1.5 rounded-lg bg-accent/15 text-accent border border-accent/30">Paper</span>
+          <span className="px-3 py-1.5 rounded-lg text-dim border border-border/40">Live</span>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-dim">
+          <span className="px-3 py-1.5 rounded-xl border border-border/50 bg-background/50">Search history...</span>
+          <span className="px-3 py-1.5 rounded-xl border border-border/50 bg-background/50">Filters</span>
         </div>
       </div>
-      <SkeletonBlock className="w-64 h-3 rounded opacity-55" />
     </div>
 
-    <div className="min-h-[68px] rounded-2xl bg-surface/35 border border-border/35 p-4 flex items-center justify-between gap-4">
-      <div className="flex items-center gap-3">
-        <SkeletonBlock className="w-10 h-10 rounded-xl" />
-        <div className="space-y-1.5">
-          <SkeletonBlock className="w-48 h-3.5 rounded" />
-          <SkeletonBlock className="w-36 h-2.5 rounded opacity-60" />
+    <div className="min-h-[68px] rounded-2xl bg-surface/55 border border-border/50 p-4 flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <div className="text-xs md:text-sm font-black tracking-tight uppercase text-text">Lifetime Analytics & Insights</div>
+        <div className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5 opacity-80">
+          Aggregated performance metrics
         </div>
       </div>
-      <div className="hidden sm:flex items-center gap-6">
-        <SkeletonBlock className="w-16 h-6 rounded" />
-        <SkeletonBlock className="w-16 h-6 rounded" />
-        <SkeletonBlock className="w-14 h-6 rounded" />
+      <div className="hidden sm:flex items-center gap-6 shrink-0">
+        <div className="space-y-1">
+          <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60 block">Net P&L</span>
+          <SkeletonBlock className="w-16 h-4 rounded" />
+        </div>
+        <div className="space-y-1">
+          <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60 block">Win Rate</span>
+          <SkeletonBlock className="w-14 h-4 rounded" />
+        </div>
+        <div className="space-y-1">
+          <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60 block">Sharpe</span>
+          <SkeletonBlock className="w-10 h-4 rounded" />
+        </div>
       </div>
     </div>
 
@@ -615,7 +707,7 @@ export const HistorySkeleton = () => (
 )
 
 /**
- * Matches SettingsView geometry: ViewHeader + 4 KPI cards + Category tabs + Settings accordion cards.
+ * Matches SettingsView geometry: Static ViewHeader + 4 KPI cards with static labels + real Category tabs + static Settings section titles.
  */
 export const SettingsSkeleton = () => (
   <div
@@ -624,41 +716,47 @@ export const SettingsSkeleton = () => (
     aria-busy="true"
     aria-label="Loading system settings"
   >
-    <div className="min-h-[58px] w-full rounded-2xl bg-surface/45 border border-border/35 px-4 py-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <SkeletonBlock className="w-8 h-8 rounded-xl shrink-0" />
-        <div className="space-y-1.5">
-          <SkeletonBlock className="w-36 h-4 rounded" />
-          <SkeletonBlock className="w-56 h-2.5 rounded opacity-65" />
-        </div>
+    <div className="min-h-[58px] w-full rounded-2xl bg-surface/75 border border-border/60 px-4 py-3 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <h1 className="text-sm sm:text-base font-black uppercase tracking-tight text-text truncate">System Settings</h1>
+        <p className="text-[10px] sm:text-xs text-dim truncate">API credentials, trading mode, display & diagnostics</p>
       </div>
-      <SkeletonBlock className="w-24 h-8 rounded-lg opacity-75" />
     </div>
 
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-[72px] rounded-xl bg-surface/45 border border-border/35 p-3 flex flex-col justify-between">
-          <SkeletonBlock className="w-20 h-2.5 rounded opacity-70" />
-          <SkeletonBlock className="w-24 h-4 rounded" />
-          <SkeletonBlock className="w-28 h-2 rounded opacity-55" />
-        </div>
-      ))}
+    <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2.5">
+      <StaticMetricSkeletonCard label="Environment" hasSubValue valueWidth="w-20" subWidth="w-24" />
+      <StaticMetricSkeletonCard label="Readiness" hasSubValue valueWidth="w-16" subWidth="w-24" />
+      <StaticMetricSkeletonCard label="Stream" hasSubValue valueWidth="w-20" subWidth="w-24" />
+      <StaticMetricSkeletonCard label="Display" hasSubValue valueWidth="w-20" subWidth="w-24" />
     </div>
 
-    <div className="h-[44px] w-full sm:w-[460px] rounded-xl bg-surface/40 border border-border/35 p-1 flex items-center gap-1.5">
-      {[0, 1, 2, 3, 4].map((i) => (
-        <SkeletonBlock key={i} className="flex-1 h-full rounded-lg opacity-70" />
+    <div className="h-[44px] w-full sm:w-auto rounded-xl bg-surface/60 border border-border/50 p-1 inline-flex items-center gap-1 overflow-x-auto">
+      {['All Sections', 'Security & Keys', 'Engine & Data', 'Workspace & UI', 'Diagnostics & Reset'].map((cat, idx) => (
+        <span
+          key={cat}
+          className={cn(
+            'px-3 h-full rounded-lg inline-flex items-center text-[11px] font-semibold whitespace-nowrap',
+            idx === 0 ? 'bg-accent/15 text-accent border border-accent/25' : 'text-dim'
+          )}
+        >
+          {cat}
+        </span>
       ))}
     </div>
 
     <div className="flex flex-col gap-3">
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div key={i} className="h-[58px] rounded-2xl bg-surface/40 border border-border/35 px-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <SkeletonBlock className="w-40 h-3.5 rounded" />
-            <SkeletonBlock className="w-24 h-3 rounded opacity-60 hidden sm:block" />
+      {[
+        'Appearance & Visual Comfort',
+        'Streaming & System Alerts',
+        'Exchange Credentials',
+        'Engine & Scanner Bandwidth',
+        'Startup Checklist & Maintenance',
+      ].map((sectionTitle) => (
+        <div key={sectionTitle} className="h-[58px] rounded-2xl bg-surface/55 border border-border/50 px-5 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-xs font-bold uppercase tracking-wider text-text truncate">{sectionTitle}</span>
           </div>
-          <SkeletonBlock className="w-4 h-4 rounded opacity-65" />
+          <SkeletonBlock className="w-16 h-3 rounded opacity-65 shrink-0" />
         </div>
       ))}
     </div>
@@ -666,7 +764,7 @@ export const SettingsSkeleton = () => (
 )
 
 /**
- * Matches BacktestPanel results area while historical simulation is running.
+ * Matches BacktestPanel results area while historical simulation is running (keeps KPI labels static).
  */
 export const BacktestResultsSkeleton = () => (
   <div
@@ -675,18 +773,22 @@ export const BacktestResultsSkeleton = () => (
     aria-busy="true"
     aria-label="Running backtest simulation"
   >
-    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-      {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-        <div key={i} className="h-[76px] rounded-xl bg-surface/45 border border-border/35 p-3 flex flex-col justify-between">
-          <SkeletonBlock className="w-16 h-2.5 rounded opacity-70" />
-          <SkeletonBlock className="w-20 h-4 rounded" />
-          <SkeletonBlock className="w-24 h-2 rounded opacity-55" />
-        </div>
+    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 auto-rows-fr items-stretch gap-3">
+      {[
+        'Net Return',
+        'Win Rate',
+        'Profit Factor',
+        'Max Drawdown',
+        'Sharpe',
+        'Total Trades',
+        'Expectancy',
+      ].map((kpiLabel) => (
+        <StaticMetricSkeletonCard key={kpiLabel} label={kpiLabel} hasSubValue valueWidth="w-16" subWidth="w-20" />
       ))}
     </div>
     <ChartPanelSkeleton height={240} label="Simulating equity curve" />
-    <div className="rounded-2xl bg-surface/35 border border-border/35 p-4 space-y-2.5">
-      <SkeletonBlock className="w-40 h-3.5 rounded" />
+    <div className="rounded-2xl bg-surface/45 border border-border/45 p-4 space-y-2.5">
+      <span className="text-xs font-bold uppercase tracking-wider text-text block">Symbol Performance</span>
       {[0, 1, 2].map((i) => (
         <div key={i} className="h-[46px] rounded-xl bg-background/40 border border-border/25 px-3 flex items-center justify-between">
           <SkeletonBlock className="w-28 h-3.5 rounded" />
@@ -710,7 +812,7 @@ export const StartupChecklistSkeleton = ({ count = 6 }) => (
     {Array.from({ length: count }).map((_, i) => (
       <div key={i} className="rounded-xl border border-border/40 bg-background/40 p-4 space-y-2.5 min-h-[112px]">
         <div className="flex items-center justify-between gap-2">
-          <SkeletonBlock className="w-20 h-2.5 rounded opacity-65" />
+          <span className="text-[9px] font-bold uppercase tracking-wider text-dim">Check #{i + 1}</span>
           <SkeletonBlock className="w-12 h-3 rounded opacity-75" />
         </div>
         <SkeletonBlock className="w-36 h-3.5 rounded" />
@@ -733,23 +835,19 @@ export const ModalDrawerSkeleton = () => (
   >
     <div className="flex items-center justify-between border-b border-border/30 pb-3">
       <div className="flex items-center gap-3">
-        <SkeletonBlock className="w-8 h-8 rounded-xl" />
-        <div className="space-y-1.5">
-          <SkeletonBlock className="w-28 h-4 rounded" />
+        <div className="space-y-1">
+          <div className="text-xs font-bold uppercase tracking-wider text-text">Position Telemetry</div>
           <SkeletonBlock className="w-36 h-2.5 rounded opacity-65" />
         </div>
       </div>
-      <SkeletonBlock className="w-7 h-7 rounded-lg" />
+      <span className="px-2 py-1 rounded-lg border border-border/50 text-xs text-dim">ESC</span>
     </div>
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-[70px] rounded-xl bg-surface/45 border border-border/35 p-3 flex flex-col justify-between">
-          <SkeletonBlock className="w-16 h-2.5 rounded opacity-70" />
-          <SkeletonBlock className="w-20 h-4 rounded" />
-        </div>
-      ))}
+    <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-3">
+      <StaticMetricSkeletonCard label="Unrealized P&L" valueWidth="w-20" />
+      <StaticMetricSkeletonCard label="Reward : Risk" valueWidth="w-16" />
+      <StaticMetricSkeletonCard label="Entry Price" valueWidth="w-20" />
+      <StaticMetricSkeletonCard label="Stop Loss" valueWidth="w-20" />
     </div>
     <ChartPanelSkeleton height={220} label="Loading trade telemetry" />
   </div>
 )
-

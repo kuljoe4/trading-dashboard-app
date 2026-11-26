@@ -41,6 +41,7 @@ import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { SmoothCollapse, SmoothSwap, MOTION_EASE } from '../components/ui/SmoothMotion'
 import { StrategyDetailSkeleton, DecisionLogSkeleton, ScannerRowsSkeleton, SkeletonBlock } from '../components/ui/Skeletons'
+import { EngineSwitch } from '../components/EngineSwitch'
 import { useNow } from '../hooks/useNow'
 
 const TemporalRiskGrid = React.memo(() => {
@@ -143,63 +144,6 @@ const TemporalRiskGrid = React.memo(() => {
 
 // Lazy Load heavy components
 const DecisionLog = lazyWithRetry(() => import('../components/DecisionLog').then(module => ({ default: module.DecisionLog })))
-const EngineSwitch = ({ running }) => {
-  const [otherRunning, setOtherRunning] = useState(null);
-  const otherEngine = selectedEngine === 'live' ? 'paper' : 'live';
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let pending = false;
-    const refresh = async () => {
-      if (pending) return;
-      pending = true;
-      try {
-        const { data } = await sessionAPI.engineStatus(otherEngine, controller.signal);
-        if (!controller.signal.aborted) {
-          setOtherRunning(data.mode === otherEngine && typeof data.running === 'boolean' ? data.running : null);
-        }
-      } catch {
-        if (!controller.signal.aborted) setOtherRunning(null);
-      } finally {
-        pending = false;
-      }
-    };
-    refresh();
-    const timer = setInterval(refresh, 15000);
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
-  }, [otherEngine]);
-
-  return (
-    <nav aria-label="Trading engine" className="inline-flex items-center gap-1 rounded-xl border border-border bg-surface p-1">
-      {['live', 'paper'].map(mode => {
-        const active = mode === selectedEngine;
-        const status = active ? running : otherRunning;
-        const label = mode === 'live' ? 'Live' : 'Paper';
-        const statusLabel = status === null ? 'Status unavailable' : status ? 'Running' : 'Stopped';
-        const url = new URL(window.location.href);
-        url.searchParams.set('engine', mode);
-        url.hash = '#/';
-        return (
-          <a
-            key={mode}
-            href={url.href}
-            aria-current={active ? 'page' : undefined}
-            aria-label={`${label} · ${statusLabel}`}
-            title={statusLabel}
-            className={cn('inline-flex min-h-8 items-center gap-2 rounded-lg px-3 text-xs font-semibold focus-visible:ring-2 focus-visible:ring-accent',
-              active ? 'bg-accent/15 text-accent' : 'text-dim hover:text-text')}
-          >
-            <span aria-hidden="true" className={cn('h-2 w-2 rounded-full', status === null ? 'bg-amber' : status ? 'bg-green' : 'bg-dim/50')} />
-            {label}
-          </a>
-        );
-      })}
-    </nav>
-  );
-};
 
 const ConfigModal = lazyWithRetry(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
 const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
@@ -733,7 +677,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
         className={cn(
           "bg-surface border border-border/40 rounded-xl p-2.5 sm:px-3 sm:py-2 flex items-center justify-between gap-2.5 w-full shadow-sm cursor-pointer hover:border-accent/40 hover:bg-white/[0.02] transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden min-h-[42px]",
           className,
-          isResuming && "opacity-80 border-accent/20"
+          isResuming && "border-accent/25"
         )}
         aria-label={`View details for ${s.strategy_label} strategy, active P&L ${fmtUSD(s.activePnl)}, session return ${fmtUSD(s.totalPnl)}`}
       >
@@ -832,18 +776,10 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
         "bg-surface border border-border/40 rounded-xl flex flex-col w-full h-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
         isCompact ? "p-2.5 gap-2" : "p-3 sm:p-3.5 gap-2.5",
         className,
-        isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
+        isResuming && "border-accent/25"
       )}
       aria-label={`View details for ${s.strategy_label} strategy, active positions P&L is ${fmtUSD(s.activePnl)}, total session return is ${fmtUSD(s.totalPnl)}`}
     >
-      {showResumingFeedback && (
-        <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] z-10 flex items-center justify-center pointer-events-none">
-           <div className="bg-background/80 border border-accent/20 px-3 py-1 rounded-full text-[8px] font-black text-accent uppercase tracking-widest flex items-center gap-1.5 shadow-xl animate-in fade-in zoom-in duration-300">
-              <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
-           </div>
-        </div>
-      )}
-
       {/* Card Header */}
       <div className="flex justify-between items-start gap-2.5">
         <div className="flex flex-col gap-1 min-w-0 flex-1">
@@ -1430,9 +1366,9 @@ export function DashboardView({ initialStrategy }) {
     scannerResults, sessionList, fetchSessions, wsStatus,
     updateStats, analytics, stats, lastUdsBalanceReason, lastUdsBalanceTs,
     variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
+    healthEnabled, isSyncing, setSyncing, historyLoading, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
     fetchTradeHistory, fetchAnalytics, tradeHistory, sessionTradeHistory, sessionTradeHistoryId, tradeHistoryCounts, sessionTradeHistoryCounts,
-    initialStatusLoaded
+    initialStatusLoaded, lastAuthoritativeUpdateTs
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -1468,6 +1404,7 @@ export function DashboardView({ initialStrategy }) {
     healthEnabled: state.healthEnabled,
     isSyncing: state.isSyncing,
     setSyncing: state.setSyncing,
+    historyLoading: state.historyLoading,
     configSyncing: state.configSyncing,
     isAdaptiveTightened: state.isAdaptiveTightened,
     apiStatus: state.apiStatus,
@@ -1484,7 +1421,8 @@ export function DashboardView({ initialStrategy }) {
     sessionTradeHistoryId: state.sessionTradeHistoryId,
     tradeHistoryCounts: state.tradeHistoryCounts,
     sessionTradeHistoryCounts: state.sessionTradeHistoryCounts,
-    initialStatusLoaded: state.initialStatusLoaded
+    initialStatusLoaded: state.initialStatusLoaded,
+    lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs
   }), shallow)
 
   useEffect(() => {
@@ -1499,14 +1437,21 @@ export function DashboardView({ initialStrategy }) {
   const activeTradingMode = config?.trading_mode || (config?.paper_mode === false ? 'live' : 'paper');
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
   const showResumingFeedback = sessionActive && isResuming;
+  const coldUnhydrated = !initialStatusLoaded && !lastAuthoritativeUpdateTs;
   const effectiveTotalPnl = (safeNum(totalPnl) === 0 && sessionActive && isResuming && safeNum(lastKnownPnl?.totalPnl) !== 0)
     ? safeNum(lastKnownPnl?.totalPnl)
     : safeNum(totalPnl);
+  const effectiveTotalRiskPct = (safeNum(totalRiskPct) === 0 && sessionActive && (isResuming || (activeTrades || []).length > 0) && safeNum(lastKnownPnl?.totalRiskPct) > 0)
+    ? safeNum(lastKnownPnl?.totalRiskPct)
+    : safeNum(totalRiskPct);
+  const effectiveEstPnlToRealize = (safeNum(totalEstPnlToRealize) === 0 && sessionActive && (isResuming || (activeTrades || []).length > 0) && safeNum(lastKnownPnl?.totalEstPnlToRealize) !== 0)
+    ? safeNum(lastKnownPnl?.totalEstPnlToRealize)
+    : safeNum(totalEstPnlToRealize);
 
   const currentStrategy = useMemo(() => ({
-    sessionActive, sessionPaused, strategyId, totalPnl: effectiveTotalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount,
+    sessionActive, sessionPaused, strategyId, totalPnl: effectiveTotalPnl, totalRiskPct: effectiveTotalRiskPct, totalSlUsed, totalEstPnlToRealize: effectiveEstPnlToRealize, activeTrades, entryCount, hitCount,
     strategy_label: config?.strategy_label || 'Momentum Strategy'
-  }), [sessionActive, sessionPaused, strategyId, effectiveTotalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount, config?.strategy_label])
+  }), [sessionActive, sessionPaused, strategyId, effectiveTotalPnl, effectiveTotalRiskPct, totalSlUsed, effectiveEstPnlToRealize, activeTrades, entryCount, hitCount, config?.strategy_label])
 
   const validTradeHistory = useMemo(() => {
     const hist = tradeHistory || [];
@@ -1715,6 +1660,10 @@ export function DashboardView({ initialStrategy }) {
           if (labelTradeSum !== 0) pnlMap[label] = labelTradeSum;
         }
       }
+    }
+
+    if (maxRrAchieved === 0 && sessionActive && (isResuming || trades.length > 0) && safeNum(lastKnownPnl?.maxRr) > 0) {
+      maxRrAchieved = safeNum(lastKnownPnl?.maxRr);
     }
 
     return {
@@ -2297,6 +2246,8 @@ export function DashboardView({ initialStrategy }) {
               wrapSubValue={globalMetricsExpanded}
               label="Account Balance"
               value={`$${balance.toLocaleString()}`}
+              valueLoading={coldUnhydrated}
+              subValueLoading={coldUnhydrated && globalMetricsExpanded}
               tooltipText={(() => {
                 const tradingMode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
                 const startBal = tradingMode === 'paper'
@@ -2385,6 +2336,8 @@ export function DashboardView({ initialStrategy }) {
                 const activePct = balance > 0 ? (totalActivePnl / balance) * 100 : 0;
                 return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
               })()})`}
+              valueLoading={coldUnhydrated}
+              subValueLoading={coldUnhydrated && globalMetricsExpanded}
               color={pnlClass(totalActivePnl)}
               subValue={globalMetricsExpanded ? (() => {
                 const modeLabel = config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live');
@@ -2422,16 +2375,17 @@ export function DashboardView({ initialStrategy }) {
                   </div>
                 );
               })() : null}
-              syncing={isResuming}
               tooltipText="Current unrealized P&L, Peak P&L, Min P&L (MAE), and session P&L across all active trades."
             />
             <StatCard
               compact={!globalMetricsExpanded}
               wrapSubValue={globalMetricsExpanded}
               label="Live Risk"
-              value={`${Number(totalRiskPct || 0).toFixed(1)}%`}
-              color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
-              subValue={globalMetricsExpanded ? `Cap: ${Number(config.max_total_risk_pct || 5).toFixed(1)}% · ${(activeTrades || []).length}/${config.max_open_trades || 3} Slots · ${fmtUSD((balance * Number(totalRiskPct || 0)) / 100)} at risk` : null}
+              value={`${Number(effectiveTotalRiskPct || 0).toFixed(1)}%`}
+              valueLoading={coldUnhydrated}
+              subValueLoading={coldUnhydrated && globalMetricsExpanded}
+              color={effectiveTotalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
+              subValue={globalMetricsExpanded ? `Cap: ${Number(config.max_total_risk_pct || 5).toFixed(1)}% · ${(activeTrades || []).length}/${config.max_open_trades || 3} Slots · ${fmtUSD((balance * Number(effectiveTotalRiskPct || 0)) / 100)} at risk` : null}
               tooltipText="Combined risk percentage across all open positions relative to account equity."
             />
             <StatCard
@@ -2439,8 +2393,10 @@ export function DashboardView({ initialStrategy }) {
               wrapSubValue={globalMetricsExpanded}
               label="Peak RR"
               value={`+${Number(maxRR || 0).toFixed(2)}`}
+              valueLoading={coldUnhydrated}
+              subValueLoading={coldUnhydrated && globalMetricsExpanded}
               color="text-accent"
-              subValue={globalMetricsExpanded ? `${hitCount || 0}/${entryCount || 0} Hits${entryCount > 0 ? ` (${Math.round(((hitCount || 0) / entryCount) * 100)}%)` : ''} · TP ${fmtUSD(totalEstPnlToRealize || 0)}` : null}
+              subValue={globalMetricsExpanded ? `${hitCount || 0}/${entryCount || 0} Hits${entryCount > 0 ? ` (${Math.round(((hitCount || 0) / entryCount) * 100)}%)` : ''} · TP ${fmtUSD(effectiveEstPnlToRealize || 0)}` : null}
               tooltipText="Maximum Reward-to-Risk ratio achieved during this trading session."
             />
           </div>
@@ -2552,8 +2508,8 @@ export function DashboardView({ initialStrategy }) {
                   const baseTotalPnl = (rawBaseVariantPnl !== undefined && rawBaseVariantPnl !== null && (rawBaseVariantPnl !== 0 || baseComputedPnl === 0))
                     ? rawBaseVariantPnl
                     : baseComputedPnl;
-                  const baseEntryCount = safeVariantStats[baseLabel]?.entryCount ?? (baseMetric ? (baseMetric.count ?? (baseMetric.wins + (baseMetric.losses || 0))) : (activeVariants.length > 0 ? (activeTradeCountsMap[baseLabel] || 0) : currentStrategy.entryCount));
-                  const baseHitCount = safeVariantStats[baseLabel]?.hitCount ?? (baseMetric ? baseMetric.wins : (activeVariants.length > 0 ? 0 : currentStrategy.hitCount));
+                  const baseEntryCount = safeVariantStats[baseLabel]?.entryCount ?? (baseMetric ? (baseMetric.count ?? (baseMetric.wins + (baseMetric.losses || 0))) : (baseCachedVar?.entryCount ?? (activeVariants.length > 0 ? (activeTradeCountsMap[baseLabel] || 0) : currentStrategy.entryCount)));
+                  const baseHitCount = safeVariantStats[baseLabel]?.hitCount ?? (baseMetric ? baseMetric.wins : (baseCachedVar?.hitCount ?? (activeVariants.length > 0 ? 0 : currentStrategy.hitCount)));
 
                   return (
                     <>
@@ -2605,8 +2561,8 @@ export function DashboardView({ initialStrategy }) {
                         const variantTotalPnl = (rawVariantPnl !== undefined && rawVariantPnl !== null && (rawVariantPnl !== 0 || variantComputedPnl === 0))
                           ? rawVariantPnl
                           : variantComputedPnl;
-                        const variantEntryCount = safeVariantStats[label]?.entryCount ?? (stratMetric ? (stratMetric.count ?? (stratMetric.wins + (stratMetric.losses || 0))) : (activeTradeCountsMap[label] || 0));
-                        const variantHitCount = safeVariantStats[label]?.hitCount ?? (stratMetric ? stratMetric.wins : 0);
+                        const variantEntryCount = safeVariantStats[label]?.entryCount ?? (stratMetric ? (stratMetric.count ?? (stratMetric.wins + (stratMetric.losses || 0))) : (variantCached?.entryCount ?? (activeTradeCountsMap[label] || 0)));
+                        const variantHitCount = safeVariantStats[label]?.hitCount ?? (stratMetric ? stratMetric.wins : (variantCached?.hitCount ?? 0));
                         return (
                           <StrategyCard
                             key={label}
@@ -2668,12 +2624,12 @@ export function DashboardView({ initialStrategy }) {
                 <button
                   onClick={() => { preloadConfigModal(); setIsEditMode(false); setSelectedConfig(null); setModalConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
                   onMouseEnter={preloadConfigModal}
-                  disabled={loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
+                  disabled={loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
                   aria-label="Create new trading strategy"
                   className={cn(
                     "bg-background border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-dim transition-all group min-h-[110px] w-full",
                     lastSession ? "col-span-1" : "col-span-1 md:col-span-2",
-                    (loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                    (loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                   )}
                 >
                   <div className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-xs">
@@ -2687,11 +2643,11 @@ export function DashboardView({ initialStrategy }) {
                 {lastSession && (
                   <button
                     onClick={handleResumeLast}
-                    disabled={loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
+                    disabled={loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
                     aria-label={`Resume last session: ${lastSession.config?.strategy_label || lastSession.strategyLabel || 'Previous Session'}`}
                     className={cn(
                       "bg-background border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-dim transition-all group min-h-[110px] w-full col-span-1",
-                      (loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                      (loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                     )}
                   >
                     <div className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-xs">
@@ -2725,7 +2681,7 @@ export function DashboardView({ initialStrategy }) {
             hasSession={Boolean(effectivePeriodicSessionId)}
             sessionLabel={sessionActive ? 'This Session' : (lastSession ? 'Last Session' : 'Session')}
             nowTick={nowTick}
-            isLoadingHistory={isSyncing}
+            isLoadingHistory={historyLoading}
           />
 
           <div className="bg-surface border border-border rounded-xl px-3 py-2.5 sm:px-3.5 shadow-sm flex flex-col gap-2.5 overflow-hidden w-full">

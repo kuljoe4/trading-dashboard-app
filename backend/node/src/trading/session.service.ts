@@ -947,8 +947,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
     if (config.signal_params && typeof config.signal_params === "object" && !Array.isArray(config.signal_params)) {
       const keys = Object.keys(config.signal_params);
-      if (keys.length > 50) {
-        throw new BadRequestException("signal_params cannot exceed 50 entries");
+      if (keys.length > 200) {
+        throw new BadRequestException("signal_params cannot exceed 200 entries");
       }
       const valPrimitive = (v: any): boolean => {
         if (v === null || v === undefined) return true;

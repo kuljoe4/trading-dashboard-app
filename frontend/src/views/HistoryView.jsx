@@ -2104,7 +2104,7 @@ SessionGroup.displayName = 'SessionGroup'
 const PAGE_SIZE = 10
 
 export const HistoryView = () => {
-  const { tradeHistory, tradeHistoryCounts, updateStats, sidebarCollapsed, sessionList, sessionListCounts, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus, config, updateConfig, sessionActive, strategyId, addAlert } = useTradingStore(state => ({
+  const { tradeHistory, tradeHistoryCounts, updateStats, sidebarCollapsed, sessionList, sessionListCounts, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, historyLoading, sessionsLoading, analyticsLoading, fetchTradeHistory, isThrottled, wsStatus, config, updateConfig, sessionActive, strategyId, addAlert } = useTradingStore(state => ({
     tradeHistory: state.tradeHistory,
     tradeHistoryCounts: state.tradeHistoryCounts,
     updateStats: state.updateStats,
@@ -2116,7 +2116,9 @@ export const HistoryView = () => {
     lifetimeAnalytics: state.lifetimeAnalytics,
     fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
     healthEnabled: state.healthEnabled,
-    isSyncing: state.isSyncing,
+    historyLoading: state.historyLoading,
+    sessionsLoading: state.sessionsLoading,
+    analyticsLoading: state.analyticsLoading,
     fetchTradeHistory: state.fetchTradeHistory,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
@@ -2194,12 +2196,18 @@ export const HistoryView = () => {
   const handlePromotePastWeekStrategy = React.useCallback(async (item, options = {}) => {
     if (!item) return false
     const {
+      action = 'promote',
+      riskPlan: explicitPlan = null,
+      pauseStrategy = false,
       updateActive = false,
       activateIfInactive = false,
       activationMode = 'variant',
       savePreset = true,
     } = options
-    const { strategyLabel: targetLabel, riskPlan, effectiveConfig, locationFlags } = item
+    const resolvedAction = action === 'demote' ? 'demote' : 'promote'
+    const isDemote = resolvedAction === 'demote'
+    const { strategyLabel: targetLabel, effectiveConfig, locationFlags } = item
+    const activePlan = explicitPlan || (isDemote ? item.demoteRiskPlan : item.riskPlan)
     setPromotingLabel(targetLabel)
 
     const actionsTaken = []
@@ -2208,7 +2216,9 @@ export const HistoryView = () => {
         const activeResult = buildActiveConfigPromotionUpdate({
           activeConfig: config || {},
           strategyLabel: targetLabel,
-          riskPlan,
+          riskPlan: activePlan,
+          action: resolvedAction,
+          pauseStrategy,
           fallbackConfig: effectiveConfig,
           activateIfInactive,
           activationMode,
@@ -2236,6 +2246,9 @@ export const HistoryView = () => {
                   : 'running session')
               : 'active draft'
           )
+          if (isDemote && pauseStrategy) {
+            actionsTaken.push('paused')
+          }
         }
       }
 
@@ -2244,7 +2257,8 @@ export const HistoryView = () => {
           preset: locationFlags?.matchedPreset || null,
           fallbackConfig: effectiveConfig,
           strategyLabel: targetLabel,
-          riskPlan,
+          riskPlan: activePlan,
+          action: resolvedAction,
         })
         const res = await presetsAPI.save(name, payload, { overwrite: true })
         const savedPreset = res?.data?.preset || res?.data
@@ -2260,15 +2274,15 @@ export const HistoryView = () => {
 
       addAlert?.({
         level: 'success',
-        title: 'Strategy Promoted (2× Risk)',
-        message: `"${targetLabel}" scaled to ${formatRiskPct(riskPlan.nextRiskPerTrade)}/trade · ${formatRiskPct(riskPlan.nextMaxTotalRisk)} max (${actionsTaken.join(' & ')}).`,
+        title: isDemote ? 'Strategy Demoted (0.5× Risk)' : 'Strategy Promoted (2× Risk)',
+        message: `"${targetLabel}" scaled to ${formatRiskPct(activePlan.nextRiskPerTrade)}/trade · ${formatRiskPct(activePlan.nextMaxTotalRisk)} max (${actionsTaken.join(' & ')}).`,
       })
       return true
     } catch (err) {
       addAlert?.({
         level: 'error',
-        title: 'Promotion Failed',
-        message: err?.response?.data?.message || err?.message || 'Could not persist doubled strategy risk limits.',
+        title: isDemote ? 'Demotion Failed' : 'Promotion Failed',
+        message: err?.response?.data?.message || err?.message || (isDemote ? 'Could not persist halved strategy risk limits.' : 'Could not persist doubled strategy risk limits.'),
       })
       return false
     } finally {
@@ -2651,7 +2665,6 @@ export const HistoryView = () => {
   const handleDeleteOrphans = async () => {
     setDeletingOrphans(true)
     try {
-      updateStats({ isSyncing: true })
       await sessionAPI.deleteOrphans()
       // Refresh history and analytics
       const [historyRes, _] = await Promise.all([
@@ -2679,7 +2692,6 @@ export const HistoryView = () => {
       })
     } finally {
       setDeletingOrphans(false)
-      updateStats({ isSyncing: false })
     }
   }
 
@@ -3136,7 +3148,7 @@ export const HistoryView = () => {
               {/* High-level Micro-metrics summary */}
               {!analyticsExpanded && (
                 <div className="grid grid-cols-3 sm:flex items-center gap-3 sm:gap-6 w-full sm:w-auto sm:ml-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-border/20 min-h-[34px]">
-                  {loading && !currentAnalytics ? (
+                  {(loading || analyticsLoading) && !currentAnalytics ? (
                     <>
                       <div className="flex flex-col gap-1" aria-label="Loading lifetime analytics">
                         <span className="text-[8px] text-dim font-black uppercase tracking-widest opacity-60">Net P&L</span>
@@ -3197,23 +3209,17 @@ export const HistoryView = () => {
                 transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
                 className="overflow-hidden bg-surface/5 border-x border-b border-border/50 rounded-b-2xl p-4 md:p-6 flex flex-col gap-6 md:gap-8"
               >
-                {/* 1. Stat Cards Grid (First 6) */}
-                {loading && !currentAnalytics ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 auto-rows-fr items-stretch gap-3 md:gap-4" role="status" aria-busy="true" aria-label="Loading analytics summary cards">
-                    {[0, 1, 2, 3, 4, 5].map((idx) => (
-                      <div key={idx} className="min-h-[76px] rounded-xl bg-surface/45 border border-border/35 p-3.5 flex flex-col justify-between">
-                        <SkeletonBlock className="w-20 h-2.5 rounded opacity-70" />
-                        <SkeletonBlock className="w-24 h-4 rounded" />
-                        <SkeletonBlock className="w-28 h-2 rounded opacity-55" />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
+                {/* 1. Stat Cards Grid (Static card headers stay visible; only dynamic values shimmer while analytics load) */}
+                {(() => {
+                  const isAnalyticsLoading = (loading || analyticsLoading) && !currentAnalytics;
+                  return (
                 <>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 auto-rows-fr items-stretch gap-3 md:gap-4 gap-y-4">
                   <StatCard
                     label="Total Performance"
                     value={fmtUSD(totalPnl)}
+                    valueLoading={isAnalyticsLoading}
+                    subValueLoading={isAnalyticsLoading}
                     color={pnlClass(totalPnl)}
                     tooltipText="Net profit/loss including realized fees and funding across all recorded history for the selected environment."
                     subValue={
@@ -3226,6 +3232,8 @@ export const HistoryView = () => {
                   <StatCard
                     label="Win Rate"
                     value={`${winRate}%`}
+                    valueLoading={isAnalyticsLoading}
+                    subValueLoading={isAnalyticsLoading}
                     color="text-accent"
                     subValue={`${wins}W / ${totalTrades - wins}L`}
                     tooltipText={`Percentage of profitable trades: ${wins} winning trades out of ${totalTrades} total trades.`}
@@ -3233,6 +3241,8 @@ export const HistoryView = () => {
                   <StatCard
                     label="Max Drawdown"
                     value={currentAnalytics ? fmtUSD(-currentAnalytics.maxDrawdown) : '$0.00'}
+                    valueLoading={isAnalyticsLoading}
+                    subValueLoading={isAnalyticsLoading}
                     color="text-red"
                     subValue={currentAnalytics ? `${Number(currentAnalytics.maxDrawdownPct || 0).toFixed(1)}% Peak` : '0%'}
                     tooltipText="Maximum dollar and percentage drawdown observed from equity peak to trough."
@@ -3240,6 +3250,8 @@ export const HistoryView = () => {
                   <StatCard
                     label="Avg Win"
                     value={fmtUSD(currentAnalytics?.avgWin || 0)}
+                    valueLoading={isAnalyticsLoading}
+                    subValueLoading={isAnalyticsLoading}
                     color="text-green"
                     subValue={`${wins} Winning Trades`}
                     tooltipText="Average dollar gain across all profitable trades."
@@ -3247,6 +3259,8 @@ export const HistoryView = () => {
                   <StatCard
                     label="Avg Loss"
                     value={fmtUSD(-(currentAnalytics?.avgLoss || 0))}
+                    valueLoading={isAnalyticsLoading}
+                    subValueLoading={isAnalyticsLoading}
                     color="text-red"
                     subValue={`${Math.max(0, totalTrades - wins)} Losing Trades`}
                     tooltipText="Average dollar loss across all unprofitable trades."
@@ -3254,6 +3268,8 @@ export const HistoryView = () => {
                   <StatCard
                     label="W/L Ratio"
                     value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)}
+                    valueLoading={isAnalyticsLoading}
+                    subValueLoading={isAnalyticsLoading}
                     color="text-accent"
                     tooltipText={`Win/Loss payout ratio: average winning trade size divided by average losing trade size. Expectancy: ${Number(lifetimeExpectancyStatus.expectancy || 0).toFixed(2)}.`}
                     subValue={
@@ -3270,6 +3286,8 @@ export const HistoryView = () => {
                   <StatCard
                     label="Sharpe Ratio"
                     value={Number(currentAnalytics?.sharpeRatio || 0).toFixed(2)}
+                    valueLoading={isAnalyticsLoading}
+                    subValueLoading={isAnalyticsLoading}
                     color="text-accent"
                     subValue={
                       <Tooltip content={
@@ -3291,6 +3309,8 @@ export const HistoryView = () => {
                   <StatCard
                     label="Sortino Ratio"
                     value={Number(currentAnalytics?.sortinoRatio || 0).toFixed(2)}
+                    valueLoading={isAnalyticsLoading}
+                    subValueLoading={isAnalyticsLoading}
                     color="text-accent"
                     subValue={
                       <Tooltip content={
@@ -3312,12 +3332,15 @@ export const HistoryView = () => {
                   <StatCard
                     label="Profit Factor"
                     value={Number(currentAnalytics?.profitFactor || 0).toFixed(2)}
+                    valueLoading={isAnalyticsLoading}
                     color="text-accent"
                     subValue="Target ≥ 1.50"
                   />
                   <StatCard
                     label="Max Streaks"
                     value={`${currentAnalytics?.maxWinStreak || 0}W / ${currentAnalytics?.maxLossStreak || 0}L`}
+                    valueLoading={isAnalyticsLoading}
+                    subValueLoading={isAnalyticsLoading}
                     color="text-accent"
                     subValue={
                       <span className="flex items-center gap-1.5">
@@ -3328,7 +3351,8 @@ export const HistoryView = () => {
                   />
                 </div>
                 </>
-                )}
+                  );
+                })()}
 
                 {/* 3. Charts Area */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -3674,7 +3698,7 @@ export const HistoryView = () => {
           </div>
 
           {allSessionsWithTrades.length === 0 && orphans.length === 0 ? (
-            loading || isSyncing ? (
+            loading || historyLoading || sessionsLoading ? (
               <HistorySessionsSkeleton count={3} />
             ) : (
             <div className="bg-surface/20 border border-border border-dashed rounded-2xl p-12 sm:p-20 text-center">

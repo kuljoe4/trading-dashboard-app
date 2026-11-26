@@ -73,6 +73,12 @@ export const createEmptyLastKnownPnl = (sessionId = null) => ({
   realizedPnl: 0,
   activePnl: 0,
   totalPnl: 0,
+  entryCount: 0,
+  hitCount: 0,
+  totalRiskPct: 0,
+  totalSlUsed: 0,
+  totalEstPnlToRealize: 0,
+  maxRr: 0,
   variants: {},
   trades: {},
   updatedAt: 0,
@@ -129,6 +135,12 @@ export const reconcileLastKnownPnl = ({
   totalPnl,
   realizedPnl,
   activePnl,
+  entryCount,
+  hitCount,
+  totalRiskPct,
+  totalSlUsed,
+  totalEstPnlToRealize,
+  maxRr,
   holdZero = false,
   isAuthoritativeTradeList = false,
 }) => {
@@ -148,6 +160,12 @@ export const reconcileLastKnownPnl = ({
       totalPnl,
       realizedPnl,
       activePnl,
+      entryCount,
+      hitCount,
+      totalRiskPct,
+      totalSlUsed,
+      totalEstPnlToRealize,
+      maxRr,
       holdZero: false,
       isAuthoritativeTradeList,
     });
@@ -220,6 +238,22 @@ export const reconcileLastKnownPnl = ({
     : (totalPnl !== undefined && totalPnl !== null ? toNumber(nextTotalPnl, 0) - toNumber(nextActivePnl, 0) : undefined);
   const nextRealizedPnl = resolveNonZeroMetric(derivedRealized, toNumber(prev.realizedPnl, 0), holdZero);
 
+  const openCleared = stopped || (isAuthoritativeTradeList && openList.length === 0 && !holdZero);
+  const computedMaxRrFromTrades = openList.reduce((acc, t) => Math.max(acc, toNumber(t?.max_rr ?? t?.max_rr_achieved ?? t?.rr, 0)), 0);
+  const candidateMaxRr = maxRr !== undefined && maxRr !== null ? toNumber(maxRr, 0) : computedMaxRrFromTrades;
+  const nextMaxRr = openCleared
+    ? 0
+    : resolveNonZeroMetric(candidateMaxRr, toNumber(prev.maxRr, 0), holdZero);
+  const nextEntryCount = entryCount !== undefined && entryCount !== null
+    ? (holdZero ? Math.max(toNumber(entryCount, 0), toNumber(prev.entryCount, 0)) : toNumber(entryCount, 0))
+    : toNumber(prev.entryCount, 0);
+  const nextHitCount = hitCount !== undefined && hitCount !== null
+    ? (holdZero ? Math.max(toNumber(hitCount, 0), toNumber(prev.hitCount, 0)) : toNumber(hitCount, 0))
+    : toNumber(prev.hitCount, 0);
+  const nextRiskPct = openCleared ? 0 : resolveNonZeroMetric(totalRiskPct, toNumber(prev.totalRiskPct, 0), holdZero);
+  const nextSlUsed = openCleared ? 0 : resolveNonZeroMetric(totalSlUsed, toNumber(prev.totalSlUsed, 0), holdZero);
+  const nextEstPnl = openCleared ? 0 : resolveNonZeroMetric(totalEstPnlToRealize, toNumber(prev.totalEstPnlToRealize, 0), holdZero);
+
   const nextVariants = { ...(prev.variants && typeof prev.variants === 'object' ? prev.variants : {}) };
   if (variantStats && typeof variantStats === 'object') {
     for (const [label, v] of Object.entries(variantStats)) {
@@ -244,6 +278,8 @@ export const reconcileLastKnownPnl = ({
         realizedPnl: vRealized,
         totalPnl: vTotal,
         returnPct: resolveNonZeroMetric(v.returnPct, toNumber(pv.returnPct, 0), holdZero),
+        entryCount: v.entryCount !== undefined ? (holdZero ? Math.max(toNumber(v.entryCount, 0), toNumber(pv.entryCount, 0)) : toNumber(v.entryCount, 0)) : toNumber(pv.entryCount, 0),
+        hitCount: v.hitCount !== undefined ? (holdZero ? Math.max(toNumber(v.hitCount, 0), toNumber(pv.hitCount, 0)) : toNumber(v.hitCount, 0)) : toNumber(pv.hitCount, 0),
         updatedAt: now,
       };
     }
@@ -263,6 +299,12 @@ export const reconcileLastKnownPnl = ({
     realizedPnl: nextRealizedPnl,
     activePnl: nextActivePnl,
     totalPnl: nextTotalPnl,
+    entryCount: nextEntryCount,
+    hitCount: nextHitCount,
+    totalRiskPct: nextRiskPct,
+    totalSlUsed: nextSlUsed,
+    totalEstPnlToRealize: nextEstPnl,
+    maxRr: nextMaxRr,
     variants: nextVariants,
     trades: nextTrades,
     updatedAt: now,
@@ -802,6 +844,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   alerts: [],
   initialStatusLoaded: false,
   isSyncing: false, isSyncingOnResume: false, configSyncing: false,
+  sessionsLoading: false, historyLoading: false, analyticsLoading: false,
   debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
   rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 },
   rateLimitLastSync: new Date().toISOString(),
@@ -1072,6 +1115,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             totalPnl: 0,
             realizedPnl: 0,
             activePnl: 0,
+            entryCount: 0,
+            hitCount: 0,
+            totalRiskPct: 0,
+            totalSlUsed: 0,
+            totalEstPnlToRealize: 0,
             lastKnownPnl: createEmptyLastKnownPnl(id),
           }
         : {}),
@@ -1128,7 +1176,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
   },
   fetchSessions: async (limit) => {
-    set({ isSyncing: true });
+    set({ sessionsLoading: true });
     try {
       const stSnapshot = get();
       const hasExplicitLimit = limit !== undefined && limit !== null && limit !== '';
@@ -1167,10 +1215,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         };
       });
     } catch (e) {} finally {
-      set({ isSyncing: false });
+      set({ sessionsLoading: false });
     }
   },
-  fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchLifetimeAnalytics: async (m = 'paper') => { set({ analyticsLoading: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ analyticsLoading: false }); } },
   fetchAnalytics: async () => {
     try {
       const r = await sessionAPI.analytics();
@@ -1182,7 +1230,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
   },
   fetchTradeHistory: async (sid = 'all', limit) => {
-    set({ isSyncing: true });
+    set({ historyLoading: true });
     try {
       const isAll = !sid || sid === 'all';
       const hasExplicitLimit = limit !== undefined && limit !== null && limit !== '';
@@ -1266,7 +1314,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         };
       });
     } catch (e) {} finally {
-      set({ isSyncing: false });
+      set({ historyLoading: false });
     }
   },
   fetchLogs: async (limit = 50) => {
@@ -1437,6 +1485,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        merged.balance = resolveNonZeroMetric(updates.balance, st.balance, guardZero);
        merged.totalRiskPct = resolveNonZeroMetric(updates.totalRiskPct, st.totalRiskPct, guardZero);
        merged.totalSlUsed = resolveNonZeroMetric(updates.totalSlUsed, st.totalSlUsed, guardZero);
+       merged.totalEstPnlToRealize = resolveNonZeroMetric(updates.totalEstPnlToRealize, st.totalEstPnlToRealize, guardZero);
+       if (updates.entryCount !== undefined) {
+         merged.entryCount = guardZero ? Math.max(toNumber(updates.entryCount, 0), toNumber(st.entryCount, 0)) : toNumber(updates.entryCount, 0);
+       }
+       if (updates.hitCount !== undefined) {
+         merged.hitCount = guardZero ? Math.max(toNumber(updates.hitCount, 0), toNumber(st.hitCount, 0)) : toNumber(updates.hitCount, 0);
+       }
        if (updates.variantStats !== undefined) {
          merged.variantStats = resolveVariantStats(updates.variantStats, st.variantStats, guardZero);
        }
@@ -1452,6 +1507,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       totalPnl: merged.totalPnl,
       realizedPnl: merged.realizedPnl,
       activePnl: merged.activePnl,
+      entryCount: merged.entryCount,
+      hitCount: merged.hitCount,
+      totalRiskPct: merged.totalRiskPct,
+      totalSlUsed: merged.totalSlUsed,
+      totalEstPnlToRealize: merged.totalEstPnlToRealize,
       holdZero: guardZero,
       isAuthoritativeTradeList: Array.isArray(updates.activeTrades),
     });
@@ -2151,6 +2211,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             guardZero
           );
           const nextVariantStats = stop ? {} : resolveVariantStats(d.variant_stats, st.variantStats, guardZero);
+          const nextTotalRiskPct = stop ? 0 : resolveNonZeroMetric(d.totalRiskPct, st.totalRiskPct, guardZero);
+          const nextTotalSlUsed = stop ? 0 : resolveNonZeroMetric(d.totalSlUsed, st.totalSlUsed, guardZero);
+          const nextTotalEstPnlToRealize = stop ? 0 : resolveNonZeroMetric(d.totalEstPnlToRealize ?? d.total_est_pnl_to_realize, st.totalEstPnlToRealize, guardZero);
+          const nextEntryCount = d.stats?.entryCount !== undefined
+            ? (guardZero ? Math.max(toNumber(d.stats.entryCount, 0), toNumber(st.entryCount, 0)) : toNumber(d.stats.entryCount, 0))
+            : st.entryCount;
+          const nextHitCount = d.stats?.hitCount !== undefined
+            ? (guardZero ? Math.max(toNumber(d.stats.hitCount, 0), toNumber(st.hitCount, 0)) : toNumber(d.stats.hitCount, 0))
+            : st.hitCount;
+
           const nextLastKnownPnl = reconcileLastKnownPnl({
             prevCache: st.lastKnownPnl,
             sessionId: resolvedSid,
@@ -2161,6 +2231,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             totalPnl: nextTotalPnl,
             realizedPnl: nextRealizedPnl,
             activePnl: nextActivePnl,
+            entryCount: nextEntryCount,
+            hitCount: nextHitCount,
+            totalRiskPct: nextTotalRiskPct,
+            totalSlUsed: nextTotalSlUsed,
+            totalEstPnlToRealize: nextTotalEstPnlToRealize,
             holdZero: guardZero,
             isAuthoritativeTradeList: stop || Array.isArray(d.activeTrades),
           });
@@ -2178,10 +2253,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             activePnl: nextActivePnl,
             totalPnl: nextTotalPnl,
             lastKnownPnl: nextLastKnownPnl,
-            totalRiskPct: resolveNonZeroMetric(d.totalRiskPct, st.totalRiskPct, guardZero),
-            totalSlUsed: resolveNonZeroMetric(d.totalSlUsed, st.totalSlUsed, guardZero),
-            entryCount: d.stats?.entryCount ?? st.entryCount,
-            hitCount: d.stats?.hitCount ?? st.hitCount,
+            totalRiskPct: nextTotalRiskPct,
+            totalSlUsed: nextTotalSlUsed,
+            totalEstPnlToRealize: nextTotalEstPnlToRealize,
+            entryCount: nextEntryCount,
+            hitCount: nextHitCount,
             activeTrades: nt,
             variantStats: nextVariantStats,
             logs: nextLogs,
@@ -2311,6 +2387,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             guardZero
           );
           const nextVariantStats = resolveVariantStats(d.variant_stats, st.variantStats, guardZero);
+          const nextTotalRiskPct = isAuthoritativeEmptyHeartbeat ? 0 : resolveNonZeroMetric(d.total_risk_pct, st.totalRiskPct, guardZero);
+          const nextTotalSlUsed = isAuthoritativeEmptyHeartbeat ? 0 : resolveNonZeroMetric(d.total_sl_used, st.totalSlUsed, guardZero);
+          const nextTotalEstPnlToRealize = isAuthoritativeEmptyHeartbeat ? 0 : resolveNonZeroMetric(d.total_est_pnl_to_realize, st.totalEstPnlToRealize, guardZero);
+          const nextEntryCount = d.stats?.entryCount !== undefined
+            ? (guardZero ? Math.max(toNumber(d.stats.entryCount, 0), toNumber(st.entryCount, 0)) : toNumber(d.stats.entryCount, 0))
+            : st.entryCount;
+          const nextHitCount = d.stats?.hitCount !== undefined
+            ? (guardZero ? Math.max(toNumber(d.stats.hitCount, 0), toNumber(st.hitCount, 0)) : toNumber(d.stats.hitCount, 0))
+            : st.hitCount;
+
           const nextLastKnownPnl = reconcileLastKnownPnl({
             prevCache: st.lastKnownPnl,
             sessionId: st.strategyId,
@@ -2321,6 +2407,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             totalPnl: nextTotalPnl,
             realizedPnl: nextRealizedPnl,
             activePnl: nextActivePnl,
+            entryCount: nextEntryCount,
+            hitCount: nextHitCount,
+            totalRiskPct: nextTotalRiskPct,
+            totalSlUsed: nextTotalSlUsed,
+            totalEstPnlToRealize: nextTotalEstPnlToRealize,
             holdZero: guardZero,
             isAuthoritativeTradeList: isAuthoritativeEmptyHeartbeat || (Boolean(d._heartbeat) && !hasTargetedFocus),
           });
@@ -2332,10 +2423,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             activePnl: nextActivePnl,
             totalPnl: nextTotalPnl,
             lastKnownPnl: nextLastKnownPnl,
-            totalRiskPct: resolveNonZeroMetric(d.total_risk_pct, st.totalRiskPct, guardZero),
-            totalSlUsed: resolveNonZeroMetric(d.total_sl_used, st.totalSlUsed, guardZero),
-            totalEstPnlToRealize: resolveNonZeroMetric(d.total_est_pnl_to_realize, st.totalEstPnlToRealize, guardZero),
-            entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: nextVariantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, tradfiAgreementRequired: d.tradfiAgreementRequired ?? st.tradfiAgreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [], strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {}, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, nextScanTs: d.next_scan_ts ?? st.nextScanTs, scanIntervalMs: d.scan_interval_ms ?? st.scanIntervalMs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
+            totalRiskPct: nextTotalRiskPct,
+            totalSlUsed: nextTotalSlUsed,
+            totalEstPnlToRealize: nextTotalEstPnlToRealize,
+            entryCount: nextEntryCount, hitCount: nextHitCount, activeTrades: nt, variantStats: nextVariantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, tradfiAgreementRequired: d.tradfiAgreementRequired ?? st.tradfiAgreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [], strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {}, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, nextScanTs: d.next_scan_ts ?? st.nextScanTs, scanIntervalMs: d.scan_interval_ms ?? st.scanIntervalMs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
             config: nextConfig,
             tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h,
             effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor,
@@ -2708,6 +2799,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     activeTrades: state.activeTrades,
     totalRiskPct: state.totalRiskPct,
     totalSlUsed: state.totalSlUsed,
+    totalEstPnlToRealize: state.totalEstPnlToRealize,
+    entryCount: state.entryCount,
+    hitCount: state.hitCount,
     config: state.config,
     variantStats: state.variantStats,
     lastScanTs: state.lastScanTs,
@@ -2765,6 +2859,21 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       }
       if (toNumber(state.activePnl, 0) === 0 && toNumber(state.lastKnownPnl.activePnl, 0) !== 0 && state.sessionActive) {
         state.activePnl = toNumber(state.lastKnownPnl.activePnl, 0);
+      }
+      if (toNumber(state.entryCount, 0) === 0 && toNumber(state.lastKnownPnl.entryCount, 0) > 0 && state.sessionActive) {
+        state.entryCount = toNumber(state.lastKnownPnl.entryCount, 0);
+      }
+      if (toNumber(state.hitCount, 0) === 0 && toNumber(state.lastKnownPnl.hitCount, 0) > 0 && state.sessionActive) {
+        state.hitCount = toNumber(state.lastKnownPnl.hitCount, 0);
+      }
+      if (toNumber(state.totalRiskPct, 0) === 0 && toNumber(state.lastKnownPnl.totalRiskPct, 0) > 0 && state.sessionActive) {
+        state.totalRiskPct = toNumber(state.lastKnownPnl.totalRiskPct, 0);
+      }
+      if (toNumber(state.totalSlUsed, 0) === 0 && toNumber(state.lastKnownPnl.totalSlUsed, 0) > 0 && state.sessionActive) {
+        state.totalSlUsed = toNumber(state.lastKnownPnl.totalSlUsed, 0);
+      }
+      if (toNumber(state.totalEstPnlToRealize, 0) === 0 && toNumber(state.lastKnownPnl.totalEstPnlToRealize, 0) !== 0 && state.sessionActive) {
+        state.totalEstPnlToRealize = toNumber(state.lastKnownPnl.totalEstPnlToRealize, 0);
       }
 
       // BOLT: If last update was long ago, force a sync window even if not explicit

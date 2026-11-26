@@ -287,4 +287,144 @@ describe('Trade History Adaptive Session Filtering & Resume PnL Integrity', () =
     assert.equal(st.lastKnownPnl.activePnl, 0);
     assert.deepEqual(st.lastKnownPnl.trades, {});
   });
+
+  test('lastKnownPnl preserves entryCount, hitCount, totalRiskPct, totalEstPnlToRealize, and maxRr during unpriced resume', () => {
+    useTradingStore.setState({
+      sessionActive: true,
+      strategyId: 'sess-extended-metrics',
+      lastKnownPnl: createEmptyLastKnownPnl('sess-extended-metrics'),
+      entryCount: 0,
+      hitCount: 0,
+      totalRiskPct: 0,
+      totalSlUsed: 0,
+      totalEstPnlToRealize: 0,
+      wsStatus: 'live',
+      isSyncingOnResume: false,
+      _lastFocusChangeTs: 0,
+    });
+
+    useTradingStore.getState().updateStats({
+      _authoritative: true,
+      running: true,
+      sessionActive: true,
+      strategyId: 'sess-extended-metrics',
+      totalPnl: 65,
+      realizedPnl: 25,
+      activePnl: 40,
+      entryCount: 7,
+      hitCount: 4,
+      totalRiskPct: 3.5,
+      totalSlUsed: 350,
+      totalEstPnlToRealize: 18.25,
+      activeTrades: [
+        {
+          id: 'tr-ext-1',
+          symbol: 'BTCUSDT',
+          strategy_label: 'Alpha 15m',
+          direction: 'LONG',
+          status: 'OPEN',
+          entry_price: 60000,
+          current_price: 61000,
+          pnl: 40,
+          rr: 1.5,
+          max_rr: 2.35,
+          est_pnl_to_realize: 18.25,
+        },
+      ],
+    });
+
+    let st = useTradingStore.getState();
+    assert.equal(st.entryCount, 7);
+    assert.equal(st.hitCount, 4);
+    assert.equal(st.totalRiskPct, 3.5);
+    assert.equal(st.totalEstPnlToRealize, 18.25);
+    assert.equal(st.lastKnownPnl.maxRr, 2.35);
+
+    // Unpriced resume snapshot drops metrics to 0 transiently
+    useTradingStore.setState({ isSyncingOnResume: true, _lastFocusChangeTs: Date.now() });
+    useTradingStore.getState().updateStats({
+      _authoritative: true,
+      running: true,
+      sessionActive: true,
+      strategyId: 'sess-extended-metrics',
+      totalPnl: 0,
+      realizedPnl: 0,
+      activePnl: 0,
+      entryCount: 0,
+      hitCount: 0,
+      totalRiskPct: 0,
+      totalSlUsed: 0,
+      totalEstPnlToRealize: 0,
+      activeTrades: [
+        {
+          id: 'tr-ext-1',
+          symbol: 'BTCUSDT',
+          strategy_label: 'Alpha 15m',
+          direction: 'LONG',
+          status: 'OPEN',
+          entry_price: 60000,
+          current_price: 60000,
+          pnl: 0,
+        },
+      ],
+    });
+
+    st = useTradingStore.getState();
+    assert.equal(st.entryCount, 7);
+    assert.equal(st.hitCount, 4);
+    assert.equal(st.totalRiskPct, 3.5);
+    assert.equal(st.totalEstPnlToRealize, 18.25);
+    assert.equal(st.lastKnownPnl.maxRr, 2.35);
+    assert.equal(st.activeTrades[0].max_rr, 2.35);
+  });
+
+  test('fetchSessions, fetchTradeHistory, and fetchLifetimeAnalytics use scoped loading flags without mutating isSyncing', async () => {
+    const origList = sessionAPI.list;
+    const origHistory = sessionAPI.history;
+    const origAnalytics = sessionAPI.getLifetimeAnalytics;
+
+    const observedSyncingFlags = [];
+    const seenScopedFlags = { sessions: false, history: false, analytics: false };
+
+    sessionAPI.list = async () => {
+      const s = useTradingStore.getState();
+      observedSyncingFlags.push(s.isSyncing);
+      seenScopedFlags.sessions = s.sessionsLoading;
+      return { data: [] };
+    };
+    sessionAPI.history = async () => {
+      const s = useTradingStore.getState();
+      observedSyncingFlags.push(s.isSyncing);
+      seenScopedFlags.history = s.historyLoading;
+      return { data: { trades: [], totalTrades: 0 } };
+    };
+    sessionAPI.getLifetimeAnalytics = async () => {
+      const s = useTradingStore.getState();
+      observedSyncingFlags.push(s.isSyncing);
+      seenScopedFlags.analytics = s.analyticsLoading;
+      return { data: { totalTrades: 0, totalPnl: 0 } };
+    };
+
+    useTradingStore.setState({ isSyncing: false });
+    try {
+      await useTradingStore.getState().fetchSessions();
+      await useTradingStore.getState().fetchTradeHistory('all', 50);
+      await useTradingStore.getState().fetchLifetimeAnalytics('paper');
+
+      assert.deepEqual(observedSyncingFlags, [false, false, false]);
+      assert.equal(seenScopedFlags.sessions, true);
+      assert.equal(seenScopedFlags.history, true);
+      assert.equal(seenScopedFlags.analytics, true);
+
+      const finalState = useTradingStore.getState();
+      assert.equal(finalState.isSyncing, false);
+      assert.equal(finalState.sessionsLoading, false);
+      assert.equal(finalState.historyLoading, false);
+      assert.equal(finalState.analyticsLoading, false);
+    } finally {
+      sessionAPI.list = origList;
+      sessionAPI.history = origHistory;
+      sessionAPI.getLifetimeAnalytics = origAnalytics;
+    }
+  });
 });

@@ -2257,6 +2257,10 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
           ? rawTotalPnl
           : (Number(cachedVarPnl?.totalPnl) || (stratPerformance.sumPnl + effectiveActivePnl));
         const effectiveRealizedPnl = (effectiveTotalPnl - effectiveActivePnl);
+        const rawRiskPct = Number(s?.totalRiskPct || 0);
+        const effectiveRiskPct = rawRiskPct > 0
+          ? rawRiskPct
+          : ((showResumingFeedback || activeTradeCount > 0) ? (Number(lastKnownPnl?.totalRiskPct) || 0) : 0);
         return (
       <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2 sm:gap-2.5 mb-2.5 sm:mb-3">
         <StatCard
@@ -2265,14 +2269,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
           value={fmtUSD(effectiveActivePnl)}
           color={pnlClass(effectiveActivePnl)}
           subValue={`Session: ${fmtUSD(effectiveTotalPnl)} · Realized: ${fmtUSD(effectiveRealizedPnl)}`}
-          syncing={showResumingFeedback || isSyncing}
           tooltipText="Unrealized P&L on active positions, total Session Return (realized + unrealized), and cumulative realized strategy P&L."
         />
         <StatCard
           compact
           label="Exposure & Slots"
-          value={`${Number(s.totalRiskPct || 0).toFixed(1)}% / ${strategyConfig.max_total_risk_pct || 5}%`}
-          color={s.totalRiskPct > (strategyConfig.max_total_risk_pct || 5) * 0.8 ? "text-amber" : "text-text"}
+          value={`${Number(effectiveRiskPct || 0).toFixed(1)}% / ${strategyConfig.max_total_risk_pct || 5}%`}
+          color={effectiveRiskPct > (strategyConfig.max_total_risk_pct || 5) * 0.8 ? "text-amber" : "text-text"}
           subValue={`${activeTradeCount}/${strategyConfig.max_open_trades || 3} Open · $${riskPerTradeUsdt.toFixed(0)}/tr`}
           tooltipText="Total active risk exposure against portfolio cap, open trade slots, and configured risk per trade."
         />

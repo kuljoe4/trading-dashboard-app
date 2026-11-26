@@ -403,17 +403,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       tabIndex={0}
       className={cn(
         "bg-surface border border-border/80 rounded-xl p-2.5 sm:p-3 flex flex-col justify-between w-full min-h-[152px] h-full shadow-md shadow-black/20 cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden select-none shrink-0",
-        isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
+        isResuming && "border-accent/25"
       )}
       aria-label={ariaText}
     >
-      {showResumingFeedback && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-[1px] z-20 flex items-center justify-center pointer-events-none">
-          <div className="bg-surface border border-accent/30 px-2.5 py-0.5 rounded-full text-[8px] font-black text-accent uppercase tracking-widest flex items-center gap-1.5 shadow-xl">
-            <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
-          </div>
-        </div>
-      )}
 
       {/* TIER 1: Clean Terminal Header (Symbol, Direction, Meta + Dominant P&L Block) */}
       <div className="flex items-start justify-between gap-3 min-w-0 shrink-0">

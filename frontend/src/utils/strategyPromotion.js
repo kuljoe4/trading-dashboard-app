@@ -20,13 +20,16 @@ export function formatRiskPct(value) {
 }
 
 /**
- * Computes doubled `risk_pct_per_trade` and `max_total_risk_pct` for a strategy
- * while strictly upholding backend & CONFIG_LIMITS invariants:
+ * Computes scaled (2× promotion or 0.5× demotion) `risk_pct_per_trade` and `max_total_risk_pct`
+ * for a strategy while strictly upholding backend & CONFIG_LIMITS invariants:
  *  - risk_pct_per_trade in [0.01, 100.0]
  *  - max_total_risk_pct in [0.1, 100.0]
  *  - risk_pct_per_trade <= max_total_risk_pct
  */
-export function computeDoubledRiskPlan(strategyCfg = {}) {
+export function computeScaledRiskPlan(strategyCfg = {}, multiplier = 2) {
+  const factor = Number(multiplier) > 0 ? Number(multiplier) : 2;
+  const isDemotion = factor < 1;
+
   const rawRisk = Number(strategyCfg?.risk_pct_per_trade);
   const rawMax = Number(strategyCfg?.max_total_risk_pct);
 
@@ -48,31 +51,38 @@ export function computeDoubledRiskPlan(strategyCfg = {}) {
     currentMaxTotalRisk
   );
 
-  const uncappedNextMax = roundRiskPct(currentMaxTotalRisk * 2, currentMaxTotalRisk);
+  const uncappedNextMax = roundRiskPct(currentMaxTotalRisk * factor, currentMaxTotalRisk);
   const nextMaxTotalRisk = clamp(
     uncappedNextMax,
     CONFIG_LIMITS.MAX_TOTAL_RISK_MIN,
     CONFIG_LIMITS.MAX_TOTAL_RISK_MAX
   );
 
-  const uncappedNextRisk = roundRiskPct(currentRiskPerTrade * 2, currentRiskPerTrade);
+  const uncappedNextRisk = roundRiskPct(currentRiskPerTrade * factor, currentRiskPerTrade);
   const nextRiskPerTrade = clamp(
     Math.min(uncappedNextRisk, nextMaxTotalRisk),
     CONFIG_LIMITS.RISK_PER_TRADE_MIN,
     nextMaxTotalRisk
   );
 
-  const maxRiskClampedByCap = uncappedNextMax > CONFIG_LIMITS.MAX_TOTAL_RISK_MAX;
-  const riskClampedByCap = uncappedNextRisk > nextMaxTotalRisk;
-  const canPromote =
-    nextRiskPerTrade > currentRiskPerTrade || nextMaxTotalRisk > currentMaxTotalRisk;
+  const maxRiskClampedByCap = !isDemotion && uncappedNextMax > CONFIG_LIMITS.MAX_TOTAL_RISK_MAX;
+  const riskClampedByCap = !isDemotion && uncappedNextRisk > nextMaxTotalRisk;
+  const maxRiskClampedByMin = isDemotion && uncappedNextMax < CONFIG_LIMITS.MAX_TOTAL_RISK_MIN;
+  const riskClampedByMin = isDemotion && (uncappedNextRisk < CONFIG_LIMITS.RISK_PER_TRADE_MIN || uncappedNextRisk > nextMaxTotalRisk);
+
+  const canPromote = !isDemotion && (
+    nextRiskPerTrade > currentRiskPerTrade || nextMaxTotalRisk > currentMaxTotalRisk
+  );
+  const canDemote = isDemotion && (
+    nextRiskPerTrade < currentRiskPerTrade || nextMaxTotalRisk < currentMaxTotalRisk
+  );
 
   const riskHardeningEnabled = strategyCfg?.risk_hardening_enabled === true;
   const rawSingleCap = Number(strategyCfg?.max_single_trade_risk_pct);
   const maxSingleTradeRiskPct = Number.isFinite(rawSingleCap) && rawSingleCap > 0
     ? rawSingleCap
     : 20.0;
-  const hardCapWarning = riskHardeningEnabled && nextRiskPerTrade > maxSingleTradeRiskPct;
+  const hardCapWarning = !isDemotion && riskHardeningEnabled && nextRiskPerTrade > maxSingleTradeRiskPct;
 
   const currentConcurrentSlots = currentRiskPerTrade > 0
     ? Math.floor((currentMaxTotalRisk + 1e-6) / currentRiskPerTrade)
@@ -82,20 +92,34 @@ export function computeDoubledRiskPlan(strategyCfg = {}) {
     : 0;
 
   return {
+    action: isDemotion ? 'demote' : 'promote',
+    multiplier: factor,
     currentRiskPerTrade,
     currentMaxTotalRisk,
     nextRiskPerTrade,
     nextMaxTotalRisk,
     riskClampedByCap,
     maxRiskClampedByCap,
+    riskClampedByMin,
+    maxRiskClampedByMin,
     canPromote,
-    isAtMaxCap: !canPromote,
+    canDemote,
+    isAtMaxCap: !isDemotion && !canPromote,
+    isAtMinCap: isDemotion && !canDemote,
     riskHardeningEnabled,
     maxSingleTradeRiskPct,
     hardCapWarning,
     currentConcurrentSlots,
     nextConcurrentSlots,
   };
+}
+
+export function computeDoubledRiskPlan(strategyCfg = {}) {
+  return computeScaledRiskPlan(strategyCfg, 2);
+}
+
+export function computeHalvedRiskPlan(strategyCfg = {}) {
+  return computeScaledRiskPlan(strategyCfg, 0.5);
 }
 
 function getNormalizedConfigMode(cfg = {}) {
@@ -356,8 +380,12 @@ export function aggregatePastWeekStrategies({
     });
 
     const riskPlan = computeDoubledRiskPlan(resolved.effectiveConfig);
+    const demoteRiskPlan = computeHalvedRiskPlan(resolved.effectiveConfig);
     const slDesc = formatStopLossDescriptor(resolved.effectiveConfig);
     const tpDesc = formatTakeProfitDescriptor(resolved.effectiveConfig);
+    const qualifiesForPromotion = entry.netPnl > 0;
+    const qualifiesForDemotion = entry.netPnl < 0;
+    const recommendedAction = qualifiesForPromotion ? 'promote' : qualifiesForDemotion ? 'demote' : 'hold';
 
     strategies.push({
       strategyLabel: entry.strategyLabel,
@@ -373,11 +401,14 @@ export function aggregatePastWeekStrategies({
       avgPnl,
       avgR,
       lastTradeTs: entry.lastTradeTs,
-      qualifiesForPromotion: entry.netPnl > 0,
+      qualifiesForPromotion,
+      qualifiesForDemotion,
+      recommendedAction,
       effectiveConfig: resolved.effectiveConfig,
       configSource: resolved.configSource,
       locationFlags: resolved.locationFlags,
       riskPlan,
+      demoteRiskPlan,
       slDesc,
       tpDesc,
     });
@@ -401,6 +432,7 @@ export function aggregatePastWeekStrategies({
     summary: {
       totalStrategies: ranked.length,
       profitableCount: ranked.filter((s) => s.qualifiesForPromotion).length,
+      underperformingCount: ranked.filter((s) => s.qualifiesForDemotion).length,
       total7dPnl,
       total7dTrades,
       windowStartMs,
@@ -409,13 +441,21 @@ export function aggregatePastWeekStrategies({
   };
 }
 
-export function applyDoubledRiskToConfig(cfg = {}, riskPlan) {
-  const plan = riskPlan || computeDoubledRiskPlan(cfg);
+export function applyRiskPlanToConfig(cfg = {}, riskPlan, action = 'promote') {
+  const plan = riskPlan || (action === 'demote' ? computeHalvedRiskPlan(cfg) : computeDoubledRiskPlan(cfg));
   return {
     ...(cfg && typeof cfg === 'object' ? cfg : {}),
     risk_pct_per_trade: plan.nextRiskPerTrade,
     max_total_risk_pct: plan.nextMaxTotalRisk,
   };
+}
+
+export function applyDoubledRiskToConfig(cfg = {}, riskPlan) {
+  return applyRiskPlanToConfig(cfg, riskPlan, 'promote');
+}
+
+export function applyHalvedRiskToConfig(cfg = {}, riskPlan) {
+  return applyRiskPlanToConfig(cfg, riskPlan, 'demote');
 }
 
 function sanitizeStandaloneConfig(cfg = {}, strategyLabel) {
@@ -428,31 +468,54 @@ function sanitizeStandaloneConfig(cfg = {}, strategyLabel) {
   return clone;
 }
 
+function withOptionalPausedStrategy(activeConfig = {}, label, shouldPause) {
+  if (!shouldPause || !label) return null;
+  const existing = Array.isArray(activeConfig?.paused_strategies)
+    ? activeConfig.paused_strategies.filter(Boolean)
+    : [];
+  if (existing.includes(label)) return existing;
+  return [...existing, label];
+}
+
 /**
  * Builds an immutable patch + merged config update for the active Zustand/session config
- * when promoting a strategy (active base, active variant, or optionally activating an inactive one).
+ * when promoting (2×) or demoting (0.5×) a strategy (active base, active variant, or activating an inactive one).
  */
 export function buildActiveConfigPromotionUpdate({
   activeConfig = {},
   strategyLabel,
   riskPlan,
+  action = 'promote',
+  pauseStrategy = false,
   fallbackConfig = null,
   activateIfInactive = false,
   activationMode = 'variant', // 'variant' | 'base'
 } = {}) {
+  const resolvedAction = action === 'demote' ? 'demote' : 'promote';
   const label = String(strategyLabel || '').trim() || 'Momentum Strategy';
   const normLabel = label.toLowerCase();
-  const plan = riskPlan || computeDoubledRiskPlan(fallbackConfig || activeConfig);
+  const plan = riskPlan || (
+    resolvedAction === 'demote'
+      ? computeHalvedRiskPlan(fallbackConfig || activeConfig)
+      : computeDoubledRiskPlan(fallbackConfig || activeConfig)
+  );
   const rawBaseLabel = String(activeConfig?.strategy_label || '').trim();
   const baseLabelNorm = rawBaseLabel.toLowerCase();
   const isBaseMatch =
     (baseLabelNorm && baseLabelNorm === normLabel) ||
     (!rawBaseLabel && normLabel === 'momentum strategy');
 
+  const nextPausedStrategies = withOptionalPausedStrategy(
+    activeConfig,
+    rawBaseLabel || label,
+    resolvedAction === 'demote' && pauseStrategy && isBaseMatch
+  );
+
   if (isBaseMatch) {
     const patch = {
       risk_pct_per_trade: plan.nextRiskPerTrade,
       max_total_risk_pct: plan.nextMaxTotalRisk,
+      ...(nextPausedStrategies ? { paused_strategies: nextPausedStrategies } : {}),
     };
     return {
       updatedConfig: { ...activeConfig, ...patch },
@@ -471,17 +534,26 @@ export function buildActiveConfigPromotionUpdate({
   );
 
   if (variantIdx !== -1) {
+    const matchedVariantLabel = currentVariants[variantIndexName(currentVariants, variantIdx)]?.strategy_label || label;
     const resolvedVariantBase = resolveStrategyConfig(activeConfig, currentVariants[variantIdx]);
     const nextVariant = {
       ...currentVariants[variantIdx],
-      ...applyDoubledRiskToConfig(resolvedVariantBase, plan),
-      strategy_label: currentVariants[variantIndexName(currentVariants, variantIdx)]?.strategy_label || label,
+      ...applyRiskPlanToConfig(resolvedVariantBase, plan, resolvedAction),
+      strategy_label: matchedVariantLabel,
       strategy_variants: [],
     };
     const nextVariants = currentVariants.map((v, idx) => (idx === variantIdx ? nextVariant : v));
-    const patch = { strategy_variants: nextVariants };
+    const variantPausedList = withOptionalPausedStrategy(
+      activeConfig,
+      matchedVariantLabel,
+      resolvedAction === 'demote' && pauseStrategy
+    );
+    const patch = {
+      strategy_variants: nextVariants,
+      ...(variantPausedList ? { paused_strategies: variantPausedList } : {}),
+    };
     return {
-      updatedConfig: { ...activeConfig, strategy_variants: nextVariants },
+      updatedConfig: { ...activeConfig, ...patch },
       patch,
       appliedAs: 'variant',
       variantIndex: variantIdx,
@@ -500,9 +572,10 @@ export function buildActiveConfigPromotionUpdate({
   }
 
   const source = fallbackConfig || activeConfig;
-  const promotedStandalone = applyDoubledRiskToConfig(
+  const scaledStandalone = applyRiskPlanToConfig(
     sanitizeStandaloneConfig(source, label),
-    plan
+    plan,
+    resolvedAction
   );
 
   if (activationMode === 'base') {
@@ -511,7 +584,7 @@ export function buildActiveConfigPromotionUpdate({
     );
     const updatedConfig = {
       ...activeConfig,
-      ...promotedStandalone,
+      ...scaledStandalone,
       strategy_label: label,
       strategy_variants: remainingVariants,
     };
@@ -536,7 +609,7 @@ export function buildActiveConfigPromotionUpdate({
     };
   }
 
-  const nextVariants = [...currentVariants, promotedStandalone];
+  const nextVariants = [...currentVariants, scaledStandalone];
   const patch = { strategy_variants: nextVariants };
   return {
     updatedConfig: { ...activeConfig, strategy_variants: nextVariants },
@@ -554,21 +627,27 @@ function variantIndexName(list, idx) {
 /**
  * Builds a clean preset payload ready for `presetsAPI.save(name, payload, { overwrite: true })`.
  * Preserves existing preset structure/variants when updating an existing preset, and strips
- * nested variants when promoting a standalone strategy or active variant into a preset.
+ * nested variants when promoting/demoting a standalone strategy or active variant into a preset.
  */
 export function buildPromotedPresetPayload({
   preset = null,
   fallbackConfig = {},
   strategyLabel,
   riskPlan,
+  action = 'promote',
 } = {}) {
+  const resolvedAction = action === 'demote' ? 'demote' : 'promote';
   const label = String(preset?.name || strategyLabel || fallbackConfig?.strategy_label || 'Promoted Strategy').trim();
   const baseSource = preset?.config && typeof preset.config === 'object'
     ? preset.config
     : fallbackConfig;
-  const plan = riskPlan || computeDoubledRiskPlan(baseSource);
+  const plan = riskPlan || (
+    resolvedAction === 'demote'
+      ? computeHalvedRiskPlan(baseSource)
+      : computeDoubledRiskPlan(baseSource)
+  );
 
-  const nextPayload = applyDoubledRiskToConfig(baseSource, plan);
+  const nextPayload = applyRiskPlanToConfig(baseSource, plan, resolvedAction);
   delete nextPayload.paused;
   delete nextPayload.paused_strategies;
   delete nextPayload.__flattened;

@@ -468,6 +468,62 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       'Trade duration, exit delay, ban cooldown, and gate countdowns must zero-pad and reserve fixed widths to prevent CLS'
     );
   });
+
+  test('Selective element skeletons preserve static labels and Live|Paper EngineSwitch while eliminating Resuming Feed blur overlays', () => {
+    const skeletonsSource = fs.readFileSync(path.join(__dirname, '../components/ui/Skeletons.jsx'), 'utf-8');
+    const engineSwitchSource = fs.readFileSync(path.join(__dirname, '../components/EngineSwitch.jsx'), 'utf-8');
+    const activeTradeCardSource = fs.readFileSync(path.join(__dirname, '../components/ActiveTradeCard.jsx'), 'utf-8');
+
+    // 1. EngineSwitch keeps hooks strictly above early return and renders in both DashboardView & DashboardSkeleton
+    assert.ok(
+      engineSwitchSource.indexOf('useEffect(') !== -1 &&
+      engineSwitchSource.indexOf('useEffect(') < engineSwitchSource.indexOf('if (!selectedEngine) return null'),
+      'EngineSwitch must invoke all React hooks before any conditional early return'
+    );
+    assert.ok(
+      dashboardViewSource.includes("import { EngineSwitch } from '../components/EngineSwitch'") &&
+      skeletonsSource.includes("import { EngineSwitch } from '../EngineSwitch'") &&
+      skeletonsSource.includes('<EngineSwitch running={null} />'),
+      'Live|Paper EngineSwitch must stay rendered and interactive inside DashboardView and DashboardSkeleton'
+    );
+
+    // 2. Route skeletons preserve static titles and labels instead of replacing them with blank shimmer bars
+    for (const staticLabel of [
+      'Overview',
+      'Account Balance',
+      'Active Positions',
+      'Trade History',
+      'System Settings',
+    ]) {
+      assert.ok(
+        skeletonsSource.includes(staticLabel),
+        `Skeletons.jsx must preserve static UI text "${staticLabel}" instead of placeholder-shimmering static labels`
+      );
+    }
+
+    // 3. StatCard supports valueLoading/subValueLoading without full-card bg-accent/5 animate-pulse wash
+    assert.ok(
+      primitivesSource.includes('valueLoading = false') &&
+      primitivesSource.includes('subValueLoading = false'),
+      'StatCard must accept valueLoading and subValueLoading props'
+    );
+    const statCardSection = primitivesSource.slice(
+      primitivesSource.indexOf('export const StatCard'),
+      primitivesSource.indexOf('// --- Section Label ---')
+    );
+    assert.ok(
+      !statCardSection.includes('bg-accent/5 animate-pulse'),
+      'StatCard must not overlay full-card bg-accent/5 animate-pulse wash during sync'
+    );
+
+    // 4. ActiveTradeCard and DashboardView omit blocking Resuming Feed blur overlays
+    assert.ok(
+      !activeTradeCardSource.includes('Resuming Feed...') &&
+      !dashboardViewSource.includes('Resuming Feed...') &&
+      !activeTradeCardSource.includes('backdrop-blur-[1px]'),
+      'ActiveTradeCard and DashboardView StrategyCard must not cover cards with Resuming Feed backdrop-blur overlays'
+    );
+  });
 });
 
 

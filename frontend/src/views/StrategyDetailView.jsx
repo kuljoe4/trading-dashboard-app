@@ -1454,10 +1454,15 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
     // 4. Closed Trades exit resolutions
     strategyTrades.slice(0, 30).forEach((trade, idx) => {
       const isWin = Number(trade.pnl || 0) >= 0;
+      const realizedFee = Number(trade.realized_fee || trade.commission || 0);
+      const fundingFee = Number(trade.funding_fee || 0);
+      const totalFees = Number((realizedFee + fundingFee).toFixed(8));
       const exitTs = trade.exit_ts_ms || (trade.exit_ts ? new Date(trade.exit_ts).getTime() : (trade.closed_at ? new Date(trade.closed_at).getTime() : stableFallbackTs - idx * 60000));
       list.push({
         id: `closed-${trade.id || trade.symbol}-${exitTs}-${idx}`,
-        outcome: isWin ? 'allowed' : 'rejected',
+        outcome: 'allowed',
+        verdictStatus: isWin ? 'allowed' : 'warning',
+        verdictLabel: isWin ? 'CLOSED WIN' : 'CLOSED LOSS',
         isRoutine: false,
         stageNum: '6',
         stage: '6. Exit',
@@ -1472,7 +1477,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
           initialSl: trade.initial_sl,
           exitRr: trade.exit_rr,
           pnl: trade.pnl,
-          fees: trade.funding_fee
+          fees: totalFees,
+          ...(realizedFee !== 0 ? { realizedFee } : {}),
+          ...(fundingFee !== 0 ? { fundingFee } : {}),
         }
       });
     });
@@ -1704,6 +1711,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
           events: [],
           latestTs: item.timestamp,
           latestOutcome: item.outcome,
+          latestVerdictStatus: item.verdictStatus || item.outcome,
+          latestVerdictLabel: item.verdictLabel,
         });
       }
       const g = map.get(key);
@@ -1711,6 +1720,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
       if (item.timestamp > g.latestTs) {
         g.latestTs = item.timestamp;
         g.latestOutcome = item.outcome;
+        g.latestVerdictStatus = item.verdictStatus || item.outcome;
+        g.latestVerdictLabel = item.verdictLabel;
       }
     }
     return Array.from(map.values()).sort((a, b) => b.latestTs - a.latestTs);
@@ -3423,7 +3434,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                     {/* Mobile-clean top row: Outcome + Symbol + Direction on left, Age + Copy on right */}
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <div className="flex items-center gap-1.5 min-w-0 font-mono truncate">
-                        <VerdictTag status={item.outcome} />
+                        <VerdictTag status={item.verdictStatus || item.outcome} customLabel={item.verdictLabel} />
                         {item.symbol && item.symbol !== '---' && (
                           <span className="font-semibold text-text truncate">{item.symbol}</span>
                         )}
@@ -3515,7 +3526,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                       <span className="text-dim shrink-0">· {group.events.length}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <VerdictTag status={group.latestOutcome} />
+                      <VerdictTag status={group.latestVerdictStatus || group.latestOutcome} customLabel={group.latestVerdictLabel} />
                       <span className="text-dim tabular-nums"><LiveRelativeTime ts={group.latestTs} nowMs={decisionLogNowMs} /></span>
                     </div>
                   </div>
@@ -3525,7 +3536,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                         <div className="min-w-0">
                           <div className="flex items-center justify-between sm:justify-start gap-2 flex-wrap">
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <VerdictTag status={item.outcome} />
+                              <VerdictTag status={item.verdictStatus || item.outcome} customLabel={item.verdictLabel} />
                               <span className="font-mono text-dim shrink-0">{item.stage}</span>
                             </div>
                             <time className="sm:hidden text-[10px] font-mono text-dim tabular-nums shrink-0">

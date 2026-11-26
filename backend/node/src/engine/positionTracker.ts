@@ -1662,11 +1662,16 @@ export class PositionTrackerService {
 
     const peakRr = Math.max(trade.max_rr_achieved || 0, liveRr);
 
-    // Trailing Activation R:R Threshold Check against peakRr so activation stays latched
-    if (activeConfig.trailing_activation_rr && activeConfig.trailing_activation_rr > 0) {
-      if (risk > 0 && peakRr < activeConfig.trailing_activation_rr) {
+    // Trailing Activation R:R Threshold Check against peakRr so activation stays latched.
+    // When trailing_activation_rr <= 0 (default), require positive peak progress (peakRr > 0)
+    // so an immediate adverse tick after entry cannot tighten initial_sl inside the loss zone.
+    const activationRr = Number(activeConfig.trailing_activation_rr || 0);
+    if (activationRr > 0) {
+      if (risk > 0 && peakRr < activationRr) {
         return;
       }
+    } else if (risk > 0 && peakRr <= 0) {
+      return;
     }
 
     // Diagnostic Coincident Threshold Logging
@@ -1711,6 +1716,18 @@ export class PositionTrackerService {
     if (isNaN(prospectiveSl) || !isFinite(prospectiveSl) || prospectiveSl <= 0) {
       this.logger.debug(`[TrailingStop] Prospective SL ${prospectiveSl} for ${symbol} is invalid or non-positive. Skipping trailing stop update.`);
       return;
+    }
+
+    // With default activationRr <= 0, never let trailing cut inside the initial_sl loss zone
+    // before the trailing stop has at least reached breakeven (entry_price).
+    const entryPriceNum = Number(trade.entry_price);
+    if (activationRr <= 0 && risk > 0 && entryPriceNum > 0) {
+      const atOrBeyondBreakeven = trade.direction === 'LONG'
+        ? prospectiveSl >= entryPriceNum
+        : prospectiveSl <= entryPriceNum;
+      if (!atOrBeyondBreakeven) {
+        return;
+      }
     }
 
     const filtered = this.orderManager.applyFilters(symbol, prospectiveSl, trade.qty, {

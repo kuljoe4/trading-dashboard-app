@@ -219,6 +219,27 @@ describe('Strategy Diagnostics & UX Clarity', () => {
       formatDiagnosticDetailEntry('pnl', -42.5),
       { label: 'PnL', value: '-$42.50' }
     );
+    assert.deepStrictEqual(
+      formatDiagnosticDetailEntry('fees', 20.0418),
+      { label: 'Total Fees', value: '$20.04' }
+    );
+    assert.deepStrictEqual(
+      formatDiagnosticDetailEntry('realizedFee', 20.0418),
+      { label: 'Commission', value: '$20.04' }
+    );
+    assert.deepStrictEqual(
+      formatDiagnosticDetailEntry('exitRr', -0.65384615),
+      { label: 'Exit R:R', value: '-0.65R' }
+    );
+  });
+
+  test('StrategyDetailView closed trade decision logs combine realized_fee and funding_fee and avoid rejecting closed losses', () => {
+    const viewPath = path.join(__dirname, '../views/StrategyDetailView.jsx');
+    const src = fs.readFileSync(viewPath, 'utf-8');
+
+    assert.ok(src.includes('Number(trade.realized_fee || trade.commission || 0)'), 'Decision Log closed trade fees must include realized trading commission');
+    assert.ok(!src.includes("outcome: isWin ? 'allowed' : 'rejected'"), 'Closed losing trades must not be misclassified as rejected decisions');
+    assert.ok(src.includes("verdictLabel: isWin ? 'CLOSED WIN' : 'CLOSED LOSS'"), 'Closed trades must preserve explicit CLOSED WIN / CLOSED LOSS labels');
   });
 
   test('buildStrategyNarrative summarizes paused, gated, warming, and active states cleanly', () => {

@@ -733,8 +733,12 @@ const DETAIL_KEY_LABELS = {
   tp_ratio: 'Target R:R',
   pnl: 'PnL',
   pnl_pct: 'PnL %',
+  fees: 'Total Fees',
+  realizedFee: 'Commission',
+  fundingFee: 'Funding Fee',
   rr: 'R:R',
   exit_rr: 'Exit R:R',
+  exitRr: 'Exit R:R',
   max_rr_achieved: 'Peak R:R',
   exit_reason: 'Exit Reason',
   entry_reason: 'Entry Reason',
@@ -749,6 +753,7 @@ const DETAIL_KEY_LABELS = {
   firedSignals: 'Fired Signals',
   missingSignals: 'Missing Signals',
   risk_usdt: 'Risk Exposure',
+  riskUsdt: 'Risk Exposure',
   initial_risk_usdt: 'Initial Risk',
   candles: 'Candles',
   required: 'Required',
@@ -779,13 +784,21 @@ export function formatDiagnosticDetailEntry(key, value) {
   }
 
   if (typeof value === 'number' && Number.isFinite(value)) {
-    if (key === 'pnl' || key === 'risk_usdt' || key === 'initial_risk_usdt') {
+    if (
+      key === 'pnl' ||
+      key === 'fees' ||
+      key === 'realizedFee' ||
+      key === 'fundingFee' ||
+      key === 'risk_usdt' ||
+      key === 'riskUsdt' ||
+      key === 'initial_risk_usdt'
+    ) {
       return { label, value: `${value >= 0 ? '' : '-'}$${Math.abs(value).toFixed(2)}` };
     }
     if (key.endsWith('_pct') || key === 'pct' || key === 'proximity' || key === 'slDistPct') {
       return { label, value: `${value.toFixed(2)}%` };
     }
-    if (key === 'rr' || key === 'exit_rr' || key === 'max_rr_achieved' || key === 'tp_ratio') {
+    if (key === 'rr' || key === 'exit_rr' || key === 'exitRr' || key === 'max_rr_achieved' || key === 'tp_ratio') {
       return { label, value: `${value >= 0 ? '+' : ''}${value.toFixed(2)}R` };
     }
     if (key.toLowerCase().includes('price') || key.toLowerCase().includes('sl') || key === 'tp') {

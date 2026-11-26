@@ -468,6 +468,8 @@ export class BacktestService {
                   if (initialRisk > 0) {
                     activationMet = pos.peak_rr >= activationRr;
                   }
+                } else if (!pos.is_knife && initialRisk > 0) {
+                  activationMet = pos.peak_rr > 0;
                 }
 
                 if (activationMet) {
@@ -489,13 +491,19 @@ export class BacktestService {
                       : peakPrice + dist;
                   }
 
-                  if (pos.direction === 'LONG') {
-                    if (trailSl > pos.current_sl) {
-                      pos.current_sl = trailSl;
-                    }
-                  } else { // SHORT
-                    if (trailSl < pos.current_sl) {
-                      pos.current_sl = trailSl;
+                  const breakevenGuarded = !pos.is_knife && activationRr <= 0 && initialRisk > 0 && pos.entry_price > 0
+                    ? (pos.direction === 'LONG' ? trailSl >= pos.entry_price : trailSl <= pos.entry_price)
+                    : true;
+
+                  if (breakevenGuarded) {
+                    if (pos.direction === 'LONG') {
+                      if (trailSl > pos.current_sl) {
+                        pos.current_sl = trailSl;
+                      }
+                    } else { // SHORT
+                      if (trailSl < pos.current_sl) {
+                        pos.current_sl = trailSl;
+                      }
                     }
                   }
                 }

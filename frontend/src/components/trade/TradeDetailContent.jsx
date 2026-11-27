@@ -38,11 +38,11 @@ const toSafeNum = (val, fallback = 0) => {
 };
 
 const Metric = memo(({ label, value }) => (
-  <div className="flex flex-col gap-1.5 group/metric">
-    <div className="flex items-center gap-1">
-      <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em]">{label}</span>
+  <div className="flex flex-col gap-1.5 group/metric min-w-0">
+    <div className="flex items-center gap-1 min-w-0">
+      <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em] truncate">{label}</span>
     </div>
-    <span className="font-mono text-sm font-bold text-text/90">{value}</span>
+    <span className="font-mono text-sm font-bold text-text/90 break-words min-w-0">{value}</span>
   </div>
 ))
 Metric.displayName = 'Metric'
@@ -117,12 +117,12 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
   }
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
-      <div className="flex justify-between items-center mb-3 md:mb-5">
-         <SectionLabel className="mb-0">
-             <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm min-w-0 overflow-hidden">
+      <div className="flex justify-between items-center gap-2 flex-wrap mb-3 md:mb-5 min-w-0">
+         <SectionLabel className="mb-0 min-w-0">
+             <Zap size={14} className="text-accent shrink-0" fill="currentColor" /> Guard Ladder
           </SectionLabel>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap shrink-0">
             <Tooltip content="Copy Guard Ladder Milestones to Clipboard">
               <button
                 type="button"
@@ -648,11 +648,11 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
   const riskUsdt = Number(trade.initial_risk_usdt || trade.risk_usdt || Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price)) * trade.qty || 0)
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col text-left">
-      <div className="flex items-center justify-between mb-2 md:mb-5">
-        <div className="flex flex-col gap-0.5">
-          <SectionLabel className={cn("mb-0 flex items-center gap-1.5", criteriaMet ? "text-red" : satisfiedCount > 0 ? "text-amber" : "text-dim")}>
-            {criteriaMet ? <Zap size={11} className="fill-red" /> : satisfiedCount > 0 ? <Activity size={11} /> : <ShieldCheck size={11} />}
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col text-left min-w-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-2 md:mb-5 min-w-0">
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <SectionLabel className={cn("mb-0 flex items-center gap-1.5 min-w-0", criteriaMet ? "text-red" : satisfiedCount > 0 ? "text-amber" : "text-dim")}>
+            {criteriaMet ? <Zap size={11} className="fill-red shrink-0" /> : satisfiedCount > 0 ? <Activity size={11} className="shrink-0" /> : <ShieldCheck size={11} className="shrink-0" />}
             <span className="md:inline hidden">{criteriaMet ? 'Ready to Exit' : satisfiedCount > 0 ? 'Risk Building' : 'Watching'}</span>
             <span className="md:hidden inline">{criteriaMet ? 'EXIT' : satisfiedCount > 0 ? 'RISK' : 'WAIT'}</span>
           </SectionLabel>
@@ -660,7 +660,7 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
             {logic === 'all' ? 'Match All (AND)' : logic === 'combo' ? 'Match Combo (AND + ANY)' : 'Match Any (OR)'}
           </div>
         </div>
-        <div className="flex items-center gap-2 md:gap-4 flex-wrap justify-end">
+        <div className="flex items-center gap-2 md:gap-4 flex-wrap justify-end min-w-0 max-w-full">
            {/* Interactive Mode Toggle switch */}
            <div className="flex items-center gap-1.5 bg-background/40 border border-border/30 rounded-xl px-2 py-0.5 h-6">
              <span className="text-[7px] md:text-[8px] font-black text-dim uppercase tracking-wider select-none">Interactive Editing:</span>
@@ -719,20 +719,20 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
             : `${cfg.trailing_stop_distance_pct || 1.0}%`;
 
           return (
-            <div className="bg-background/60 border border-purple-500/25 rounded-xl p-2.5 md:p-3 shadow-sm flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-2">
+            <div className="bg-background/60 border border-purple-500/25 rounded-xl p-2.5 md:p-3 shadow-sm flex flex-col gap-2 min-w-0">
+              <div className="flex items-center justify-between gap-2 flex-wrap min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <RefreshCw size={12} className="text-purple-400 animate-spin shrink-0" />
-                  <span className="text-xs font-black uppercase tracking-tight text-purple-300 font-mono">
+                  <span className="text-xs font-black uppercase tracking-tight text-purple-300 font-mono truncate">
                     Trailing Stop Guard
                   </span>
-                  <span className="text-[7.5px] font-mono font-bold bg-purple-500/15 border border-purple-500/30 text-purple-300 px-1.5 py-0.2 rounded uppercase">
+                  <span className="text-[7.5px] font-mono font-bold bg-purple-500/15 border border-purple-500/30 text-purple-300 px-1.5 py-0.2 rounded uppercase shrink-0">
                     {trailingDistLabel}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0 max-w-full">
                   <span className={cn(
-                    "text-[7.5px] font-mono font-black uppercase px-1.5 py-0.2 rounded border leading-none",
+                    "text-[7.5px] font-mono font-black uppercase px-1.5 py-0.2 rounded border leading-none truncate max-w-full",
                     isActivated
                       ? "bg-green/10 text-green border-green/30 shadow-[0_0_6px_rgba(0,229,160,0.2)]"
                       : "bg-amber/10 text-amber border-amber/30 animate-pulse"
@@ -814,8 +814,8 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
             >
               {/* Delay control overrides and inline editing */}
               {s.remaining_delay > 0 && !isFired && (
-                <div className="flex items-center justify-between text-[9px] font-mono mb-1.5">
-                  <span className="text-dim/60 font-black uppercase">Delay Override:</span>
+                <div className="flex items-center justify-between gap-2 flex-wrap text-[9px] font-mono mb-1.5 min-w-0">
+                  <span className="text-dim/60 font-black uppercase shrink-0">Delay Override:</span>
                   <div className={cn(
                     "flex items-center gap-1 bg-amber/10 text-amber px-1.5 py-0.5 rounded border border-amber/20 transition-colors",
                     interactiveEnabled ? "cursor-pointer hover:bg-amber/20" : "cursor-not-allowed opacity-80"
@@ -1031,48 +1031,48 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
   const scanInterval = trade.strategy_config?.scan_interval || activeSessionConfig?.scan_interval || '1m';
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col gap-3">
-      <div className="flex items-center justify-between mb-0">
-        <SectionLabel className="mb-0 flex items-center gap-1.5 text-accent">
-          <Zap size={14} className="fill-accent text-accent" /> Entry Signal Context & Execution Metadata
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col gap-3 min-w-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-0 min-w-0">
+        <SectionLabel className="mb-0 flex items-center gap-1.5 text-accent min-w-0">
+          <Zap size={14} className="fill-accent text-accent shrink-0" /> <span className="truncate">Entry Signal Context & Execution Metadata</span>
         </SectionLabel>
-        <span className="text-[8px] font-mono font-bold bg-accent/10 border border-accent/20 text-accent px-2 py-0.5 rounded-full uppercase">
+        <span className="text-[8px] font-mono font-bold bg-accent/10 border border-accent/20 text-accent px-2 py-0.5 rounded-full uppercase max-w-full truncate">
           {strategyLabel}
         </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 min-w-0">
         {/* Entry Trigger & Signal Type */}
-        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5">
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 min-w-0">
           <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
-            <Activity size={10} className="text-accent" /> Trigger Signal
+            <Activity size={10} className="text-accent shrink-0" /> Trigger Signal
           </span>
-          <span className="font-mono text-xs font-bold text-text uppercase tracking-tight">
+          <span className="font-mono text-xs font-bold text-text uppercase tracking-tight break-words">
             {entryType.replace(/_/g, ' ')}
           </span>
-          <p className="text-[9px] text-dim/80 font-medium leading-normal mt-0.5">
+          <p className="text-[9px] text-dim/80 font-medium leading-normal mt-0.5 break-words">
             {entryReason}
           </p>
         </div>
 
         {/* Execution Risk & Sizing Context */}
-        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5">
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 min-w-0">
           <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
-            <BarChart3 size={10} className="text-amber" /> Execution Risk & Timing
+            <BarChart3 size={10} className="text-amber shrink-0" /> Execution Risk & Timing
           </span>
-          <div className="flex items-center justify-between text-xs font-mono">
-            <span className="text-dim">Initial Risk:</span>
-            <span className="font-bold text-red">{fmtUSD(initialRisk)}</span>
+          <div className="flex items-center justify-between gap-2 text-xs font-mono min-w-0">
+            <span className="text-dim shrink-0">Initial Risk:</span>
+            <span className="font-bold text-red truncate">{fmtUSD(initialRisk)}</span>
           </div>
-          <div className="flex items-center justify-between text-xs font-mono">
-            <span className="text-dim">24h Δ at Entry:</span>
-            <span className={cn("font-bold", pnlClass(entryDailyChange))}>
+          <div className="flex items-center justify-between gap-2 text-xs font-mono min-w-0">
+            <span className="text-dim shrink-0">24h Δ at Entry:</span>
+            <span className={cn("font-bold truncate", pnlClass(entryDailyChange))}>
               {entryDailyChange >= 0 ? '+' : ''}{entryDailyChange.toFixed(2)}%
             </span>
           </div>
-          <div className="flex items-center justify-between text-[9px] font-mono text-dim/70 mt-0.5">
-            <span>Entered At:</span>
-            <span>{entryTimeFormatted}</span>
+          <div className="flex items-center justify-between gap-2 text-[9px] font-mono text-dim/70 mt-0.5 min-w-0">
+            <span className="shrink-0">Entered At:</span>
+            <span className="text-right break-words min-w-0">{entryTimeFormatted}</span>
           </div>
         </div>
 
@@ -1144,28 +1144,28 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
           };
 
           return (
-            <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 md:col-span-2 lg:col-span-1">
+            <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 md:col-span-2 lg:col-span-1 min-w-0">
               <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
-                <Clock size={10} className={warmupInfo.isWarmingUp ? "text-amber" : "text-green"} /> Timeframe & Warmup Status
+                <Clock size={10} className={warmupInfo.isWarmingUp ? "text-amber shrink-0" : "text-green shrink-0"} /> Timeframe & Warmup Status
               </span>
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-dim">Scan Interval:</span>
-                <span className="font-bold text-text">{scanInterval}</span>
+              <div className="flex items-center justify-between gap-2 text-xs font-mono min-w-0">
+                <span className="text-dim shrink-0">Scan Interval:</span>
+                <span className="font-bold text-text truncate">{scanInterval}</span>
               </div>
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-dim">Warmup Candles:</span>
+              <div className="flex items-center justify-between gap-2 text-xs font-mono min-w-0">
+                <span className="text-dim shrink-0">Warmup Candles:</span>
                 <Tooltip content={warmupInfo.detail}>
                   <span className={cn(
-                    "font-bold flex items-center gap-1 cursor-help",
+                    "font-bold flex items-center gap-1 cursor-help min-w-0 truncate",
                     warmupInfo.isWarmingUp ? "text-amber" : "text-green"
                   )}>
-                    {warmupInfo.isWarmingUp ? <Loader2 size={11} className="animate-spin text-amber" /> : <CheckCircle2 size={11} />}
-                    {warmupInfo.text}
+                    {warmupInfo.isWarmingUp ? <Loader2 size={11} className="animate-spin text-amber shrink-0" /> : <CheckCircle2 size={11} className="shrink-0" />}
+                    <span className="truncate">{warmupInfo.text}</span>
                   </span>
                 </Tooltip>
               </div>
               <span className={cn(
-                "text-[8px] uppercase tracking-wider font-bold mt-0.5",
+                "text-[8px] uppercase tracking-wider font-bold mt-0.5 break-words",
                 warmupInfo.isWarmingUp ? "text-amber/90" : "text-dim/60"
               )}>
                 {warmupInfo.isWarmingUp ? `⚠️ ${warmupInfo.detail}` : 'Chart execution timing synced with WebSocket price ticks'}
@@ -1217,18 +1217,18 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
             </div>
           </div>
           {trade.entry_signal_snapshot.signalResult?.signals && (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5 min-w-0">
               {Object.entries(trade.entry_signal_snapshot.signalResult.signals).map(([sKey, sObj]) => (
                 <span
                   key={sKey}
                   className={cn(
-                    'inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[8.5px] font-mono',
+                    'inline-flex flex-wrap items-center gap-1 px-2 py-0.5 rounded border text-[8.5px] font-mono max-w-full break-words',
                     sObj?.fired
                       ? 'bg-green/10 border-green/30 text-green'
                       : 'bg-surface border-border/40 text-dim'
                   )}
                 >
-                  <strong className="uppercase">{sKey.replace(/_/g, ' ')}</strong>
+                  <strong className="uppercase break-words">{sKey.replace(/_/g, ' ')}</strong>
                   {sObj?.description ? `· ${sObj.description}` : (sObj?.fired ? '✓' : '')}
                 </span>
               ))}
@@ -1239,13 +1239,13 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
 
       {/* Configured Signal Parameters */}
       {paramEntries.length > 0 && (
-        <div className="bg-background/30 border border-border/30 rounded-xl p-2.5 flex flex-col gap-1.5">
+        <div className="bg-background/30 border border-border/30 rounded-xl p-2.5 flex flex-col gap-1.5 min-w-0">
           <span className="text-[7.5px] font-black text-dim/70 uppercase tracking-widest">
             Configured Signal Parameters
           </span>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 min-w-0">
             {paramEntries.map(([k, v]) => (
-              <span key={k} className="inline-flex items-center gap-1 bg-surface border border-border/40 px-2 py-0.5 rounded text-[8px] font-mono">
+              <span key={k} className="inline-flex flex-wrap items-center gap-1 bg-surface border border-border/40 px-2 py-0.5 rounded text-[8px] font-mono max-w-full break-all">
                 <span className="text-dim/60 uppercase">{k}:</span>
                 <span className="font-bold text-text/90">{String(v)}</span>
               </span>
@@ -1288,69 +1288,69 @@ const ExitSignalSnapshot = memo(({ trade, activeSessionConfig }) => {
     : [];
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <SectionLabel className="mb-0 flex items-center gap-1.5 text-accent">
-          <ShieldCheck size={14} className="text-accent" /> {isClosed ? 'Exit Signal Snapshot & Realized Closure' : 'Live Exit Snapshot & Protection Telemetry'}
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col gap-3 min-w-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 flex-wrap min-w-0">
+        <SectionLabel className="mb-0 flex items-center gap-1.5 text-accent min-w-0">
+          <ShieldCheck size={14} className="text-accent shrink-0" /> <span className="truncate">{isClosed ? 'Exit Signal Snapshot & Realized Closure' : 'Live Exit Snapshot & Protection Telemetry'}</span>
         </SectionLabel>
         <span className={cn(
-          'text-[8px] font-mono font-bold px-2 py-0.5 rounded-full uppercase border',
+          'text-[8px] font-mono font-bold px-2 py-0.5 rounded-full uppercase border max-w-full truncate',
           pnlPctVal >= 0 ? 'bg-green/10 border-green/30 text-green' : 'bg-red/10 border-red/30 text-red'
         )}>
           {isClosed ? 'Closed Snapshot' : 'Live Exit Monitor'} · {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(2)}% ({exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(2)}R)
         </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 min-w-0">
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 min-w-0">
           <span className="text-[8px] font-black text-dim uppercase tracking-widest">
             {isClosed ? 'Exit Trigger' : 'Active Exit State'}
           </span>
-          <span className="font-mono text-xs font-bold text-text uppercase">
+          <span className="font-mono text-xs font-bold text-text uppercase break-words">
             {exitSignalType}
           </span>
-          <p className="text-[9px] text-dim/80 font-medium leading-normal">
+          <p className="text-[9px] text-dim/80 font-medium leading-normal break-words">
             {exitSignalReason}
           </p>
         </div>
 
-        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 font-mono text-xs">
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 font-mono text-xs min-w-0">
           <span className="text-[8px] font-black text-dim uppercase tracking-widest font-sans">
             SL Lookback & Distance Ratio
           </span>
-          <div className="flex items-center justify-between">
-            <span className="text-dim">Initial SL Dist:</span>
-            <span className="font-bold text-red">-{slDistPct.toFixed(2)}% (1.00R)</span>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <span className="text-dim truncate">Initial SL Dist:</span>
+            <span className="font-bold text-red shrink-0">-{slDistPct.toFixed(2)}% (1.00R)</span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-dim">Final / Live SL Dist:</span>
-            <span className="font-bold text-amber">{liveSlDistPct.toFixed(2)}%</span>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <span className="text-dim truncate">Final / Live SL Dist:</span>
+            <span className="font-bold text-amber shrink-0">{liveSlDistPct.toFixed(2)}%</span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-dim">{isClosed ? 'Realized PnL %:' : 'Live PnL %:'}</span>
-            <span className={cn('font-bold', pnlPctVal >= 0 ? 'text-green' : 'text-red')}>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <span className="text-dim truncate">{isClosed ? 'Realized PnL %:' : 'Live PnL %:'}</span>
+            <span className={cn('font-bold shrink-0', pnlPctVal >= 0 ? 'text-green' : 'text-red')}>
               {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(2)}%
             </span>
           </div>
         </div>
 
-        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 font-mono text-xs">
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 font-mono text-xs min-w-0">
           <span className="text-[8px] font-black text-dim uppercase tracking-widest font-sans">
             R:R Excursion Snapshot
           </span>
-          <div className="flex items-center justify-between">
-            <span className="text-dim">{isClosed ? 'Exit R:R:' : 'Current R:R:'}</span>
-            <span className={cn('font-bold', exitRrVal >= 0 ? 'text-green' : 'text-red')}>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <span className="text-dim truncate">{isClosed ? 'Exit R:R:' : 'Current R:R:'}</span>
+            <span className={cn('font-bold shrink-0', exitRrVal >= 0 ? 'text-green' : 'text-red')}>
               {exitRrVal >= 0 ? '+' : ''}{exitRrVal.toFixed(2)}R / {targetRrVal.toFixed(2)}R
             </span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-dim">Peak MFE (Max R):</span>
-            <span className="font-bold text-green">+{maxRrVal.toFixed(2)}R</span>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <span className="text-dim truncate">Peak MFE (Max R):</span>
+            <span className="font-bold text-green shrink-0">+{maxRrVal.toFixed(2)}R</span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-dim">Deepest MAE (Min R):</span>
-            <span className={cn('font-bold', minRrVal < 0 ? 'text-red' : 'text-dim')}>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <span className="text-dim truncate">Deepest MAE (Min R):</span>
+            <span className={cn('font-bold shrink-0', minRrVal < 0 ? 'text-red' : 'text-dim')}>
               {minRrVal >= 0 ? '+' : ''}{minRrVal.toFixed(2)}R
             </span>
           </div>
@@ -1358,11 +1358,11 @@ const ExitSignalSnapshot = memo(({ trade, activeSessionConfig }) => {
       </div>
 
       {exitSignalsStatus.length > 0 && (
-        <div className="bg-background/35 border border-border/35 rounded-xl p-2.5 flex flex-col gap-1.5">
+        <div className="bg-background/35 border border-border/35 rounded-xl p-2.5 flex flex-col gap-1.5 min-w-0">
           <span className="text-[7.5px] font-black text-dim/80 uppercase tracking-widest">
             Recorded Exit Conditions State at Snapshot
           </span>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 min-w-0">
             {exitSignalsStatus.map(([sigKey, sigVal]) => {
               const isFired = Boolean(sigVal?.fired && sigVal?.active);
               const distPct = Number.isFinite(Number(sigVal?.distPct)) ? Math.round(Number(sigVal.distPct)) : null;
@@ -1370,7 +1370,7 @@ const ExitSignalSnapshot = memo(({ trade, activeSessionConfig }) => {
                 <span
                   key={sigKey}
                   className={cn(
-                    'inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[8.5px] font-mono',
+                    'inline-flex flex-wrap items-center gap-1 px-2 py-0.5 rounded border text-[8.5px] font-mono max-w-full break-words',
                     isFired
                       ? 'bg-green/12 border-green/30 text-green font-bold'
                       : 'bg-surface border-border/40 text-dim'
@@ -1394,29 +1394,29 @@ ExitSignalSnapshot.displayName = 'ExitSignalSnapshot';
 const CollapsibleSection = memo(({ title, icon, badge, children, defaultOpen = false, className = '' }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   return (
-    <div className={cn("bg-surface border border-border/70 rounded-2xl overflow-hidden transition-all duration-200 shadow-sm", className)}>
+    <div className={cn("bg-surface border border-border/70 rounded-2xl overflow-hidden transition-all duration-200 shadow-sm min-w-0", className)}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
-        className="w-full px-4 py-3 md:py-3.5 flex items-center justify-between text-left hover:bg-white/[0.02] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+        className="w-full px-3.5 sm:px-4 py-3 md:py-3.5 flex items-center justify-between gap-2 text-left hover:bg-white/[0.02] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer min-w-0"
       >
-        <div className="flex items-center gap-2">
-          {icon}
-          <span className="text-[11px] font-black uppercase tracking-wider text-text/90">{title}</span>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="shrink-0 flex items-center">{icon}</span>
+          <span className="text-[11px] font-black uppercase tracking-wider text-text/90 truncate min-w-0">{title}</span>
           {badge && (
-            <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-surface-hover border border-border text-dim">
+            <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-surface-hover border border-border text-dim max-w-[100px] sm:max-w-[180px] truncate shrink-0">
               {badge}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[9px] font-mono text-dim/60 uppercase">{isOpen ? 'Hide' : 'Show Details'}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[9px] font-mono text-dim/60 uppercase hidden sm:inline">{isOpen ? 'Hide' : 'Show Details'}</span>
           <ChevronDown size={14} className={cn("text-dim transition-transform duration-200", isOpen && "rotate-180")} />
         </div>
       </button>
       {isOpen && (
-        <div className="px-4 pb-4 pt-2 border-t border-border/40">
+        <div className="px-3.5 sm:px-4 pb-4 pt-2 border-t border-border/40 min-w-0 overflow-hidden">
           {children}
         </div>
       )}
@@ -1981,16 +1981,16 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   if (!trade) return null
 
   return (
-    <div className="flex flex-col gap-4 md:gap-6">
+    <div className="flex flex-col gap-4 md:gap-6 w-full min-w-0 overflow-x-hidden">
       {/* Top Diagnostic Control Bar */}
-      <div className="flex items-center justify-between gap-2 bg-surface/80 border border-border/60 rounded-2xl p-2.5 md:px-4 md:py-3 shadow-sm">
-        <div className="flex items-center gap-2">
-          <SectionLabel className="mb-0 flex items-center gap-1.5 text-text">
-            <Activity size={13} className="text-accent" /> Active Trade Diagnostics
+      <div className="flex items-center justify-between gap-2 flex-wrap bg-surface/80 border border-border/60 rounded-2xl p-2.5 md:px-4 md:py-3 shadow-sm min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <SectionLabel className="mb-0 flex items-center gap-1.5 text-text min-w-0">
+            <Activity size={13} className="text-accent shrink-0" /> <span className="truncate">Active Trade Diagnostics</span>
           </SectionLabel>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
           <Tooltip content="Copy complete Markdown diagnostic trace snippet for this trade to clipboard">
             <Btn
               variant="ghost"
@@ -2007,29 +2007,29 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
 
       {/* Discrepancy & Diagnostic Callout Banner */}
       {diagnostics.issues.length > 0 && (
-        <div className="flex flex-col gap-2 p-3 md:p-4 bg-background/90 border border-border/80 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between border-b border-border/40 pb-2">
-            <div className="flex items-center gap-2 font-black uppercase text-xs tracking-wider">
-              <ShieldAlert size={14} className={diagnostics.hasError ? "text-red" : "text-amber"} />
-              <span className={diagnostics.hasError ? "text-red" : "text-amber"}>
+        <div className="flex flex-col gap-2 p-3 md:p-4 bg-background/90 border border-border/80 rounded-2xl shadow-sm min-w-0 overflow-hidden">
+          <div className="flex items-center justify-between gap-2 flex-wrap border-b border-border/40 pb-2 min-w-0">
+            <div className="flex items-center gap-2 font-black uppercase text-xs tracking-wider min-w-0">
+              <ShieldAlert size={14} className={cn("shrink-0", diagnostics.hasError ? "text-red" : "text-amber")} />
+              <span className={cn("break-words", diagnostics.hasError ? "text-red" : "text-amber")}>
                 {diagnostics.hasError ? "Critical Trade Discrepancy Detected" : "Trade Protection & Execution Warnings"}
               </span>
             </div>
             <Btn
               variant="ghost"
               onClick={handleCopyTrace}
-              className="px-2 py-0.5 text-[8px] font-bold border border-border/60 hover:border-accent/40 text-dim hover:text-accent flex items-center gap-1"
+              className="px-2 py-0.5 text-[8px] font-bold border border-border/60 hover:border-accent/40 text-dim hover:text-accent flex items-center gap-1 shrink-0"
               aria-label="Copy Diagnostic Trace"
             >
               <Copy size={9} /> Copy Trace
             </Btn>
           </div>
-          <div className="flex flex-col gap-1.5 text-xs font-mono">
+          <div className="flex flex-col gap-1.5 text-xs font-mono min-w-0">
             {diagnostics.issues.map((issue, idx) => (
               <div
                 key={idx}
                 className={cn(
-                  "p-2.5 rounded-xl border flex items-start gap-2.5 text-[10px] md:text-[11px]",
+                  "p-2.5 rounded-xl border flex items-start gap-2.5 text-[10px] md:text-[11px] min-w-0",
                   issue.type === 'error' ? "bg-red/10 border-red/30 text-red-200" :
                   issue.type === 'warning' ? "bg-amber/10 border-amber/30 text-amber-200" :
                   "bg-surface border-border/60 text-dim"
@@ -2040,9 +2040,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    issue.type === 'warning' ? <AlertTriangle size={13} className="text-amber" /> :
                    <Info size={13} className="text-accent" />}
                 </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-black uppercase tracking-wider text-[9px]">{issue.title}</span>
-                  <span className="font-medium text-text/90 leading-normal">{issue.message}</span>
+                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                  <span className="font-black uppercase tracking-wider text-[9px] break-words">{issue.title}</span>
+                  <span className="font-medium text-text/90 leading-normal break-words">{issue.message}</span>
                 </div>
               </div>
             ))}
@@ -2197,7 +2197,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           </div>
         </div>
 
-        <div className="relative pt-3 pb-0.5 min-h-[26px]">
+        <div className="relative pt-3 pb-0.5 min-h-[26px] overflow-x-clip">
           <div
             role="progressbar"
             aria-valuenow={Math.round(progress)}
@@ -2247,6 +2247,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
 
             const isFired = !!sig.fired;
             const isHighProx = typeof sig.distPct === 'number' && sig.distPct >= 75;
+            const sigAlignClass = sigPos <= 12
+              ? "translate-x-0 items-start"
+              : sigPos >= 88
+                ? "-translate-x-full items-end"
+                : "-translate-x-1/2 items-center";
 
             return (
               <Tooltip
@@ -2270,11 +2275,14 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 }
               >
                 <div
-                  className="absolute top-0 bottom-0 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                  className={cn(
+                    "absolute top-0 bottom-0 z-20 cursor-help transition-all duration-300 flex flex-col max-w-[45%]",
+                    sigAlignClass
+                  )}
                   style={{ left: `${sigPos}%` }}
                 >
                   <div className={cn(
-                    "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
+                    "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5 whitespace-nowrap max-w-full truncate",
                     isFired
                       ? "bg-rose-600 text-white shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-pulse"
                       : isHighProx
@@ -2305,6 +2313,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               const distFromSl = isLong ? 0 : totalRange;
               trailingSlPos = Math.max(0, Math.min(100, (distFromSl / totalRange) * 100));
             }
+            const trailAlignClass = trailingSlPos <= 12
+              ? "translate-x-0 items-start"
+              : trailingSlPos >= 88
+                ? "-translate-x-full items-end"
+                : "-translate-x-1/2 items-center";
 
             return (
               <Tooltip content={
@@ -2316,11 +2329,14 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 </div>
               }>
                 <div
-                  className="absolute top-0 bottom-0 z-25 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                  className={cn(
+                    "absolute top-0 bottom-0 z-25 cursor-help transition-all duration-300 flex flex-col",
+                    trailAlignClass
+                  )}
                   style={{ left: `${trailingSlPos}%` }}
                 >
                   <div className={cn(
-                    "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5 text-white animate-pulse",
+                    "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5 text-white animate-pulse whitespace-nowrap",
                     trade.pnl < 0 ? "bg-red shadow-[0_0_8px_rgba(255,0,0,0.8)]" : "bg-purple shadow-[0_0_8px_rgba(168,85,247,0.8)]"
                   )}>
                     🛡️ TRAIL
@@ -2353,6 +2369,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
 
             const currentRr = toSafeNum(trade.rr, 0);
             const isActivated = currentRr >= activationRr;
+            const actAlignClass = activationPos <= 12
+              ? "translate-x-0 items-start"
+              : activationPos >= 88
+                ? "-translate-x-full items-end"
+                : "-translate-x-1/2 items-center";
 
             return (
               <Tooltip content={
@@ -2364,11 +2385,14 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 </div>
               }>
                 <div
-                  className="absolute top-0 bottom-0 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                  className={cn(
+                    "absolute top-0 bottom-0 z-20 cursor-help transition-all duration-300 flex flex-col",
+                    actAlignClass
+                  )}
                   style={{ left: `${activationPos}%` }}
                 >
                   <div className={cn(
-                    "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
+                    "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5 whitespace-nowrap",
                     isActivated
                       ? "bg-purple text-white shadow-[0_0_8px_rgba(168,85,247,0.8)] animate-pulse"
                       : "bg-surface/90 border border-purple-400/40 text-purple-300/80"
@@ -2429,16 +2453,16 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           };
 
           return (
-            <div className="mt-1 rounded-lg bg-background/50 border border-border/45 px-2.5 py-1 flex items-center justify-between gap-2 font-mono text-[9px] tabular-nums">
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-[8px] font-black text-dim uppercase">Entry</span>
-                <span className="font-bold text-text/90">{price(entry)}</span>
+            <div className="mt-1 rounded-lg bg-background/50 border border-border/45 px-2.5 py-1 flex items-center justify-between gap-1.5 sm:gap-2 font-mono text-[9px] tabular-nums min-w-0 overflow-hidden">
+              <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 shrink">
+                <span className="text-[8px] font-black text-dim uppercase shrink-0">Entry</span>
+                <span className="font-bold text-text/90 truncate">{price(entry)}</span>
               </div>
 
               {/* Proportional Two-Wing SL <-> Entry <-> Exit/Target Bar */}
-              <div className="flex-1 max-w-[320px] h-4 rounded bg-surface/85 border border-border/50 overflow-hidden flex items-center">
+              <div className="flex-1 min-w-0 max-w-[320px] h-4 rounded bg-surface/85 border border-border/50 overflow-hidden flex items-center">
                 <div
-                  className="h-full bg-gradient-to-r from-red/35 to-red/18 border-r-2 border-text/85 flex items-center justify-start pl-1.5"
+                  className="h-full min-w-0 overflow-hidden bg-gradient-to-r from-red/35 to-red/18 border-r-2 border-text/85 flex items-center justify-start pl-1 sm:pl-1.5"
                   style={{ width: `${riskWingW}%` }}
                   title={`Initial Lookback SL Distance: -${safeInitSlDist.toFixed(2)}% (1.00R)`}
                 >
@@ -2447,9 +2471,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                   </span>
                 </div>
                 <div
-                  className="relative h-full bg-surface/60 flex items-center justify-end pr-1.5 overflow-hidden"
+                  className="relative h-full min-w-0 bg-surface/60 flex items-center justify-end pr-1 sm:pr-1.5 overflow-hidden"
                   style={{ width: `${rewardWingW}%` }}
-                  title={`PnL % & R:R Ratio: ${safePnlRatioPct >= 0 ? '+' : ''}${safePnlRatioPct.toFixed(2)}% (${safeCurrentR >= 0 ? '+' : ''}{safeCurrentR.toFixed(2)}R / ${safeTargetR.toFixed(1)}R)`}
+                  title={`PnL % & R:R Ratio: ${safePnlRatioPct >= 0 ? '+' : ''}${safePnlRatioPct.toFixed(2)}% (${safeCurrentR >= 0 ? '+' : ''}${safeCurrentR.toFixed(2)}R / ${safeTargetR.toFixed(1)}R)`}
                 >
                   <div
                     className={cn(
@@ -2688,11 +2712,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           >
             <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-1 no-scrollbar pt-1">
               {[...(trade.active_trade_events || [])].reverse().map((evt, i) => (
-                <div key={i} className="flex flex-col gap-1 text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/evt hover:border-accent/30 transition-colors">
-                  <div className="flex items-center justify-between mb-1">
-                     <div className="flex items-center gap-1.5">
+                <div key={i} className="flex flex-col gap-1 text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/evt hover:border-accent/30 transition-colors min-w-0">
+                  <div className="flex items-center justify-between gap-2 flex-wrap mb-1 min-w-0">
+                     <div className="flex items-center gap-1.5 min-w-0">
                         <span className={cn(
-                           "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest",
+                           "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest truncate max-w-full",
                            evt.level === 'error' ? "bg-red/10 text-red" :
                            evt.level === 'warn' ? "bg-amber/10 text-amber" :
                            "bg-blue-500/10 text-blue-400"
@@ -2700,9 +2724,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                            {evt.type}
                         </span>
                      </div>
-                     <span className="text-dim/40 font-mono text-[9px]">{new Date(evt.timestamp).toLocaleTimeString()}</span>
+                     <span className="text-dim/40 font-mono text-[9px] shrink-0">{new Date(evt.timestamp).toLocaleTimeString()}</span>
                   </div>
-                  <span className="text-dim/80 text-[10px] leading-relaxed">{evt.message}</span>
+                  <span className="text-dim/80 text-[10px] leading-relaxed break-words">{evt.message}</span>
                   {evt.details && Object.keys(evt.details).length > 0 && (
                      <div className="mt-2 p-2 bg-black/20 rounded border border-white/[0.02] overflow-hidden">
                        <pre className="text-[8px] font-mono text-dim/60 whitespace-pre-wrap break-words m-0">
@@ -2803,12 +2827,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           : "focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none";
 
         return (
-          <div className="mt-4 md:mt-6 pt-5 border-t border-border/40">
-            <div className="flex justify-between items-center mb-4">
-              <SectionLabel className="mb-0 flex items-center gap-1.5">
-                <Sliders size={14} className="text-accent" /> Active Exit Guard Configuration
+          <div className="mt-4 md:mt-6 pt-5 border-t border-border/40 min-w-0">
+            <div className="flex justify-between items-center gap-2 flex-wrap mb-4 min-w-0">
+              <SectionLabel className="mb-0 flex items-center gap-1.5 min-w-0">
+                <Sliders size={14} className="text-accent shrink-0" /> <span className="truncate">Active Exit Guard Configuration</span>
               </SectionLabel>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap shrink-0">
                 {isEditing && (
                   <>
                     <Tooltip content="Copy Active Exit Guard Config JSON to Clipboard">
@@ -2867,15 +2891,15 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                   transition={{ type: "spring", stiffness: 100, damping: 20 }}
                   className="overflow-hidden"
                 >
-                  <div className="bg-surface/60 border border-border/80 rounded-2xl p-4 md:p-6 shadow-lg shadow-black/20 backdrop-blur-md flex flex-col gap-5 md:gap-7 mt-3">
+                  <div className="bg-surface/60 border border-border/80 rounded-2xl p-3.5 sm:p-4 md:p-6 shadow-lg shadow-black/20 backdrop-blur-md flex flex-col gap-5 md:gap-7 mt-3 min-w-0">
 
                     {/* Part 1: Stop-Loss Override */}
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-2 min-w-0">
                       <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase">
                         Stop-Loss Override
                       </SectionLabel>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                        <div className="relative">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center min-w-0">
+                        <div className="relative min-w-0">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
                           <input
                             type="number"
@@ -2883,20 +2907,20 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                             value={formSl}
                             onChange={(e) => setFormSl(e.target.value)}
                             className={cn(
-                              "pl-7 pr-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              "pl-7 pr-3 py-1.5 w-full min-w-0 font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
                               ringColorClass
                             )}
                             aria-label="Edit stop loss price"
                           />
                         </div>
-                        <div className="text-[10px] md:text-xs font-mono text-dim/80 flex flex-col gap-0.5">
-                          <div className="flex justify-between">
+                        <div className="text-[10px] md:text-xs font-mono text-dim/80 flex flex-col gap-0.5 min-w-0">
+                          <div className="flex justify-between gap-2">
                             <span>Risk Distance:</span>
                             <span className="font-bold text-red">
                               {toSafeNum(entry) > 0 ? `${toSafeNum(Math.abs(entry - toSafeNum(formSl)) / entry * 100).toFixed(2)}%` : '0.00%'}
                             </span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between gap-2">
                             <span>Projected Risk:</span>
                             <span className="font-bold text-red">
                               {fmtUSD(Math.abs(entry - Number(formSl)) * Number(qty))}
@@ -2907,12 +2931,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                     </div>
 
                     {/* Part 1.5: Force Risk Release Toggle */}
-                    <div className="flex items-center justify-between p-3.5 bg-background/30 border border-border/40 rounded-xl">
-                      <div className="flex flex-col gap-0.5 min-w-0 pr-4">
+                    <div className="flex items-center justify-between gap-3 p-3.5 bg-background/30 border border-border/40 rounded-xl min-w-0">
+                      <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                         <span className="text-[10px] text-accent/80 tracking-widest font-black uppercase">
                           Force Risk Release
                         </span>
-                        <span className="text-[9px] text-dim/60 leading-tight">
+                        <span className="text-[9px] text-dim/60 leading-tight break-words">
                           Locks trade risk value to $0.00. Use this if the trade has reached a safe breakeven state or you want to free up active risk allocation.
                         </span>
                       </div>
@@ -2936,12 +2960,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                     </div>
 
                     {/* Part 2: Exponential RR Guard Ladder */}
-                    <div className="flex flex-col gap-3 pt-4 border-t border-border/20">
-                      <div className="flex justify-between items-center">
-                        <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-0">
+                    <div className="flex flex-col gap-3 pt-4 border-t border-border/20 min-w-0">
+                      <div className="flex justify-between items-center gap-2 flex-wrap min-w-0">
+                        <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-0 min-w-0">
                           Profit-Locking Guard Ladder Milestones
                         </SectionLabel>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap shrink-0">
                           <Tooltip content="Copy Guard Ladder Milestones to Clipboard">
                             <button
                               type="button"
@@ -2988,9 +3012,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                               animate={{ opacity: 1, y: 0, height: "auto" }}
                               exit={{ opacity: 0, y: 10, height: 0 }}
                               transition={{ type: "spring", stiffness: 350, damping: 26 }}
-                              className="grid grid-cols-[1fr_1fr_40px] gap-2 items-center overflow-hidden py-0.5"
+                              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_36px] sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_40px] gap-1.5 sm:gap-2 items-center overflow-hidden py-0.5 min-w-0"
                             >
-                              <div className="relative">
+                              <div className="relative min-w-0">
                                 <input
                                   type="number"
                                   step="any"
@@ -2999,14 +3023,14 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                   onBlur={handleSortLadder}
                                   placeholder="Trigger RR"
                                   className={cn(
-                                    "px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                                    "px-2.5 sm:px-3 pr-14 sm:pr-16 py-1.5 w-full min-w-0 font-mono text-xs sm:text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
                                     ringColorClass
                                   )}
                                   aria-label={`Milestone trigger ${idx + 1}`}
                                 />
-                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">Trigger R</span>
+                                <span className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 text-[8px] sm:text-[9px] font-black text-dim/40 font-mono pointer-events-none">Trig R</span>
                               </div>
-                              <div className="relative">
+                              <div className="relative min-w-0">
                                 <input
                                   type="number"
                                   step="any"
@@ -3015,12 +3039,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                   onBlur={handleSortLadder}
                                   placeholder="Exit SL RR"
                                   className={cn(
-                                    "px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                                    "px-2.5 sm:px-3 pr-12 sm:pr-14 py-1.5 w-full min-w-0 font-mono text-xs sm:text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
                                     ringColorClass
                                   )}
                                   aria-label={`Milestone exit stop loss ${idx + 1}`}
                                 />
-                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">Lock R</span>
+                                <span className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 text-[8px] sm:text-[9px] font-black text-dim/40 font-mono pointer-events-none">Lock R</span>
                               </div>
                               <button
                                 type="button"
@@ -3058,23 +3082,23 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                           const suffix = isLayered ? ` (Layer: _${sigKey.split('_').pop()})` : '';
 
                           return (
-                            <div key={sigKey} className="bg-white/[0.01] border border-white/10 p-3 rounded-xl flex flex-col gap-2.5 shadow-sm">
-                              <div className="flex justify-between items-center border-b border-white/[0.02] pb-1.5">
-                                <span className="text-[9px] font-black uppercase tracking-wider text-text/95">
+                            <div key={sigKey} className="bg-white/[0.01] border border-white/10 p-3 rounded-xl flex flex-col gap-2.5 shadow-sm min-w-0">
+                              <div className="flex justify-between items-center gap-2 border-b border-white/[0.02] pb-1.5 min-w-0">
+                                <span className="text-[9px] font-black uppercase tracking-wider text-text/95 truncate min-w-0">
                                   {label}{suffix}
                                 </span>
-                                <span className="text-[8px] font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded font-bold uppercase">
+                                <span className="text-[8px] font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
                                   {timeframe}
                                 </span>
                               </div>
-                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                              <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-3 gap-3 min-w-0">
                                 {params.map(p => {
                                   const storeKey = getParamStoreKey(sigKey, baseType, p.key);
                                   const val = formOverrides[storeKey] ?? '';
 
                                   return (
-                                    <div key={p.key}>
-                                      <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">
+                                    <div key={p.key} className="min-w-0">
+                                      <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1 truncate">
                                         {p.label}
                                       </label>
                                       {p.type === 'select' ? (
@@ -3082,7 +3106,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                           value={val}
                                           onChange={(e) => setFormOverrides({ ...formOverrides, [storeKey]: e.target.value })}
                                           className={cn(
-                                            "px-2 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                                            "px-2 py-1.5 w-full min-w-0 font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
                                             ringColorClass
                                           )}
                                         >
@@ -3096,7 +3120,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                           value={val}
                                           onChange={(e) => setFormOverrides({ ...formOverrides, [storeKey]: e.target.value })}
                                           className={cn(
-                                            "px-2 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                                            "px-2 py-1.5 w-full min-w-0 font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
                                             ringColorClass
                                           )}
                                         >
@@ -3112,7 +3136,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                           value={val}
                                           onChange={(e) => setFormOverrides({ ...formOverrides, [storeKey]: e.target.value })}
                                           className={cn(
-                                            "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                                            "px-3 py-1.5 w-full min-w-0 font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
                                             ringColorClass
                                           )}
                                         />
@@ -3133,11 +3157,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                     </div>
 
                     {/* Part 4: Exit Signal Delay Overrides */}
-                    <div className="flex flex-col gap-3 pt-4 border-t border-border/20">
+                    <div className="flex flex-col gap-3 pt-4 border-t border-border/20 min-w-0">
                       <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
                         Exit Signal Delay Overrides
                       </SectionLabel>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-3 gap-3 min-w-0">
                         {activeSignalKeys.map((key) => {
                           const val = formDelays[key] ?? 0;
                           const label = FRIENDLY_SIGNAL_NAMES[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -3145,12 +3169,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                           const candleCountValue = isCandleType ? parseInt(val.slice(0, -1), 10) : 1;
 
                           return (
-                            <div key={key} className="flex flex-col gap-1.5 bg-white/[0.01] border border-white/[0.03] p-2.5 rounded-xl">
-                              <div className="flex items-center justify-between">
-                                <label className="text-[8px] font-black text-dim uppercase tracking-wider block">
+                            <div key={key} className="flex flex-col gap-1.5 bg-white/[0.01] border border-white/[0.03] p-2.5 rounded-xl min-w-0">
+                              <div className="flex items-center justify-between gap-1.5 flex-wrap min-w-0">
+                                <label className="text-[8px] font-black text-dim uppercase tracking-wider block truncate min-w-0">
                                   {label} Delay
                                 </label>
-                                <div className="flex bg-background border border-border/40 rounded-md p-0.5" role="group" aria-label={`Delay mode for ${label}`}>
+                                <div className="flex bg-background border border-border/40 rounded-md p-0.5 shrink-0" role="group" aria-label={`Delay mode for ${label}`}>
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -3285,7 +3309,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1.5 w-full md:w-auto min-w-[180px]">
+              <div className="flex flex-col gap-1.5 w-full md:w-auto min-w-0 md:min-w-[180px]">
                 {trade.close_blocked && (
                    <div className="bg-red/10 border border-red/20 rounded-xl p-2.5 flex flex-col gap-0.5 items-center text-center animate-pulse mb-1.5">
                       <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">

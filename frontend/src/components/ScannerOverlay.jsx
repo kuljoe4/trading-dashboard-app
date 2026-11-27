@@ -5,6 +5,7 @@ import { PulseDot, Sparkline, cn, CopyButton, Tooltip, MonitoredBadge, InPosBadg
 import { useTradingStore } from '../store/trading'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { useNow } from '../hooks/useNow'
+import { useDelayedActive } from '../hooks/useDelayedActive'
 import { getMarketRegimeInfo } from '../utils/marketRegime'
 import { X, Shield, ChevronDown, ChevronUp, Activity, Clock, RefreshCw, PauseCircle, Eye, Layers, Target, Filter } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -832,7 +833,8 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
   );
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
-  const showResumingFeedback = sessionActive && isResuming;
+  const delayedResuming = useDelayedActive(sessionActive && isResuming, 1500);
+  const showResumingFeedback = sessionActive && (wsStatus === 'error' || delayedResuming);
 
   const activeTradeSymbols = useMemo(() => new Set((activeTrades || []).map(t => t.symbol)), [activeTrades])
   const [discoveryMode, setDiscoveryMode] = useState('all') // 'all' | 'volume' | 'pct_change'

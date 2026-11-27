@@ -7,6 +7,7 @@ import { CheckCircle2, AlertCircle, AlertTriangle, Loader2, Zap, Copy, ChevronLe
 import { Sparkline as SparklineChart, CandlestickChart as CandlestickChartBase } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext, Tooltip } from './tooltip'
+import { useDelayedActive } from '../../hooks/useDelayedActive'
 
 // --- Pulse dot ---
 export const PulseDot = React.memo(({ color = "bg-green" }) => (
@@ -380,9 +381,16 @@ export const EcoBadge = () => {
     isEcoMode: state.isEcoMode
   }));
 
-  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
-  const showResumingFeedback = sessionActive && isResuming;
-  const isEco = isThrottled || isEcoMode;
+  const isTransientRecovering = Boolean(
+    sessionActive && (wsStatus === 'connecting' || wsStatus === 'reconnecting' || isSyncingOnResume)
+  );
+  const delayedRecovering = useDelayedActive(isTransientRecovering, 1500);
+  const delayedThrottleEco = useDelayedActive(!isEcoMode && isThrottled, 600);
+
+  const showResumingFeedback = Boolean(
+    sessionActive && (wsStatus === 'error' || delayedRecovering)
+  );
+  const isEco = Boolean(isEcoMode || delayedThrottleEco);
 
   if (!showResumingFeedback && !isEco) return null;
 
@@ -571,17 +579,226 @@ export const VisuallyHidden = ({ children }) => (
   </span>
 )
 
-export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming, hideMetrics = false, hideMetricsNumbers = false, mobileOneRow = false }) => {
-  const { balance, totalPnl, activePnl, lastKnownPnl, activeTrades, gateState, totalRiskPct, config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive, alerts, updateStats } = useTradingStore()
+// --- Alert Log Bar (Switch Row / Full-Width Inline Ticker) ---
+export const AlertLogBar = React.memo(({ className = '', compact = false }) => {
+  const { alerts, updateStats } = useTradingStore(state => ({
+    alerts: state.alerts,
+    updateStats: state.updateStats,
+  }));
+  const [alertIndex, setAlertIndex] = React.useState(0);
+  const [showDropdown, setShowDropdown] = React.useState(false);
+  const [hasActiveModal, setHasActiveModal] = React.useState(false);
+
+  const newestAlert = alerts && alerts.length > 0 ? alerts[0] : null;
+  const [lastProcessedAlert, setLastProcessedAlert] = React.useState(null);
+  const [triggerRippleKey, setTriggerRippleKey] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!newestAlert) {
+      setLastProcessedAlert(null);
+      return;
+    }
+    const isNewId = !lastProcessedAlert || lastProcessedAlert.id !== newestAlert.id;
+    const isNewCount = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && (newestAlert.count || 1) > (lastProcessedAlert.count || 1);
+    const isNewTs = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && newestAlert.ts !== lastProcessedAlert.ts;
+
+    if (isNewId || isNewCount || isNewTs) {
+      setLastProcessedAlert({ id: newestAlert.id, count: newestAlert.count || 1, ts: newestAlert.ts, level: newestAlert.level });
+      setAlertIndex(0);
+      setTriggerRippleKey(prev => prev + 1);
+    }
+  }, [newestAlert, lastProcessedAlert]);
+
+  // SRE-PERF: Suppress ticker while a modal/dialog is open to avoid background visual noise.
+  React.useEffect(() => {
+    const checkModals = () => {
+      const isOpen = !!document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]');
+      setHasActiveModal(isOpen);
+    };
+
+    checkModals();
+
+    const observer = new MutationObserver(checkModals);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-state', 'class', 'style']
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    if (!alerts || alerts.length <= 1) {
+      setAlertIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setAlertIndex(prev => (prev + 1) % alerts.length);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [alerts]);
+
+  const activeAlert = !hasActiveModal && alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null;
+  if (!activeAlert) return null;
+
+  return (
+    <div
+      data-alert-log-bar
+      className={cn(
+        "relative flex items-center min-w-0",
+        showDropdown ? "z-40" : "z-20",
+        className
+      )}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setShowDropdown(prev => !prev)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setShowDropdown(prev => !prev);
+          }
+        }}
+        className={cn(
+          "group relative overflow-hidden pointer-events-auto cursor-pointer flex items-center justify-between gap-2 bg-surface/90 hover:bg-surface border border-border hover:border-accent/40 rounded-lg text-text transition-colors duration-200 select-none w-full min-w-0 shadow-xs focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+          compact ? "h-[26px] px-2 text-[9px]" : "h-[32px] px-2.5 text-[10px]"
+        )}
+        title="Click to view all recent alerts"
+        aria-expanded={showDropdown}
+        aria-label={`Alert: ${activeAlert.title || 'Alert'} - ${activeAlert.message}. Click to view recent alerts.`}
+      >
+        {triggerRippleKey > 0 && (
+          <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
+        )}
+
+        <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[18px]">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeAlert.id + '-' + activeAlert.count}
+              initial={{ y: 10, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -10, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+              className="flex items-center gap-1.5 min-w-0 w-full h-full"
+            >
+              <span className={cn(
+                "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
+                activeAlert.level === 'error' ? "bg-red" :
+                activeAlert.level === 'warn' ? "bg-amber" :
+                activeAlert.level === 'success' ? "bg-green" :
+                "bg-accent"
+              )} />
+              <span className="font-black uppercase tracking-wider shrink-0 opacity-90 text-[8.5px] text-white truncate max-w-[90px] sm:max-w-[160px]">
+                {activeAlert.title || 'Alert'}
+              </span>
+              <span className="opacity-30 shrink-0 font-black">|</span>
+              <span className="font-semibold truncate text-text/90 group-hover:text-text transition-colors min-w-0 flex-1">
+                {activeAlert.message}
+              </span>
+              {activeAlert.count > 1 && (
+                <span className="bg-white/10 px-1 py-0.2 rounded text-[7.5px] font-black shrink-0 tabular-nums">x{activeAlert.count}</span>
+              )}
+              {alerts.length > 1 && (
+                <span className="hidden xs:inline text-[8px] font-bold font-mono text-dim shrink-0 tabular-nums">
+                  +{alerts.length - 1}
+                </span>
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            const nextAlerts = alerts.filter(a => a.id !== activeAlert.id);
+            updateStats({ alerts: nextAlerts });
+            if (nextAlerts.length === 0) setShowDropdown(false);
+          }}
+          className="p-1 rounded-md text-dim hover:text-red hover:bg-white/5 transition-colors shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none z-10 cursor-pointer"
+          aria-label="Dismiss this alert"
+        >
+          <X size={11} />
+        </button>
+      </div>
+
+      {/* Dropdown Overlay containing the exact alert history */}
+      {showDropdown && (
+        <>
+          <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
+          <div className="absolute top-full mt-1.5 right-0 bg-surface/98 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-w-[calc(100vw-1.5rem)] max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
+            <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
+              <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); updateStats({ alerts: [] }); setShowDropdown(false); }}
+                className="text-[8.5px] font-black text-red hover:text-red-400 uppercase tracking-widest transition-colors focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none rounded px-1 cursor-pointer"
+              >
+                Clear All
+              </button>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {alerts.map(a => (
+                <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
+                  <div className="min-w-0 flex-1 text-[9.5px]">
+                    <div className="flex items-center gap-1.5 font-black uppercase tracking-wider text-white">
+                      <span className={cn(
+                        "w-1 h-1 rounded-full shrink-0",
+                        a.level === 'error' ? "bg-red" :
+                        a.level === 'warn' ? "bg-amber" :
+                        a.level === 'success' ? "bg-green" :
+                        "bg-accent"
+                      )} />
+                      {a.title || 'System Alert'}
+                      {a.count > 1 && <span className="text-[7.5px] bg-white/10 px-1 py-0.2 rounded text-text/80">x{a.count}</span>}
+                    </div>
+                    <p className="font-semibold text-dim mt-0.5 leading-normal break-words">{a.message}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const nextAlerts = alerts.filter(item => item.id !== a.id);
+                      updateStats({ alerts: nextAlerts });
+                      if (nextAlerts.length === 0) setShowDropdown(false);
+                    }}
+                    className="p-1 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none cursor-pointer"
+                    aria-label="Dismiss"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+AlertLogBar.displayName = 'AlertLogBar';
+
+export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming, hideMetrics = false, hideMetricsNumbers = false, hideAlertBar = false, mobileOneRow = false }) => {
+  const { balance, totalPnl, activePnl, lastKnownPnl, activeTrades, gateState, totalRiskPct, config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive } = useTradingStore()
   const tradingMode = config.trading_mode || 'paper'
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = propsResuming ?? (sessionActive && isResuming)
+  const isTransientWs = wsStatus === 'connecting' || wsStatus === 'reconnecting'
+  const delayedVisualResuming = useDelayedActive(
+    propsResuming === undefined && Boolean(sessionActive && (isThrottled || isTransientWs || isSyncingOnResume)),
+    1500
+  )
+  const delayedWsDisconnect = useDelayedActive(isTransientWs || (sessionActive && wsStatus === 'offline'), 1500)
+  const visualResuming = propsResuming !== undefined
+    ? propsResuming
+    : Boolean(sessionActive && (wsStatus === 'error' || delayedVisualResuming))
+  const displayWsIssue = wsStatus === 'error' || (!sessionActive && wsStatus === 'offline') || delayedWsDisconnect
 
   const [isScrolled, setIsScrolled] = React.useState(false)
-  const [alertIndex, setAlertIndex] = React.useState(0)
-  const [showDropdown, setShowDropdown] = React.useState(false)
-  const [hasActiveModal, setHasActiveModal] = React.useState(false)
 
   const headerRef = React.useRef(null);
 
@@ -625,62 +842,6 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       if (rafId !== null) window.cancelAnimationFrame(rafId);
     };
   }, [sticky]);
-
-  const newestAlert = alerts && alerts.length > 0 ? alerts[0] : null
-  const [lastProcessedAlert, setLastProcessedAlert] = React.useState(null)
-  const [triggerRippleKey, setTriggerRippleKey] = React.useState(0)
-
-  // Programmatically auto-focus the newest alert and trigger visual ripple cues
-  React.useEffect(() => {
-    if (!newestAlert) {
-      setLastProcessedAlert(null)
-      return
-    }
-    const isNewId = !lastProcessedAlert || lastProcessedAlert.id !== newestAlert.id
-    const isNewCount = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && (newestAlert.count || 1) > (lastProcessedAlert.count || 1)
-    const isNewTs = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && newestAlert.ts !== lastProcessedAlert.ts
-
-    if (isNewId || isNewCount || isNewTs) {
-      setLastProcessedAlert({ id: newestAlert.id, count: newestAlert.count || 1, ts: newestAlert.ts, level: newestAlert.level })
-      setAlertIndex(0)
-      setTriggerRippleKey(prev => prev + 1)
-    }
-  }, [newestAlert, lastProcessedAlert])
-
-  // SRE-PERF: Highly optimized MutationObserver to detect active overlay modals/dialogs.
-  // When a modal is open, we suppress the global ticker to prevent background visual noise,
-  // screen-reader clutter, and accidental background keyboard tab indexing.
-  React.useEffect(() => {
-    const checkModals = () => {
-      const isOpen = !!document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]');
-      setHasActiveModal(isOpen);
-    };
-
-    checkModals();
-
-    const observer = new MutationObserver(checkModals);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['data-state', 'class', 'style']
-    });
-
-    return () => observer.disconnect();
-  }, []);
-
-  React.useEffect(() => {
-    if (!alerts || alerts.length <= 1) {
-      setAlertIndex(0)
-      return
-    }
-    const interval = setInterval(() => {
-      setAlertIndex(prev => (prev + 1) % alerts.length)
-    }, 4000)
-    return () => clearInterval(interval)
-  }, [alerts])
-
-  const activeAlert = !hasActiveModal && alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null
 
   // Compute live metrics for Row 2 strip using session-cached PnL fallback on resume/navigation
   const openPositions = Array.isArray(activeTrades) ? activeTrades : [];
@@ -758,9 +919,9 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
             ) : (
             <div className="flex items-center gap-1.5 sm:gap-2 font-mono text-[9px] sm:text-[9.5px] tabular-nums font-bold shrink-0 min-w-0 max-w-full">
               <div className="flex items-center gap-1.5 shrink-0">
-                <PulseDot color={!showResumingFeedback && wsStatus === 'live' ? "bg-green" : "bg-amber"} />
-                <span className={cn("text-[8.5px] uppercase tracking-wider font-bold whitespace-nowrap", !showResumingFeedback && wsStatus === 'live' ? "text-dim" : "text-amber")}>
-                  {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Syncing Feed' : 'Stream Live'}
+                <PulseDot color={!visualResuming && !displayWsIssue ? "bg-green" : "bg-amber"} />
+                <span className={cn("text-[8.5px] uppercase tracking-wider font-bold whitespace-nowrap", !visualResuming && !displayWsIssue ? "text-dim" : "text-amber")}>
+                  {displayWsIssue ? 'Reconnecting' : visualResuming ? 'Syncing Feed' : 'Stream Live'}
                 </span>
               </div>
               <span className="text-border/40 select-none shrink-0">|</span>
@@ -770,7 +931,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   {gate}
                 </span>
               </div>
-              {subTitle && backAction && !activeAlert && (
+              {subTitle && backAction && (
                 <>
                   <span className="text-border/40 select-none sm:hidden shrink-0">|</span>
                   <span className="text-[8.5px] text-dim uppercase tracking-wider truncate sm:hidden opacity-80 font-sans min-w-0">
@@ -779,120 +940,6 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                 </>
               )}
             </div>
-            )}
-
-            {/* Integrated Non-Blocking Alert Ticker Pill in Row 2 (height locked to 20px, strictly non-overlapping with GATE & subtitle) */}
-            {activeAlert && (
-              <div className={cn(
-                "flex items-center min-w-0 ml-auto justify-end h-[20px]",
-                hideMetricsNumbers ? "flex-1 max-w-[360px]" : "shrink max-w-[44%] sm:max-w-[360px]"
-              )}>
-                <div
-                  onClick={() => setShowDropdown(!showDropdown)}
-                  className="group relative overflow-hidden pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/80 hover:bg-surface border border-border/60 hover:border-accent/50 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-auto max-w-full min-w-0 h-[20px] px-2 text-[9px] shadow-xs"
-                  title="Click to view all recent alerts"
-                >
-                  {triggerRippleKey > 0 && (
-                    <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
-                  )}
-
-                  <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[15px]">
-                    <AnimatePresence mode="wait">
-                      <motion.div
-                        key={activeAlert.id + '-' + activeAlert.count}
-                        initial={{ y: 10, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        exit={{ y: -10, opacity: 0 }}
-                        transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-                        className="flex items-center gap-1 min-w-0 w-full h-full"
-                      >
-                        <span className={cn(
-                          "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
-                          activeAlert.level === 'error' ? "bg-red" :
-                          activeAlert.level === 'warn' ? "bg-amber" :
-                          activeAlert.level === 'success' ? "bg-green" :
-                          "bg-accent"
-                        )} />
-                        <span className="font-black uppercase tracking-wider shrink-0 opacity-90 text-[8px] text-white truncate max-w-[82px] sm:max-w-[130px]">
-                          {activeAlert.title || 'Alert'}
-                        </span>
-                        <span className="opacity-30 shrink-0 font-black">|</span>
-                        <span className="font-semibold truncate text-text/90 group-hover:text-text transition-colors min-w-0">
-                          {activeAlert.message}
-                        </span>
-                        {activeAlert.count > 1 && (
-                          <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
-                        )}
-                      </motion.div>
-                    </AnimatePresence>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      const nextAlerts = alerts.filter(a => a.id !== activeAlert.id)
-                      updateStats({ alerts: nextAlerts })
-                      if (nextAlerts.length === 0) setShowDropdown(false)
-                    }}
-                    className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none z-10 cursor-pointer ml-0.5"
-                    aria-label="Dismiss this alert"
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-
-                {/* Dropdown Overlay containing the exact alert history */}
-                {showDropdown && (
-                  <>
-                    <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
-                    <div className="absolute top-full mt-2 right-0 bg-surface/98 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-w-[calc(100vw-2rem)] max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
-                      <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); updateStats({ alerts: [] }); setShowDropdown(false); }}
-                          className="text-[8.5px] font-black text-red hover:text-red-400 uppercase tracking-widest transition-colors focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none rounded px-1 cursor-pointer"
-                        >
-                          Clear All
-                        </button>
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        {alerts.map(a => (
-                          <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
-                            <div className="min-w-0 flex-1 text-[9.5px]">
-                              <div className="flex items-center gap-1.5 font-black uppercase tracking-wider text-white">
-                                <span className={cn(
-                                  "w-1 h-1 rounded-full shrink-0",
-                                  a.level === 'error' ? "bg-red" :
-                                  a.level === 'warn' ? "bg-amber" :
-                                  a.level === 'success' ? "bg-green" :
-                                  "bg-accent"
-                                )} />
-                                {a.title || 'System Alert'}
-                                {a.count > 1 && <span className="text-[7.5px] bg-white/10 px-1 py-0.2 rounded text-text/80">x{a.count}</span>}
-                              </div>
-                              <p className="font-semibold text-dim mt-0.5 leading-normal break-words">{a.message}</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                const nextAlerts = alerts.filter(item => item.id !== a.id)
-                                updateStats({ alerts: nextAlerts })
-                                if (nextAlerts.length === 0) setShowDropdown(false)
-                              }}
-                              className="p-1 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none cursor-pointer"
-                              aria-label="Dismiss"
-                            >
-                              <X size={10} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
             )}
           </div>
   ) : null;
@@ -963,7 +1010,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                     {tradingMode === 'testnet' && <DemoBadge />}
                     {tradingMode === 'live' && <LiveBadge />}
                     {tradingMode === 'backtest' && <BacktestBadge />}
-                    {(isThrottled || isEcoMode || wsStatus !== 'live') && <EcoBadge />}
+                    <EcoBadge />
                   </div>
                 </div>
                 {subTitle && (
@@ -975,10 +1022,10 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                       {subTitle}
                     </p>
                     <div className="hidden sm:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.85] origin-left whitespace-nowrap">
-                      <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
-                        {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
+                      <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !visualResuming && !displayWsIssue ? "text-green" : "text-accent")}>
+                        {displayWsIssue ? 'Reconnecting' : visualResuming ? 'Resuming Feed...' : 'Connected'}
                       </span>
-                      {wsStatus !== 'live' && (
+                      {displayWsIssue && (
                         <button
                           onClick={() => window.location.reload()}
                           className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors cursor-pointer"
@@ -987,7 +1034,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                           Retry
                         </button>
                       )}
-                      <PulseDot color={!showResumingFeedback ? "bg-green" : "bg-accent"} />
+                      <PulseDot color={!visualResuming && !displayWsIssue ? "bg-green" : "bg-accent"} />
                     </div>
                   </div>
                 )}
@@ -1018,13 +1065,16 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       {hasSplitStickyMetrics && metricsStripContent && (
         <div
           className={cn(
-            "relative w-full h-[26px] sm:h-[28px] mb-1.5 lg:mb-2 py-0.5 px-2.5 sm:px-3 flex items-center rounded-b-2xl border-b border-border/20 bg-background/60 transition-opacity duration-200 [overflow-anchor:none]",
-            showDropdown ? "z-30" : "z-10",
+            "relative w-full h-[26px] sm:h-[28px] mb-1.5 lg:mb-2 py-0.5 px-2.5 sm:px-3 flex items-center rounded-b-2xl border-b border-border/20 bg-background/60 transition-opacity duration-200 z-10 [overflow-anchor:none]",
             isScrolled ? "opacity-0 pointer-events-none" : "opacity-100"
           )}
         >
           {metricsStripContent}
         </div>
+      )}
+
+      {!hideAlertBar && !hideMetrics && (
+        <AlertLogBar className="w-full mb-1.5 lg:mb-2" />
       )}
     </>
   )

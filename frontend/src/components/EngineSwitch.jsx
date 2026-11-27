@@ -36,7 +36,7 @@ export const EngineSwitch = ({ running = null, className = '' }) => {
       } catch {
         if (!controller.signal.aborted) {
           const cached = getEngineSnapshotStatus(otherEngine);
-          setOtherRunning(cached !== null ? cached : null);
+          setOtherRunning(prev => (cached !== null ? cached : prev));
         }
       } finally {
         pending = false;
@@ -65,7 +65,7 @@ export const EngineSwitch = ({ running = null, className = '' }) => {
       aria-label="Trading engine"
       data-testid="engine-switch"
       className={cn(
-        'inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 select-none',
+        'inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 select-none shrink-0',
         className
       )}
     >

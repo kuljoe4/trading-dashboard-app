@@ -422,7 +422,7 @@ const TradesView = () => {
             </div>
 
         {(!activeTrades || activeTrades.length === 0) ? (
-          (!initialStatusLoaded || (sessionActive && isResuming)) ? (
+          !initialStatusLoaded ? (
             <ActiveTradesSkeleton count={2} />
           ) : (
           <div className="bg-surface/20 border border-border border-dashed rounded-3xl p-20 flex flex-col items-center justify-center text-center">

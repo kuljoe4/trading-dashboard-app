@@ -20,6 +20,7 @@ import { useTradingStore } from '../store/trading';
 import { sessionAPI } from '../api/client';
 import { formatDuration } from '../lib/formatters';
 import { useNow } from '../hooks/useNow';
+import { useDelayedActive } from '../hooks/useDelayedActive';
 import { cn } from './ui/primitives';
 import { MOTION_EASE, SmoothCollapse } from './ui/SmoothMotion';
 
@@ -167,7 +168,13 @@ export const PersistentAlertBanner = () => {
   }, [setApiError, clearApiError, apiError]);
 
   const hasWsFailure = wsStatus === 'error' && !!wsError;
-  const hasApiFailure = !!apiError;
+  const delayedNetworkApiError = useDelayedActive(
+    Boolean(apiError && apiError.type === 'network-error' && !apiError.status),
+    1500
+  );
+  const hasApiFailure = Boolean(
+    apiError && (apiError.type !== 'network-error' || !!apiError.status || delayedNetworkApiError)
+  );
 
   // SRE: Only show ambient bar if reconnection takes longer than 1.2s.
   // Sub-second wakeups resolve silently without layout shifts or alarms.
@@ -551,7 +558,7 @@ export const PersistentAlertBanner = () => {
         counterMinWidth: 'min-w-[4.5ch]',
         progressPct,
         statusTag:
-          isSyncingOnResume
+          showReconnectingPill
             ? 'Updating'
             : !hibernating && isGatedIdle && !(nextSlotSec > 0)
               ? 'Power Saver'
@@ -598,7 +605,6 @@ export const PersistentAlertBanner = () => {
     hibernating,
     hibernationMode,
     gateReason,
-    isSyncingOnResume,
     handleOpenPowerSettings,
   ]);
 

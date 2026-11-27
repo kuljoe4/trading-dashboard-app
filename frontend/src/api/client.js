@@ -124,7 +124,9 @@ api.interceptors.response.use(
       (error.response.data.trim().startsWith('<!DOCTYPE') || error.response.data.trim().startsWith('<html') || (error.response.headers?.['content-type'] || '').includes('text/html'));
 
     const url = error.config?.url || 'endpoint';
-    if (typeof window !== 'undefined') {
+    const isCanceled = axios.isCancel(error) || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError';
+    const suppressGlobal = Boolean(error.config?._suppressGlobalApiError);
+    if (typeof window !== 'undefined' && !isCanceled && !suppressGlobal) {
       const errorDetail = {
         type: isHtmlError ? 'non-json' : 'network-error',
         url,
@@ -388,6 +390,7 @@ export const createSessionAPI = (apiInstance = api) => ({
     baseURL: enginePath(mode),
     headers: { 'X-Trading-Engine': mode },
     signal,
+    _suppressGlobalApiError: true,
   }),
   getSymbols: (includeNonUsdt = false, includeHtfCross = false) => {
     const params = {};

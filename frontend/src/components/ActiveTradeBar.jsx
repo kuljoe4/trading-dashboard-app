@@ -8,6 +8,7 @@ import { sessionAPI } from '../api/client'
 import { ConfirmationModal } from './ConfirmationModal'
 
 import { RefreshCw } from 'lucide-react'
+import { useDelayedActive } from '../hooks/useDelayedActive'
 
 export const ActiveTradeBar = React.memo(() => {
   const { activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
@@ -19,10 +20,11 @@ export const ActiveTradeBar = React.memo(() => {
   }))
   const [closingSymbol, setClosingSymbol] = React.useState(null)
 
-  if (!sessionActive || activeTrades.length === 0) return null
-
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
-  const showResumingFeedback = sessionActive && isResuming
+  const delayedResuming = useDelayedActive(sessionActive && isResuming, 1500)
+  const showResumingFeedback = sessionActive && (wsStatus === 'error' || delayedResuming)
+
+  if (!sessionActive || activeTrades.length === 0) return null
 
   // BOLT OPTIMIZATION: Fused totalPnl calculation using a single-pass O(N) loop
   // Replaces .reduce() to eliminate transient array allocations and callback closures.

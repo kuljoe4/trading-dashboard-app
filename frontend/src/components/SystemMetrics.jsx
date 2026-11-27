@@ -5,6 +5,7 @@ import { cn, PulseDot, Tooltip, Btn, VisuallyHidden } from './ui/primitives';
 import { healthAPI, sessionAPI } from '../api/client';
 import { useTradingStore } from '../store/trading';
 import { usePersistedFilter } from '../hooks/usePersistedFilter';
+import { useDelayedActive } from '../hooks/useDelayedActive';
 
 const SignalBars = React.memo(({ latency }) => {
   if (latency === null || latency === undefined) {
@@ -183,6 +184,13 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, apiSta
   const [selectedStatus, setSelectedStatus] = usePersistedFilter('metrics_rest_status_filter', 'all');
   const [now, setNow] = React.useState(() => Date.now());
   const { healthData, lastProbeTs, probeLoading, fetchHealth } = useSharedBinanceHealth();
+  const delayedTransientWs = useDelayedActive(
+    wsStatus === 'connecting' || wsStatus === 'reconnecting',
+    1500
+  );
+  const displayWsStatus = (wsStatus === 'connecting' || wsStatus === 'reconnecting') && !delayedTransientWs
+    ? 'live'
+    : wsStatus;
 
   const banUntilMs = apiStatus?.banUntil
     ? new Date(apiStatus.banUntil).getTime()
@@ -273,11 +281,11 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, apiSta
       <div className={cn("flex items-center gap-2 overflow-hidden", compact ? "" : "p-3 bg-background/40 rounded-xl border border-border/50")}>
         <PulseDot
           color={
-            wsStatus === 'live'
+            displayWsStatus === 'live'
               ? "bg-green"
-              : wsStatus === 'reconnecting' || wsStatus === 'connecting'
+              : displayWsStatus === 'reconnecting' || displayWsStatus === 'connecting'
               ? "bg-amber animate-pulse"
-              : wsStatus === 'error'
+              : displayWsStatus === 'error'
               ? "bg-red-500 animate-ping"
               : "bg-dim/40"
           }
@@ -287,22 +295,22 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, apiSta
             <span
               className={cn(
                 "font-bold uppercase tracking-widest truncate text-[10px]",
-                wsStatus === 'live'
+                displayWsStatus === 'live'
                   ? "text-green"
-                  : wsStatus === 'reconnecting' || wsStatus === 'connecting'
+                  : displayWsStatus === 'reconnecting' || displayWsStatus === 'connecting'
                   ? "text-amber"
-                  : wsStatus === 'error'
+                  : displayWsStatus === 'error'
                   ? "text-red-400"
                   : "text-dim"
               )}
             >
-              {wsStatus === 'live'
+              {displayWsStatus === 'live'
                 ? 'Live'
-                : wsStatus === 'reconnecting'
+                : displayWsStatus === 'reconnecting'
                 ? 'Reconnecting'
-                : wsStatus === 'connecting'
+                : displayWsStatus === 'connecting'
                 ? 'Connecting'
-                : wsStatus === 'error'
+                : displayWsStatus === 'error'
                 ? 'Failed'
                 : 'Offline'}
             </span>

@@ -27,7 +27,7 @@ import { sessionAPI, formatApiErrorMessage } from '../api/client'
 import { getMarketRegimeInfo } from '../utils/marketRegime'
 import { 
   StatCard, InteractiveLimitCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
-    ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader, MonitoredBadge, InPosBadge
+    ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader, AlertLogBar, MonitoredBadge, InPosBadge
   } from '../components/ui/primitives'
 import {
   ChevronLeft, ChevronRight, ChevronDown, Plus, Trash2, LayoutDashboard, History,
@@ -440,7 +440,7 @@ const MonthlyRevenueChart = React.memo(({
                   <span className="truncate">Hover or tap a bar to inspect period breakdown</span>
                 </span>
                 <span className="font-mono text-[10px] text-dim/75 flex items-center gap-1.5 shrink-0 tabular-nums whitespace-nowrap leading-tight">
-                  {isLoadingHistory && <RefreshCw size={10} className="animate-spin text-accent shrink-0" />}
+                  {showLoadingMetrics && <RefreshCw size={10} className="animate-spin text-accent shrink-0" />}
                   {buckets.length} Periods ({timeframe}) · {scopeText} · {periodTradesCount} closed
                 </span>
               </>
@@ -696,8 +696,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
         tabIndex={0}
         className={cn(
           "bg-surface border border-border/40 rounded-xl p-2.5 sm:px-3 sm:py-2 flex items-center justify-between gap-2.5 w-full shadow-sm cursor-pointer hover:border-accent/40 hover:bg-white/[0.02] transition-[background-color,border-color,box-shadow] duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden min-h-[42px]",
-          className,
-          isResuming && "border-accent/25"
+          className
         )}
         aria-label={`View details for ${s.strategy_label} strategy, active P&L ${fmtUSD(s.activePnl)}, session return ${fmtUSD(s.totalPnl)}`}
       >
@@ -726,7 +725,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
             </span>
           </Tooltip>
 
-          {paused && !isResuming && (
+          {paused && (
             <Tooltip content="Strategy Engine Paused">
               <div className="p-1 rounded bg-amber/10 border border-amber/20 text-amber shrink-0 flex items-center justify-center cursor-help">
                 <Pause size={10} fill="currentColor" />
@@ -734,7 +733,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
             </Tooltip>
           )}
 
-          {isGated && !paused && !isResuming && (
+          {isGated && !paused && (
             <Tooltip content={gateInfo?.gateReason || 'Gated by Risk Rules'}>
               <div className="p-1 rounded bg-amber/10 border border-amber/20 text-amber shrink-0 flex items-center justify-center cursor-help">
                 <AlertCircle size={10} className="animate-pulse" />
@@ -795,8 +794,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
       className={cn(
         "bg-surface border border-border/40 rounded-xl flex flex-col w-full h-full shadow-sm cursor-pointer hover:border-accent/30 transition-[background-color,border-color,box-shadow] duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
         isCompact ? "p-2.5 gap-2" : "p-3 sm:p-3.5 gap-2.5",
-        className,
-        isResuming && "border-accent/25"
+        className
       )}
       aria-label={`View details for ${s.strategy_label} strategy, active positions P&L is ${fmtUSD(s.activePnl)}, total session return is ${fmtUSD(s.totalPnl)}`}
     >
@@ -812,12 +810,12 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
             <div className="flex items-center gap-1.5 flex-wrap">
               <StatusBadge status={s.sessionActive} />
 
-              {paused && !isResuming && (
+              {paused && (
                 <span className="text-[8.5px] font-black uppercase text-amber flex items-center gap-1">
                   <span className="w-1 h-1 rounded-full bg-amber" /> Paused
                 </span>
               )}
-              {isGated && !paused && !isResuming && (
+              {isGated && !paused && (
                 <Tooltip content={gateInfo.gateReason || 'Gated by Risk Rules'}>
                   <span className="text-[8.5px] font-black uppercase text-amber flex items-center gap-1 cursor-help">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse shrink-0" />
@@ -1128,7 +1126,7 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
+      initial={false}
       animate={{ opacity: 1 }}
       className="flex flex-col mb-5 lg:mb-6"
     >
@@ -2161,6 +2159,7 @@ export function DashboardView({ initialStrategy }) {
           subTitle="Real-time strategy management & market oversight"
           sticky={true}
           hideMetricsNumbers={true}
+          hideAlertBar={true}
           mobileOneRow
         >
           <div className="flex items-center gap-1.5 flex-nowrap">
@@ -2206,7 +2205,15 @@ export function DashboardView({ initialStrategy }) {
               </div>
             </ViewHeader>
 
-        {selectedEngine && <div className="mb-1.5 sm:mb-2"><EngineSwitch running={sessionActive ? true : initialStatusLoaded ? false : null} /></div>}
+        <div
+          data-switch-alert-row
+          className="flex items-center gap-2 mb-1.5 sm:mb-2 min-w-0 w-full empty:hidden"
+        >
+          {selectedEngine && (
+            <EngineSwitch running={sessionActive ? true : initialStatusLoaded ? false : null} />
+          )}
+          <AlertLogBar className={selectedEngine ? "flex-1 min-w-0" : "w-full min-w-0"} />
+        </div>
 
         {/* Unified Portfolio & Risk Limits Strip */}
         <div className="flex flex-col gap-1.5 mb-2">

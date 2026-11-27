@@ -614,14 +614,16 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       'ViewHeader and all views must lock compact Row 1 and Row 2 heights consistently across mobile and desktop'
     );
 
-    // Alert ticker pill in Row 2 cannot overlap GATE status or subTitle
+    // AlertLogBar moved out of Row 2 onto the Live/Paper switch row (and fills full width when EngineSwitch isn't rendered)
     assert.ok(
+      primitivesSource.includes('export const AlertLogBar =') &&
+      primitivesSource.includes('!hideAlertBar && !hideMetrics') &&
       primitivesSource.includes('shrink-0 min-w-0 max-w-full') &&
-      primitivesSource.includes('subTitle && backAction && !activeAlert') &&
       primitivesSource.includes('!backAction ? "flex" : "hidden sm:flex"') &&
-      primitivesSource.includes('min-w-0 ml-auto justify-end h-[20px]') &&
-      primitivesSource.includes('overflow-hidden pointer-events-auto'),
-      'ViewHeader Row 2 must keep GATE status shrink-0, move Overview subTitle to Row 1, and constrain activeAlert with overflow-hidden so it never overlaps GATE or subtitle'
+      dashboardViewSource.includes('hideAlertBar={true}') &&
+      dashboardViewSource.includes('data-switch-alert-row') &&
+      dashboardViewSource.includes('<AlertLogBar className={selectedEngine ? "flex-1 min-w-0" : "w-full min-w-0"} />'),
+      'AlertLogBar must render on the Live/Paper EngineSwitch row (full width when switch is absent) and stay cleanly outside ViewHeader Row 2'
     );
 
     // Slim connection slide bar and compact EngineSwitch
@@ -661,6 +663,66 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       indexHtmlSource.includes('boot-h2') &&
       indexHtmlSource.includes('boot-kpis'),
       'index.html boot-shell must mirror two-row header and responsive KPI strip geometry'
+    );
+  });
+
+  test('TradeDetailModal and TradeDetailContent enforce horizontal overflow containment on mobile and desktop', () => {
+    const tradeDetailModalSource = fs.readFileSync(path.join(__dirname, '../components/TradeDetailModal.jsx'), 'utf-8');
+    const tradeDetailContentSource = fs.readFileSync(path.join(__dirname, '../components/trade/TradeDetailContent.jsx'), 'utf-8');
+
+    assert.ok(
+      tradeDetailModalSource.includes('w-full max-w-full') &&
+      tradeDetailModalSource.includes('overflow-y-auto overflow-x-hidden') &&
+      tradeDetailModalSource.includes('min-w-0 flex-1'),
+      'TradeDetailModal must constrain drawer and scrollable viewport horizontally with overflow-x-hidden and min-w-0'
+    );
+
+    assert.ok(
+      tradeDetailContentSource.includes('w-full min-w-0 overflow-x-hidden') &&
+      tradeDetailContentSource.includes('overflow-x-clip') &&
+      tradeDetailContentSource.includes('translate-x-0 items-start') &&
+      tradeDetailContentSource.includes('-translate-x-full items-end') &&
+      tradeDetailContentSource.includes('grid-cols-[minmax(0,1fr)_minmax(0,1fr)_36px]'),
+      'TradeDetailContent must prevent horizontal overflow in root layout, price runway markers, and inline guard/ladder editors'
+    );
+  });
+
+  test('UI chrome elements stay steady across transient OS wakeup and WS reconnect transitions', () => {
+    const delayedHookSource = fs.readFileSync(path.join(__dirname, '../hooks/useDelayedActive.js'), 'utf-8');
+    const tradeDetailModalSource = fs.readFileSync(path.join(__dirname, '../components/TradeDetailModal.jsx'), 'utf-8');
+    const tradesViewSource = fs.readFileSync(path.join(__dirname, '../views/TradesView.jsx'), 'utf-8');
+    const systemMetricsSource = fs.readFileSync(path.join(__dirname, '../components/SystemMetrics.jsx'), 'utf-8');
+    const alertBannerSource = fs.readFileSync(path.join(__dirname, '../components/PersistentAlertBanner.jsx'), 'utf-8');
+    const engineSwitchSource = fs.readFileSync(path.join(__dirname, '../components/EngineSwitch.jsx'), 'utf-8');
+    const apiClientSource = fs.readFileSync(path.join(__dirname, '../api/client.js'), 'utf-8');
+
+    const activeTradeBarSource = fs.readFileSync(path.join(__dirname, '../components/ActiveTradeBar.jsx'), 'utf-8');
+    const scannerOverlaySource = fs.readFileSync(path.join(__dirname, '../components/ScannerOverlay.jsx'), 'utf-8');
+
+    assert.ok(
+      delayedHookSource.includes('export function useDelayedActive') &&
+      primitivesSource.includes('useDelayedActive') &&
+      tradeDetailModalSource.includes('useDelayedActive') &&
+      systemMetricsSource.includes('useDelayedActive') &&
+      alertBannerSource.includes('useDelayedActive') &&
+      activeTradeBarSource.includes('useDelayedActive') &&
+      scannerOverlaySource.includes('useDelayedActive'),
+      'EcoBadge, ViewHeader, TradeDetailModal, SystemMetrics, PersistentAlertBanner, ActiveTradeBar, and ScannerOverlay must debounce transient resume/reconnect visual chrome with useDelayedActive'
+    );
+
+    assert.ok(
+      !dashboardViewSource.includes('paused && !isResuming') &&
+      !dashboardViewSource.includes('isGated && !paused && !isResuming') &&
+      !dashboardViewSource.includes('isResuming && "border-accent/25"') &&
+      !tradesViewSource.includes('(!initialStatusLoaded || (sessionActive && isResuming))'),
+      'StrategyCard status badges, card borders, and TradesView empty states must not flash/unmount on transient resume'
+    );
+
+    assert.ok(
+      engineSwitchSource.includes('setOtherRunning(prev => (cached !== null ? cached : prev))') &&
+      apiClientSource.includes('_suppressGlobalApiError') &&
+      apiClientSource.includes('axios.isCancel(error)'),
+      'EngineSwitch and API client must ignore canceled/background polling failures during wakeup so dots and alerts do not flicker'
     );
   });
 });

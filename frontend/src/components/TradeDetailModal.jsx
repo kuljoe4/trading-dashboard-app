@@ -6,6 +6,7 @@ import { formatDuration } from '../lib/formatters'
 import { TradeDetailContent } from './trade/TradeDetailContent'
 import { useTradingStore } from '../store/trading'
 import { RefreshCw } from 'lucide-react'
+import { useDelayedActive } from '../hooks/useDelayedActive'
 
 export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) => {
   const [isClosing, setIsClosing] = useState(false)
@@ -20,7 +21,8 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
   }));
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
-  const showResumingFeedback = sessionActive && isResuming;
+  const showDelayedResuming = useDelayedActive(sessionActive && isResuming, 1500);
+  const showResumingFeedback = sessionActive && (wsStatus === 'error' || showDelayedResuming);
 
   useEffect(() => {
     if (!isOpen) return
@@ -52,7 +54,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
         <Drawer.Content
-          className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[3dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.6)] lg:max-w-[1140px] xl:max-w-[1260px] lg:inset-x-auto lg:left-1/2 lg:-translate-x-1/2 lg:top-[4dvh] lg:bottom-[4dvh] lg:rounded-3xl lg:border lg:border-border/70 lg:shadow-[0_25px_80px_rgba(0,0,0,0.85)] h-auto overflow-hidden">
+          className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[3dvh] w-full max-w-full z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.6)] lg:max-w-[1140px] xl:max-w-[1260px] lg:inset-x-auto lg:left-1/2 lg:-translate-x-1/2 lg:top-[4dvh] lg:bottom-[4dvh] lg:rounded-3xl lg:border lg:border-border/70 lg:shadow-[0_25px_80px_rgba(0,0,0,0.85)] h-auto overflow-hidden">
 
           {/* Drawer Handle */}
           <div className="p-2 bg-background rounded-t-[32px] lg:rounded-t-3xl flex flex-col items-center shrink-0">
@@ -66,28 +68,28 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
           </div>
 
           {/* Drawer scrollable content */}
-          <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pt-4 lg:px-6 lg:pt-6 pb-20 lg:pb-12 overscroll-contain" data-vaul-no-drag>
-            <div className="flex items-center justify-between mb-3 sticky -top-5 bg-background/80 backdrop-blur-sm z-20 pb-2 pt-2">
-              <div className="flex items-center gap-2.5">
+          <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden no-scrollbar px-3.5 sm:px-4 pt-4 lg:px-6 lg:pt-6 pb-20 lg:pb-12 overscroll-contain" data-vaul-no-drag>
+            <div className="flex items-center justify-between gap-2 mb-3 sticky -top-5 bg-background/80 backdrop-blur-sm z-20 pb-2 pt-2 min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
                 <div className={cn(
-                  "w-8 h-8 rounded-xl flex items-center justify-center shadow-md transition-transform duration-500 hover:scale-105",
+                  "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-md transition-transform duration-500 hover:scale-105",
                   isLong ? "bg-green/10 text-green shadow-green/20" : "bg-red/10 text-red shadow-red/20"
                 )}>
                   {isLong ? <ArrowUpRight size={15} /> : <ArrowDownRight size={15} />}
                 </div>
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-1.5">
-                    <h2 id="modal-title" className="text-base font-black tracking-tighter">{trade.symbol}</h2>
-                    <CopyButton value={trade.symbol} className="opacity-40 hover:opacity-100" />
+                <div className="flex flex-col min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <h2 id="modal-title" className="text-base font-black tracking-tighter truncate min-w-0">{trade.symbol}</h2>
+                    <CopyButton value={trade.symbol} className="opacity-40 hover:opacity-100 shrink-0" />
                   </div>
-                  <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] min-h-[14px]">
+                  <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] min-h-[14px] min-w-0 flex-wrap">
                     <span className={cn("font-bold font-mono tracking-wider shrink-0", isLong ? 'text-green' : 'text-red')}>
                       {trade.direction}
                     </span>
                     {trade.strategy_label && (
                       <>
                         <span className="text-dim/40 font-mono shrink-0">·</span>
-                        <span className="text-dim/80 font-mono tracking-normal truncate max-w-[180px] sm:max-w-[260px]">
+                        <span className="text-dim/80 font-mono tracking-normal truncate max-w-[140px] sm:max-w-[260px]">
                           via {trade.strategy_label}
                         </span>
                       </>
@@ -115,7 +117,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
               </div>
               <Tooltip content="Close Details">
                 <Drawer.Close asChild>
-                  <button type="button" className="p-1.5 hover:bg-white/5 rounded-xl transition-[background-color,color,transform] duration-150 text-dim hover:text-text active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close Details">
+                  <button type="button" className="p-1.5 shrink-0 hover:bg-white/5 rounded-xl transition-[background-color,color,transform] duration-150 text-dim hover:text-text active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close Details">
                     <X size={14} />
                   </button>
                 </Drawer.Close>
@@ -125,7 +127,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
 
             <TradeDetailContent
               trade={trade}
-              isSyncing={isResuming}
+              isSyncing={showResumingFeedback}
               onTradeClose={handleForceClose}
               isClosing={isClosing}
               confirmClose={confirmClose}

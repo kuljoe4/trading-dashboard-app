@@ -613,7 +613,7 @@ export const DashboardSkeleton = () => {
 
       {/* Static EngineSwitch remains untouched and interactive between Live & Paper transitions */}
       {selectedEngine && (
-        <div className="mb-1.5 sm:mb-2">
+        <div className="flex items-center gap-2 mb-1.5 sm:mb-2 min-w-0 w-full">
           <EngineSwitch running={null} />
         </div>
       )}

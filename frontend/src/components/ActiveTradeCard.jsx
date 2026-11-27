@@ -401,10 +401,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       onMouseEnter={onMouseEnter}
       role="button"
       tabIndex={0}
-      className={cn(
-        "bg-surface border border-border/80 rounded-xl p-2.5 sm:p-3 flex flex-col justify-between w-full min-h-[152px] h-full shadow-md shadow-black/20 cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden select-none shrink-0",
-        isResuming && "border-accent/25"
-      )}
+      className="bg-surface border border-border/80 rounded-xl p-2.5 sm:p-3 flex flex-col justify-between w-full min-h-[152px] h-full shadow-md shadow-black/20 cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden select-none shrink-0"
       aria-label={ariaText}
     >
 

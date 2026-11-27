@@ -1,6 +1,7 @@
 import { engineStorageKey, selectedEngine } from '../utils/engineMode.js'
 import React, { useEffect, useMemo, useState, lazy, Suspense, useRef } from 'react'
 import { resolveStrategyConfig } from '../utils/strategyConfig.js'
+import { mergeVariantConfigForSave } from '../utils/mergeStrategyVariantSave.js'
 import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
 import { calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
@@ -1825,21 +1826,12 @@ export function DashboardView({ initialStrategy }) {
 
       let activeVariantIndex = editingVariantIndex;
 
-      if (isMergedRootConfig) {
+      if (activeVariantIndex !== null) {
+        // Always normalize variant edits into a complete root config before the API call.
+        // This protects the stored variants array if a modal/legacy payload omits it.
+        finalConfig = mergeVariantConfigForSave(config, newConfig, activeVariantIndex);
+      } else if (isMergedRootConfig) {
         finalConfig = newConfig;
-      } else if (activeVariantIndex !== null) {
-        // Fallback merge when an unmerged single-variant payload is passed
-        if (Array.isArray(newConfig.strategy_variants) && newConfig.strategy_variants.length > 0 && newConfig.strategy_label === config.strategy_label) {
-          finalConfig = newConfig;
-        } else {
-          const variants = [...(config.strategy_variants || [])];
-          // Strip out top-level strategy_variants from the edited variant config to avoid recursive nesting
-          const variantClean = { ...newConfig };
-          delete variantClean.strategy_variants;
-          const vLabel = variantClean.strategy_label || variants[activeVariantIndex]?.strategy_label || `Variant ${activeVariantIndex + 1}`;
-          variants[activeVariantIndex] = { ...variantClean, strategy_label: vLabel };
-          finalConfig = { ...config, strategy_variants: variants };
-        }
       } else {
         // When saving base strategy, ensure variants from newConfig or existing config are strictly preserved
         if (!Array.isArray(newConfig.strategy_variants) && Array.isArray(config.strategy_variants)) {

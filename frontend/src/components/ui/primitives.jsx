@@ -714,10 +714,10 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   const hasSplitStickyMetrics = sticky && shouldRenderSecondRow;
 
   const metricsStripContent = shouldRenderSecondRow ? (
-    <div className="flex items-center justify-between gap-2 flex-nowrap h-[22px] min-h-[22px] w-full">
+    <div className="flex items-center justify-between gap-2 flex-nowrap h-[22px] min-h-[22px] w-full min-w-0">
             {/* Live Metrics Strip or Quiet Telemetry Baseline when hideMetricsNumbers is active */}
             {!hideMetricsNumbers ? (
-            <div className="flex items-center gap-2 sm:gap-3 font-mono text-[9.5px] sm:text-[10px] tabular-nums font-bold flex-nowrap overflow-x-auto no-scrollbar min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3 font-mono text-[9.5px] sm:text-[10px] tabular-nums font-bold flex-nowrap overflow-x-auto no-scrollbar min-w-0 flex-1">
               <div className="flex items-center gap-1 text-dim shrink-0">
                 <span className="text-[8.5px] uppercase tracking-wider opacity-60 font-sans">BAL</span>
                 <span className="text-text font-black">${netBal.toFixed(2)}</span>
@@ -756,24 +756,24 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
               </div>
             </div>
             ) : (
-            <div className="flex items-center gap-2 font-mono text-[9.5px] tabular-nums font-bold min-w-0 truncate">
+            <div className="flex items-center gap-1.5 sm:gap-2 font-mono text-[9px] sm:text-[9.5px] tabular-nums font-bold shrink-0 min-w-0 max-w-full">
               <div className="flex items-center gap-1.5 shrink-0">
                 <PulseDot color={!showResumingFeedback && wsStatus === 'live' ? "bg-green" : "bg-amber"} />
-                <span className={cn("text-[8.5px] uppercase tracking-wider font-bold", !showResumingFeedback && wsStatus === 'live' ? "text-dim" : "text-amber")}>
+                <span className={cn("text-[8.5px] uppercase tracking-wider font-bold whitespace-nowrap", !showResumingFeedback && wsStatus === 'live' ? "text-dim" : "text-amber")}>
                   {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Syncing Feed' : 'Stream Live'}
                 </span>
               </div>
-              <span className="text-border/40 select-none">|</span>
+              <span className="text-border/40 select-none shrink-0">|</span>
               <div className="flex items-center gap-1 shrink-0">
                 <span className="text-[8.5px] uppercase tracking-wider text-dim opacity-60 font-sans">GATE</span>
-                <span className={cn("font-black uppercase text-[9px]", gate === 'ACTIVE' ? "text-green" : "text-amber")}>
+                <span className={cn("font-black uppercase text-[9px] whitespace-nowrap", gate === 'ACTIVE' ? "text-green" : "text-amber")}>
                   {gate}
                 </span>
               </div>
-              {subTitle && (
+              {subTitle && backAction && !activeAlert && (
                 <>
-                  <span className="text-border/40 select-none sm:hidden">|</span>
-                  <span className="text-[8.5px] text-dim uppercase tracking-wider truncate sm:hidden opacity-80 font-sans">
+                  <span className="text-border/40 select-none sm:hidden shrink-0">|</span>
+                  <span className="text-[8.5px] text-dim uppercase tracking-wider truncate sm:hidden opacity-80 font-sans min-w-0">
                     {subTitle}
                   </span>
                 </>
@@ -781,19 +781,22 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
             </div>
             )}
 
-            {/* Integrated Non-Blocking Alert Ticker Pill in Row 2 (height locked to 22px to avoid vertical shift) */}
+            {/* Integrated Non-Blocking Alert Ticker Pill in Row 2 (height locked to 20px, strictly non-overlapping with GATE & subtitle) */}
             {activeAlert && (
-              <div className="flex items-center shrink-0 ml-auto max-w-[180px] xs:max-w-[240px] sm:max-w-[360px] h-[22px]">
+              <div className={cn(
+                "flex items-center min-w-0 ml-auto justify-end h-[20px]",
+                hideMetricsNumbers ? "flex-1 max-w-[360px]" : "shrink max-w-[44%] sm:max-w-[360px]"
+              )}>
                 <div
                   onClick={() => setShowDropdown(!showDropdown)}
-                  className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/80 hover:bg-surface border border-border/60 hover:border-accent/50 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-full h-[22px] px-2.5 text-[9.5px] shadow-xs"
+                  className="group relative overflow-hidden pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/80 hover:bg-surface border border-border/60 hover:border-accent/50 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-auto max-w-full min-w-0 h-[20px] px-2 text-[9px] shadow-xs"
                   title="Click to view all recent alerts"
                 >
                   {triggerRippleKey > 0 && (
                     <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
                   )}
 
-                  <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[16px]">
+                  <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[15px]">
                     <AnimatePresence mode="wait">
                       <motion.div
                         key={activeAlert.id + '-' + activeAlert.count}
@@ -801,7 +804,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                         animate={{ y: 0, opacity: 1 }}
                         exit={{ y: -10, opacity: 0 }}
                         transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-                        className="flex items-center gap-1.5 min-w-0 w-full h-full"
+                        className="flex items-center gap-1 min-w-0 w-full h-full"
                       >
                         <span className={cn(
                           "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
@@ -810,11 +813,11 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                           activeAlert.level === 'success' ? "bg-green" :
                           "bg-accent"
                         )} />
-                        <span className="font-black uppercase tracking-wider shrink-0 opacity-90 text-[8px] text-white">
+                        <span className="font-black uppercase tracking-wider shrink-0 opacity-90 text-[8px] text-white truncate max-w-[82px] sm:max-w-[130px]">
                           {activeAlert.title || 'Alert'}
                         </span>
                         <span className="opacity-30 shrink-0 font-black">|</span>
-                        <span className="font-semibold truncate text-text/90 group-hover:text-text transition-colors">
+                        <span className="font-semibold truncate text-text/90 group-hover:text-text transition-colors min-w-0">
                           {activeAlert.message}
                         </span>
                         {activeAlert.count > 1 && (
@@ -831,7 +834,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                       updateStats({ alerts: nextAlerts })
                       if (nextAlerts.length === 0) setShowDropdown(false)
                     }}
-                    className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none z-10 cursor-pointer ml-1"
+                    className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none z-10 cursor-pointer ml-0.5"
                     aria-label="Dismiss this alert"
                   >
                     <X size={10} />
@@ -902,10 +905,10 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
         aria-label={`${title} Header (${isScrolled ? 'Collapsed' : 'Expanded'})`}
         tabIndex={0}
         className={cn(
-          "z-40 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset py-1.5 sm:py-2 px-2.5 sm:px-3.5 [overflow-anchor:none] transition-[background-color,border-color,box-shadow,border-radius] duration-200",
-          hasSplitStickyMetrics ? "mb-0" : (mobileOneRow ? "mb-1.5 md:mb-2 lg:mb-4" : "mb-2 lg:mb-4"),
+          "z-40 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset py-1 sm:py-1.5 px-2.5 sm:px-3 [overflow-anchor:none] transition-[background-color,border-color,box-shadow,border-radius] duration-200",
+          hasSplitStickyMetrics ? "mb-0" : (mobileOneRow ? "mb-1.5 md:mb-2" : "mb-1.5 lg:mb-2"),
           hasSplitStickyMetrics && !isScrolled ? "rounded-t-2xl" : "rounded-2xl",
-          sticky && "sticky top-0 backdrop-blur-xl border-b",
+          sticky && "sticky top-[3px] backdrop-blur-xl border-b",
           sticky && isScrolled
             ? "bg-background/95 border-border/40 shadow-md shadow-black/30"
             : "bg-background/60 border-border/20 shadow-none"
@@ -913,9 +916,9 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       >
         {/* ROW 1: Brand / Title / Navigation & Action Controls */}
         <div className={cn(
-          "flex flex-row items-center justify-between gap-1.5 sm:gap-2 relative w-full min-h-[38px] sm:min-h-[40px] sm:h-[40px] min-w-0",
-          mobileOneRow && "flex-nowrap min-h-[38px]",
-          mobileOneRow && "h-[38px] sm:h-[40px]"
+          "flex flex-row items-center justify-between gap-1.5 sm:gap-2 relative w-full min-h-[34px] sm:min-h-[34px] sm:h-[34px] min-w-0",
+          mobileOneRow && "flex-nowrap min-h-[34px]",
+          mobileOneRow && "h-[34px] sm:h-[34px]"
         )}>
           {/* Left Side: Title, Icon and Badges */}
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
@@ -926,35 +929,35 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                 aria-label="Go back"
                 className={cn(
                   "hover:bg-surface border border-border/60 rounded-xl transition-all active:scale-95 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center justify-center",
-                  mobileOneRow ? "min-h-[38px] min-w-[38px] sm:min-h-[34px] sm:min-w-[34px] p-1 sm:p-1.5" : "p-1 sm:p-1.5"
+                  mobileOneRow ? "min-h-[34px] min-w-[34px] sm:min-h-[32px] sm:min-w-[32px] p-1" : "p-1"
                 )}
               >
-                <ChevronLeft size={mobileOneRow ? 16 : 14} className="text-dim group-hover:text-text" />
+                <ChevronLeft size={mobileOneRow ? 15 : 14} className="text-dim group-hover:text-text" />
               </button>
             )}
             <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
               {Icon && (
                 <div className={cn(
-                  "w-7 h-7 rounded-xl bg-accent/10 border border-accent/20 items-center justify-center shrink-0 transition-all",
+                  "w-6 h-6 sm:w-7 sm:h-7 rounded-xl bg-accent/10 border border-accent/20 items-center justify-center shrink-0 transition-all",
                   mobileOneRow && backAction ? "hidden sm:flex" : "flex"
                 )}>
-                  <Icon size={14} className="text-accent" />
+                  <Icon size={13} className="text-accent" />
                 </div>
               )}
-              <div className="flex flex-col justify-center min-w-0 flex-1 sm:h-[40px]">
+              <div className="flex flex-col justify-center min-w-0 flex-1 h-[34px]">
                 <div className={cn(
-                  "flex items-center gap-1.5 sm:gap-2 min-w-0 h-[20px]",
+                  "flex items-center gap-1.5 sm:gap-2 min-w-0 h-[18px]",
                   mobileOneRow ? "flex-nowrap" : "flex-wrap sm:flex-nowrap"
                 )}>
                   <h1 className={cn(
                     "font-black tracking-tight truncate uppercase text-text min-w-0 leading-none",
-                    mobileOneRow ? "text-[13px] sm:text-xs md:text-sm" : "text-xs md:text-sm"
+                    mobileOneRow ? "text-[12.5px] sm:text-xs md:text-sm" : "text-xs md:text-sm"
                   )}>
                     {title}
                   </h1>
                   <div className={cn(
                     "flex items-center gap-1 shrink-0 origin-left flex-nowrap h-4",
-                    mobileOneRow ? "scale-[0.88] sm:scale-100" : "scale-90 sm:scale-100"
+                    mobileOneRow ? "scale-[0.86] sm:scale-100" : "scale-90 sm:scale-100"
                   )}>
                     {tradingMode === 'paper' && <PaperBadge />}
                     {tradingMode === 'testnet' && <DemoBadge />}
@@ -964,8 +967,11 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   </div>
                 </div>
                 {subTitle && (
-                  <div className="hidden sm:flex items-center gap-2 min-w-0 h-[16px] transition-opacity duration-200">
-                    <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80 leading-none">
+                  <div className={cn(
+                    "items-center gap-2 min-w-0 h-[14px] transition-opacity duration-200",
+                    !backAction ? "flex" : "hidden sm:flex"
+                  )}>
+                    <p className="text-[8.5px] sm:text-[9px] text-dim font-bold uppercase tracking-wider sm:tracking-widest truncate opacity-80 leading-none">
                       {subTitle}
                     </p>
                     <div className="hidden sm:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.85] origin-left whitespace-nowrap">
@@ -1002,7 +1008,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
         {/* ROW 2 (Non-sticky inline mode) */}
         {!sticky && metricsStripContent && (
-          <div className="w-full mt-2 pt-1.5 border-t border-border/20">
+          <div className="w-full mt-1.5 pt-1 border-t border-border/20">
             {metricsStripContent}
           </div>
         )}
@@ -1012,7 +1018,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       {hasSplitStickyMetrics && metricsStripContent && (
         <div
           className={cn(
-            "relative w-full h-[30px] sm:h-[34px] mb-2 lg:mb-4 py-1 sm:py-1.5 px-2.5 sm:px-3.5 rounded-b-2xl border-b border-border/20 bg-background/60 transition-opacity duration-200 [overflow-anchor:none]",
+            "relative w-full h-[26px] sm:h-[28px] mb-1.5 lg:mb-2 py-0.5 px-2.5 sm:px-3 flex items-center rounded-b-2xl border-b border-border/20 bg-background/60 transition-opacity duration-200 [overflow-anchor:none]",
             showDropdown ? "z-30" : "z-10",
             isScrolled ? "opacity-0 pointer-events-none" : "opacity-100"
           )}

@@ -76,31 +76,31 @@ const ViewHeaderSkeleton = ({
   <>
     <div
       className={cn(
-        'py-1.5 sm:py-2 px-2.5 sm:px-3.5 bg-background/60 border-b border-border/20',
-        hasMetricsRow ? 'mb-0 rounded-t-2xl' : 'mb-1.5 md:mb-2 lg:mb-4 rounded-2xl'
+        'py-1 sm:py-1.5 px-2.5 sm:px-3 bg-background/60 border-b border-border/20',
+        hasMetricsRow ? 'mb-0 rounded-t-2xl' : 'mb-1.5 md:mb-2 rounded-2xl'
       )}
     >
-      <div className="flex flex-row items-center justify-between gap-1.5 sm:gap-2 relative w-full min-h-[38px] sm:min-h-[40px] sm:h-[40px] flex-nowrap h-[38px] min-w-0">
+      <div className="flex flex-row items-center justify-between gap-1.5 sm:gap-2 relative w-full min-h-[34px] sm:min-h-[34px] sm:h-[34px] flex-nowrap h-[34px] min-w-0">
         <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
           {hasBack && (
-            <div className="min-h-[38px] min-w-[38px] sm:min-h-[34px] sm:min-w-[34px] p-1 sm:p-1.5 border border-border/60 rounded-xl flex items-center justify-center shrink-0 text-dim text-xs font-bold">
+            <div className="min-h-[34px] min-w-[34px] sm:min-h-[32px] sm:min-w-[32px] p-1 border border-border/60 rounded-xl flex items-center justify-center shrink-0 text-dim text-xs font-bold">
               ←
             </div>
           )}
           {hasIcon && (
             <div
               className={cn(
-                'w-7 h-7 rounded-xl bg-accent/10 border border-accent/20 items-center justify-center shrink-0',
+                'w-6 h-6 sm:w-7 sm:h-7 rounded-xl bg-accent/10 border border-accent/20 items-center justify-center shrink-0',
                 hasBack ? 'hidden sm:flex' : 'flex'
               )}
             >
               <span className="w-2.5 h-2.5 rounded-full bg-accent/40" />
             </div>
           )}
-          <div className="flex flex-col justify-center min-w-0 flex-1 sm:h-[40px]">
-            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 h-[20px] flex-nowrap">
+          <div className="flex flex-col justify-center min-w-0 flex-1 h-[34px]">
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 h-[18px] flex-nowrap">
               {title ? (
-                <h1 className="font-black tracking-tight truncate uppercase text-text min-w-0 leading-none text-[13px] sm:text-xs md:text-sm">
+                <h1 className="font-black tracking-tight truncate uppercase text-text min-w-0 leading-none text-[12.5px] sm:text-xs md:text-sm">
                   {title}
                 </h1>
               ) : (
@@ -108,8 +108,8 @@ const ViewHeaderSkeleton = ({
               )}
             </div>
             {subTitle && (
-              <div className="hidden sm:flex items-center gap-2 min-w-0 h-[16px]">
-                <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80 leading-none">
+              <div className={cn('items-center gap-2 min-w-0 h-[14px]', !hasBack ? 'flex' : 'hidden sm:flex')}>
+                <p className="text-[8.5px] sm:text-[9px] text-dim font-bold uppercase tracking-wider sm:tracking-widest truncate opacity-80 leading-none">
                   {subTitle}
                 </p>
               </div>
@@ -124,9 +124,9 @@ const ViewHeaderSkeleton = ({
       </div>
     </div>
     {hasMetricsRow && (
-      <div className="relative w-full h-[30px] sm:h-[34px] mb-2 lg:mb-4 py-1 sm:py-1.5 px-2.5 sm:px-3.5 rounded-b-2xl border-b border-border/20 bg-background/60">
+      <div className="relative w-full h-[26px] sm:h-[28px] mb-1.5 lg:mb-2 py-0.5 px-2.5 sm:px-3 flex items-center rounded-b-2xl border-b border-border/20 bg-background/60">
         <div className="flex items-center justify-between gap-2 flex-nowrap min-h-[22px] h-[22px] w-full">
-          <div className="flex items-center gap-2 font-mono text-[9.5px] tabular-nums font-bold min-w-0 truncate">
+          <div className="flex items-center gap-1.5 sm:gap-2 font-mono text-[9px] sm:text-[9.5px] tabular-nums font-bold min-w-0 truncate">
             <span className="w-2 h-2 rounded-full bg-accent/60 shrink-0" />
             <span className="text-[8.5px] uppercase tracking-wider text-dim font-bold">Syncing Feed</span>
             <span className="text-border/40 select-none">|</span>
@@ -595,7 +595,7 @@ export const DashboardSkeleton = () => {
   const cardViewMode = readSkeletonPref('dashboard_card_view_mode', 'detailed')
   return (
     <div
-      className="max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 pb-36 lg:pb-16"
+      className="max-w-[1600px] mx-auto px-2.5 pt-1.5 sm:px-4 sm:pt-2.5 lg:px-5 lg:pt-2.5 pb-36 lg:pb-16"
       role="status"
       aria-busy="true"
       aria-label="Loading cockpit overview"
@@ -605,7 +605,7 @@ export const DashboardSkeleton = () => {
         subTitle="Real-time strategy management & market oversight"
         hasMetricsRow={true}
         rightSlot={
-          <span className="h-8 min-w-[32px] px-2.5 rounded-xl border border-border/60 bg-surface text-[9px] font-bold uppercase tracking-widest text-dim inline-flex items-center justify-center">
+          <span className="h-7 min-w-[28px] px-2 rounded-lg border border-border/60 bg-surface text-[9px] font-bold uppercase tracking-widest text-dim inline-flex items-center justify-center">
             <span className="hidden md:inline">Eco Mode</span>
           </span>
         }
@@ -613,14 +613,14 @@ export const DashboardSkeleton = () => {
 
       {/* Static EngineSwitch remains untouched and interactive between Live & Paper transitions */}
       {selectedEngine && (
-        <div className="mb-3">
+        <div className="mb-1.5 sm:mb-2">
           <EngineSwitch running={null} />
         </div>
       )}
 
       {/* Global Metrics Header + Control Track */}
-      <div className="flex flex-col gap-2.5 mb-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 w-full">
+      <div className="flex flex-col gap-1.5 mb-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 w-full">
           <div className="flex items-center justify-between gap-2 min-w-0">
             <div className="text-[11px] text-dim tracking-widest uppercase font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0">
               Global Metrics
@@ -629,11 +629,11 @@ export const DashboardSkeleton = () => {
               --/-- Slots · Cap --%
             </span>
           </div>
-          <div className="grid grid-cols-2 sm:inline-flex items-stretch gap-1 p-1 bg-surface/90 border border-border/60 rounded-xl w-full sm:w-auto shrink-0">
-            <span className="h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider text-dim">
+          <div className="grid grid-cols-2 sm:inline-flex items-stretch gap-1 p-0.5 bg-surface/90 border border-border/60 rounded-lg w-full sm:w-auto shrink-0">
+            <span className="h-7 sm:h-6 px-2 sm:px-2.5 rounded-md flex items-center justify-center text-[10px] font-mono font-bold uppercase tracking-wider text-dim">
               Risk Limits
             </span>
-            <span className="h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider text-dim">
+            <span className="h-7 sm:h-6 px-2 sm:px-2.5 rounded-md flex items-center justify-center text-[10px] font-mono font-bold uppercase tracking-wider text-dim">
               {expanded ? 'Compact' : 'Expand'}
             </span>
           </div>

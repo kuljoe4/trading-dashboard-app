@@ -65,7 +65,7 @@ export const EngineSwitch = ({ running = null, className = '' }) => {
       aria-label="Trading engine"
       data-testid="engine-switch"
       className={cn(
-        'inline-flex items-center gap-1 rounded-xl border border-border bg-surface p-1 select-none',
+        'inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 select-none',
         className
       )}
     >
@@ -106,14 +106,14 @@ export const EngineSwitch = ({ running = null, className = '' }) => {
             aria-label={`${label} · ${statusLabel}`}
             title={statusLabel}
             className={cn(
-              'relative overflow-hidden inline-flex min-h-8 min-w-[74px] items-center justify-center gap-2 rounded-lg px-3 text-xs font-semibold transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
+              'relative overflow-hidden inline-flex min-h-[26px] min-w-[66px] items-center justify-center gap-1.5 rounded-md px-2.5 text-[11px] font-semibold transition-colors duration-200 ease-[var(--ease-out-expo)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
               active ? 'text-accent' : 'text-dim hover:text-text'
             )}
           >
             {active && (
               <MotionSegmentedPill
                 layoutId="engine-switch-pill"
-                className="rounded-lg bg-accent/15 shadow-xs z-0"
+                className="rounded-md bg-accent/15 shadow-xs z-0"
               />
             )}
             <span className="relative z-10 inline-flex items-center gap-2">

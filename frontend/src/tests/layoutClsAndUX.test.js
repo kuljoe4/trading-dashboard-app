@@ -71,10 +71,10 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
     const strategyDetailSource = fs.readFileSync(path.join(__dirname, '../views/StrategyDetailView.jsx'), 'utf-8');
     assert.ok(
       primitivesSource.includes('mobileOneRow = false') &&
-      primitivesSource.includes('mobileOneRow && "flex-nowrap min-h-[38px]"') &&
+      primitivesSource.includes('mobileOneRow && "flex-nowrap min-h-[34px]"') &&
       primitivesSource.includes('mobileOneRow && backAction ? "hidden sm:flex" : "flex"') &&
-      primitivesSource.includes('min-h-[38px] min-w-[38px]'),
-      'ViewHeader must support mobileOneRow with non-wrapping Row 1, hidden mobile decorative icon when backAction is present, and >=38px mobile back button hitbox'
+      primitivesSource.includes('min-h-[34px] min-w-[34px]'),
+      'ViewHeader must support mobileOneRow with non-wrapping Row 1, hidden mobile decorative icon when backAction is present, and compact mobile back button hitbox'
     );
     assert.ok(
       strategyDetailSource.includes('mobileOneRow'),
@@ -86,12 +86,12 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
     );
   });
 
-  test('DashboardView Global Metrics toolbar enforces equal-height Risk Limits & Expand buttons with balanced expanded subValues', () => {
+  test('DashboardView Global Metrics toolbar enforces equal-height compact Risk Limits & Expand buttons with balanced expanded subValues', () => {
     assert.ok(
-      dashboardViewSource.includes('grid grid-cols-2 sm:inline-flex items-stretch gap-1 p-1') &&
-      dashboardViewSource.includes('h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center gap-1.5') &&
+      dashboardViewSource.includes('grid grid-cols-2 sm:inline-flex items-stretch gap-1 p-0.5') &&
+      dashboardViewSource.includes('h-7 sm:h-6 px-2 sm:px-2.5 rounded-md flex items-center justify-center gap-1.5') &&
       dashboardViewSource.includes('aria-label="Global metrics and risk limits controls"'),
-      'Global Metrics Risk Limits and Expand buttons must sit inside a unified equal-height control track without mobile wrapping'
+      'Global Metrics Risk Limits and Expand buttons must sit inside a compact unified equal-height control track without mobile wrapping'
     );
     assert.ok(
       dashboardViewSource.includes('subValue={globalMetricsExpanded ? `Cap:') &&
@@ -596,28 +596,48 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
     );
   });
 
-  test('Uniform ViewHeader & Skeleton Row 1/Row 2 geometry eliminates cold-boot, route-switch, and resume vertical CLS', () => {
+  test('Uniform compact ViewHeader & Skeleton Row 1/Row 2 geometry, non-overlapping alert ticker, and slim connection slide strip', () => {
     const skeletonsSource = fs.readFileSync(path.join(__dirname, '../components/ui/Skeletons.jsx'), 'utf-8');
     const mainSource = fs.readFileSync(path.join(__dirname, '../main.jsx'), 'utf-8');
     const smoothMotionSource = fs.readFileSync(path.join(__dirname, '../components/ui/SmoothMotion.jsx'), 'utf-8');
     const tradeDetailSource = fs.readFileSync(path.join(__dirname, '../views/TradeDetailView.jsx'), 'utf-8');
     const indexHtmlSource = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf-8');
+    const alertBannerSource = fs.readFileSync(path.join(__dirname, '../components/PersistentAlertBanner.jsx'), 'utf-8');
+    const engineSwitchSource = fs.readFileSync(path.join(__dirname, '../components/EngineSwitch.jsx'), 'utf-8');
 
-    // ViewHeader locks Row 1 & Row 2 uniformly
+    // ViewHeader locks compact Row 1 & Row 2 uniformly
     assert.ok(
-      primitivesSource.includes('sm:min-h-[40px] sm:h-[40px]') &&
-      primitivesSource.includes('h-[30px] sm:h-[34px]') &&
+      primitivesSource.includes('sm:min-h-[34px] sm:h-[34px]') &&
+      primitivesSource.includes('h-[26px] sm:h-[28px]') &&
       primitivesSource.includes('h-[22px] min-h-[22px] w-full') &&
       tradeDetailSource.includes('mobileOneRow'),
-      'ViewHeader and all views must lock Row 1 and Row 2 heights consistently across mobile and desktop'
+      'ViewHeader and all views must lock compact Row 1 and Row 2 heights consistently across mobile and desktop'
+    );
+
+    // Alert ticker pill in Row 2 cannot overlap GATE status or subTitle
+    assert.ok(
+      primitivesSource.includes('shrink-0 min-w-0 max-w-full') &&
+      primitivesSource.includes('subTitle && backAction && !activeAlert') &&
+      primitivesSource.includes('!backAction ? "flex" : "hidden sm:flex"') &&
+      primitivesSource.includes('min-w-0 ml-auto justify-end h-[20px]') &&
+      primitivesSource.includes('overflow-hidden pointer-events-auto'),
+      'ViewHeader Row 2 must keep GATE status shrink-0, move Overview subTitle to Row 1, and constrain activeAlert with overflow-hidden so it never overlaps GATE or subtitle'
+    );
+
+    // Slim connection slide bar and compact EngineSwitch
+    assert.ok(
+      alertBannerSource.includes('min-h-[28px] py-0.5') &&
+      alertBannerSource.includes('h-[1.5px]') &&
+      engineSwitchSource.includes('min-h-[26px] min-w-[66px]'),
+      'PersistentAlertBanner must stay sleek/slim (min-h-[28px] py-0.5) and EngineSwitch must use compact 26px tabs'
     );
 
     // Skeletons render matching ViewHeader Row 1 + Row 2 chrome via ViewHeaderSkeleton
     assert.ok(
       skeletonsSource.includes('const ViewHeaderSkeleton =') &&
-      skeletonsSource.includes('h-[30px] sm:h-[34px] mb-2 lg:mb-4') &&
+      skeletonsSource.includes('h-[26px] sm:h-[28px] mb-1.5 lg:mb-2') &&
       skeletonsSource.includes("readSkeletonPref('global_metrics_expanded'"),
-      'Skeletons.jsx must render matching ViewHeader Row 1 + Row 2 chrome and respect persisted expand/view-mode prefs'
+      'Skeletons.jsx must render matching compact ViewHeader Row 1 + Row 2 chrome and respect persisted expand/view-mode prefs'
     );
 
     // main.jsx uses constant top padding (no conditional pt-1 paper-mode layout shift)

@@ -2131,7 +2131,7 @@ export function DashboardView({ initialStrategy }) {
         </Suspense>
       ) : (
         <div className={cn(
-          "max-w-[1600px] mx-auto px-2.5 pt-2.5 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5 transition-[padding] duration-300 ease-[var(--ease-glide)]",
+          "max-w-[1600px] mx-auto px-2.5 pt-1.5 sm:px-4 sm:pt-2.5 lg:px-5 lg:pt-2.5 transition-[padding] duration-300 ease-[var(--ease-glide)]",
           healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
         )}>
 
@@ -2163,9 +2163,9 @@ export function DashboardView({ initialStrategy }) {
           hideMetricsNumbers={true}
           mobileOneRow
         >
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap">
+          <div className="flex items-center gap-1.5 flex-nowrap">
             {config.frequency_shaping_enabled && (
-                  <div className="hidden xl:flex items-center gap-1.5 h-8 px-2.5 bg-accent/10 border border-accent/20 rounded-xl text-[9px] font-bold text-accent uppercase tracking-widest">
+                  <div className="hidden xl:flex items-center gap-1.5 h-7 px-2 bg-accent/10 border border-accent/20 rounded-lg text-[9px] font-bold text-accent uppercase tracking-widest">
                     <Activity size={10} />
                     Frequency Guard
                   </div>
@@ -2177,13 +2177,13 @@ export function DashboardView({ initialStrategy }) {
                     onClick={() => setThrottled(!isThrottled)}
                     aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
                     className={cn(
-                      "h-8 min-w-[32px] px-2.5 rounded-xl border transition-colors active:scale-95 inline-flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
+                      "h-7 min-w-[28px] px-2 rounded-lg border transition-colors active:scale-95 inline-flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
                       isThrottled
                         ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
                         : "bg-surface border-border/60 text-dim hover:text-accent hover:border-accent/40"
                     )}
                   >
-                    <Leaf size={13} fill={isThrottled ? "currentColor" : "none"} />
+                    <Leaf size={12} fill={isThrottled ? "currentColor" : "none"} />
                     <span className="hidden md:inline text-[9px] font-bold uppercase tracking-widest">
                       {isThrottled ? "Eco Active" : "Eco Mode"}
                     </span>
@@ -2196,21 +2196,21 @@ export function DashboardView({ initialStrategy }) {
                       type="button"
                       onClick={() => setConfirmStop(true)}
                       disabled={loading}
-                      className="h-8 w-8 inline-flex items-center justify-center bg-red/10 border border-red/20 text-red rounded-xl hover:bg-red/20 active:scale-90 transition-colors focus-visible:ring-2 focus-visible:ring-red outline-none cursor-pointer"
+                      className="h-7 w-7 inline-flex items-center justify-center bg-red/10 border border-red/20 text-red rounded-lg hover:bg-red/20 active:scale-90 transition-colors focus-visible:ring-2 focus-visible:ring-red outline-none cursor-pointer"
                       aria-label={selectedEngine ? `Stop ${selectedEngine === 'live' ? 'Live' : 'Paper'}` : "Terminate Session"}
                     >
-                      <XCircle size={14} />
+                      <XCircle size={13} />
                     </button>
                   </Tooltip>
                 )}
               </div>
             </ViewHeader>
 
-        {selectedEngine && <div className="mb-3"><EngineSwitch running={sessionActive ? true : initialStatusLoaded ? false : null} /></div>}
+        {selectedEngine && <div className="mb-1.5 sm:mb-2"><EngineSwitch running={sessionActive ? true : initialStatusLoaded ? false : null} /></div>}
 
         {/* Unified Portfolio & Risk Limits Strip */}
-        <div className="flex flex-col gap-2.5 mb-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 w-full">
+        <div className="flex flex-col gap-1.5 mb-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 w-full">
             <div className="flex items-center justify-between gap-2 min-w-0">
               <SectionLabel className="mb-0 flex items-center gap-1.5 whitespace-nowrap shrink-0">
                 <Activity size={13} className="text-accent shrink-0" /> Global Metrics
@@ -2224,7 +2224,7 @@ export function DashboardView({ initialStrategy }) {
             <div
               role="group"
               aria-label="Global metrics and risk limits controls"
-              className="grid grid-cols-2 sm:inline-flex items-stretch gap-1 p-1 bg-surface/90 border border-border/60 rounded-xl w-full sm:w-auto shrink-0"
+              className="grid grid-cols-2 sm:inline-flex items-stretch gap-1 p-0.5 bg-surface/90 border border-border/60 rounded-lg w-full sm:w-auto shrink-0"
             >
               <button
                 type="button"
@@ -2233,16 +2233,16 @@ export function DashboardView({ initialStrategy }) {
                 aria-controls="temporal-risk-grid"
                 aria-label={showTemporalRisk ? "Collapse Temporal Risk section" : "Expand Temporal Risk section"}
                 className={cn(
-                  "h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center gap-1.5 text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider transition-[background-color,border-color,color,box-shadow] duration-200 whitespace-nowrap min-w-0 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none border",
+                  "h-7 sm:h-6 px-2 sm:px-2.5 rounded-md flex items-center justify-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider transition-[background-color,border-color,color,box-shadow] duration-200 whitespace-nowrap min-w-0 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none border",
                   showTemporalRisk
                     ? "bg-accent/15 border-accent/35 text-accent shadow-xs"
                     : "border-transparent text-dim hover:text-text hover:bg-background/60"
                 )}
               >
-                <ShieldCheck size={12} className="text-accent shrink-0" />
+                <ShieldCheck size={11} className="text-accent shrink-0" />
                 <span className="truncate">Risk Limits</span>
                 <span className="opacity-70 tabular-nums shrink-0">({config.max_open_trades})</span>
-                <ChevronDown size={12} className={cn("shrink-0 transition-transform duration-200", showTemporalRisk && "rotate-180")} />
+                <ChevronDown size={11} className={cn("shrink-0 transition-transform duration-200", showTemporalRisk && "rotate-180")} />
               </button>
               <button
                 type="button"
@@ -2250,14 +2250,14 @@ export function DashboardView({ initialStrategy }) {
                 aria-expanded={globalMetricsExpanded}
                 aria-label={globalMetricsExpanded ? "Collapse secondary global metrics" : "Expand secondary global metrics"}
                 className={cn(
-                  "h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center gap-1.5 text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider transition-[background-color,border-color,color,box-shadow] duration-200 whitespace-nowrap min-w-0 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none border",
+                  "h-7 sm:h-6 px-2 sm:px-2.5 rounded-md flex items-center justify-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider transition-[background-color,border-color,color,box-shadow] duration-200 whitespace-nowrap min-w-0 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none border",
                   globalMetricsExpanded
                     ? "bg-background/90 border-border/60 text-text shadow-xs"
                     : "border-transparent text-dim hover:text-text hover:bg-background/60"
                 )}
               >
                 <span>{globalMetricsExpanded ? "Compact" : "Expand"}</span>
-                <ChevronDown size={12} className={cn("shrink-0 transition-transform duration-200", globalMetricsExpanded && "rotate-180")} />
+                <ChevronDown size={11} className={cn("shrink-0 transition-transform duration-200", globalMetricsExpanded && "rotate-180")} />
               </button>
             </div>
           </div>

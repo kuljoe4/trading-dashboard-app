@@ -320,7 +320,7 @@ test('Preset & variant saving protects against accidental overwrites, variant le
   // 7. Store mergeConfigObjects replaces map keys atomically and patchConfig guards draft + rolls back on failure
   assert.match(tradingStoreSource, /const ATOMIC_CONFIG_MAP_KEYS = new Set\(/);
   assert.match(tradingStoreSource, /export const mergeConfigObjects = \(target, source\) =>/);
-  assert.match(tradingStoreSource, /if \(!st\.sessionActive\) \{\s*try \{\s*if \(typeof sessionStorage !== 'undefined'\) \{\s*sessionStorage\.setItem\('config_draft'/);
+  assert.match(tradingStoreSource, /if \(!st\.sessionActive\) \{\s*try \{\s*if \(typeof sessionStorage !== 'undefined'\) \{\s*sessionStorage\.setItem\(engineStorageKey\('config_draft'\)/);
   assert.match(tradingStoreSource, /title: 'Update Failed'/);
 });
 

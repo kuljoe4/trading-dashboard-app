@@ -155,6 +155,7 @@ describe('SaveTradeOptimization', () => {
       rr_sequence_index: -1,
       status: 'OPEN',
       pnl: 0,
+      max_rr_achieved: 0.15,
       mark_price: 3010,
       sessionId: 'sess-1',
     };
@@ -165,7 +166,7 @@ describe('SaveTradeOptimization', () => {
 
     mockTradeRepo.save.mockClear();
 
-    // Second save 500ms later: routine tick update with mark_price change only
+    // Second save 500ms later: routine tick update with mark_price change only (no peak RR increase)
     const openTradeTick = {
       ...openTradeInitial,
       mark_price: 3015,

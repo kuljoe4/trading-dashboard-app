@@ -72,8 +72,8 @@ describe('Smooth Transitions, Separated Snapshots, Rule Filters, Catalog & Slim 
 
   test('StrategyDetailView separates Live vs Snapshots, includes ALL In-Pos trades, scrolls to Inspect Live, and filters rules across all viewports', () => {
     assert.ok(
-      strategyDetailSource.includes("useState('live')") &&
-      strategyDetailSource.includes("useState('all')") &&
+      strategyDetailSource.includes("usePersistedFilter('strategy_inspect_scope', 'live'") &&
+      strategyDetailSource.includes("usePersistedFilter('strategy_snapshot_status_filter', 'all'") &&
       strategyDetailSource.includes('aria-label="Inspect filter scope"') &&
       strategyDetailSource.includes('aria-label="Filter snapshots by trade status"'),
       'StrategyDetailView must expose separated Live vs Snapshots filter controls and In Pos / Closed snapshot sub-filters'
@@ -112,7 +112,7 @@ describe('Smooth Transitions, Separated Snapshots, Rule Filters, Catalog & Slim 
     assert.ok(
       alertBannerSource.includes('data-banner-layout="inline"') &&
       !alertBannerSource.includes('fixed top-2 left-1/2 -translate-x-1/2') &&
-      alertBannerSource.includes('py-1.5') &&
+      alertBannerSource.includes('min-h-[28px] py-0.5') &&
       alertBannerSource.includes('text-[11px]'),
       'PersistentAlertBanner must render slim modern inline top bars without fixed overlay overlap'
     );

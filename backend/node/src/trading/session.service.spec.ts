@@ -472,6 +472,67 @@ describe('SessionService Validation', () => {
       expect(result.activeTrades).toHaveLength(1);
       expect(result.activeTrades[0].symbol).toBe('BTCUSDT');
     });
+
+    it('returns engineMode-scoped lastSession summary when no session is running', async () => {
+      const originalEnv = process.env;
+      process.env = { ...originalEnv, TRADING_ENGINE_MODE: 'paper' };
+      try {
+        const sessionRepo = {
+          findOne: jest.fn()
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({
+              id: 'paper-last-1',
+              running: false,
+              paperMode: true,
+              tradingMode: 'paper',
+              strategyLabel: 'Mom 2% 5m 2R',
+              startTime: new Date('2026-11-26T10:00:00Z'),
+              endTime: new Date('2026-11-26T12:00:00Z'),
+              config: { strategy_label: 'Mom 2% 5m 2R', paper_mode: true, trading_mode: 'paper' },
+            }),
+        } as any;
+        const settingsRepo = {
+          findOne: jest.fn().mockResolvedValue({ paper_balance: 10250, live_balance: 5000, testnet_balance: 1000 }),
+        } as any;
+
+        const scopedService = new SessionService(
+          sessionRepo,
+          mockTradeRepository,
+          mockLogRepository,
+          settingsRepo,
+          mockRepository,
+          mockTradingSessionService,
+          mockOrderManagerService,
+          {} as any,
+          { emit: jest.fn() } as any,
+          mockAnalyticsService,
+          { calculateRrOptimization: jest.fn() } as any,
+          mockBinanceClientFactory,
+          mockAuditLogService,
+          { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any
+        );
+
+        const result = await scopedService.getStatus();
+        expect(sessionRepo.findOne).toHaveBeenNthCalledWith(2, {
+          where: { tradingMode: 'paper' },
+          order: { startTime: 'DESC' },
+        });
+        expect(result.running).toBe(false);
+        expect(result.balance).toBe(10250);
+        expect(result.tradingMode).toBe('paper');
+        expect(result.lastSession).toEqual(
+          expect.objectContaining({
+            id: 'paper-last-1',
+            strategyLabel: 'Mom 2% 5m 2R',
+            paperMode: true,
+            tradingMode: 'paper',
+            status: 'stopped',
+          }),
+        );
+      } finally {
+        process.env = originalEnv;
+      }
+    });
   });
 
   describe('startSession PnL continuity', () => {

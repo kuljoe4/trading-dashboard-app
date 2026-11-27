@@ -111,4 +111,67 @@ describe('Adaptive Session List & Entity Indexing', () => {
     await SessionController.prototype.listSessions.call(mockCtrl, undefined, undefined);
     expect(listSessions).toHaveBeenCalledWith(undefined, false);
   });
+
+  it('SessionService.getStatus returns engineMode-scoped lastSession when stopped and filters out mismatched engines', async () => {
+    const findOneSession = jest.fn()
+      .mockResolvedValueOnce(null) // activeSession
+      .mockResolvedValueOnce({
+        id: 'paper-last-1',
+        running: false,
+        paperMode: true,
+        tradingMode: 'paper',
+        strategyLabel: 'Mom 2% 5m 2R',
+        startTime: new Date('2026-11-26T10:00:00Z'),
+        endTime: new Date('2026-11-26T12:00:00Z'),
+        config: { strategy_label: 'Mom 2% 5m 2R', paper_mode: true, trading_mode: 'paper' },
+      });
+    const findOneSettings = jest.fn().mockResolvedValue({
+      paper_balance: 10250,
+      live_balance: 5000,
+      testnet_balance: 1000,
+    });
+    const mockCtx: any = {
+      currentSessionId: null,
+      sessionRunning: false,
+      engineMode: 'paper',
+      sessionRepository: { findOne: findOneSession },
+      settingsRepository: { findOne: findOneSettings },
+    };
+
+    const res: any = await SessionService.prototype.getStatus.call(mockCtx, false);
+    expect(findOneSession).toHaveBeenNthCalledWith(2, {
+      where: { tradingMode: 'paper' },
+      order: { startTime: 'DESC' },
+    });
+    expect(res.running).toBe(false);
+    expect(res.balance).toBe(10250);
+    expect(res.tradingMode).toBe('paper');
+    expect(res.lastSession).toEqual(
+      expect.objectContaining({
+        id: 'paper-last-1',
+        strategyLabel: 'Mom 2% 5m 2R',
+        paperMode: true,
+        tradingMode: 'paper',
+        status: 'stopped',
+      }),
+    );
+
+    // Mismatched engineMode safety guard
+    const mismatchSessionFind = jest.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'live-session-leak',
+        running: false,
+        paperMode: false,
+        tradingMode: 'live',
+        strategyLabel: 'Live Strat',
+        config: { strategy_label: 'Live Strat' },
+      });
+    const mismatchRes: any = await SessionService.prototype.getStatus.call(
+      { ...mockCtx, engineMode: 'paper', sessionRepository: { findOne: mismatchSessionFind } },
+      false,
+    );
+    expect(mismatchRes.lastSession).toBeNull();
+    expect(mismatchRes.config).toBeNull();
+  });
 });

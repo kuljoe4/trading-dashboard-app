@@ -1,13 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { sessionAPI } from '../api/client';
-import { selectedEngine } from '../utils/engineMode.js';
+import { useSelectedEngine } from '../hooks/useSelectedEngine';
+import { getEngineSnapshotStatus, useTradingStore } from '../store/trading';
 import { cn } from './ui/utils';
 import { MotionSegmentedPill } from './ui/SmoothMotion';
 
 export const EngineSwitch = ({ running = null, className = '' }) => {
-  const [otherRunning, setOtherRunning] = useState(null);
+  const selectedEngine = useSelectedEngine();
+  const [otherRunning, setOtherRunning] = useState(() =>
+    getEngineSnapshotStatus(selectedEngine === 'live' ? 'paper' : 'live')
+  );
   const [pendingMode, setPendingMode] = useState(null);
   const otherEngine = selectedEngine === 'live' ? 'paper' : 'live';
+
+  useEffect(() => {
+    setPendingMode(null);
+    const cached = getEngineSnapshotStatus(otherEngine);
+    if (cached !== null) {
+      setOtherRunning(cached);
+    }
+  }, [selectedEngine, otherEngine]);
 
   useEffect(() => {
     if (!selectedEngine) return undefined;
@@ -22,7 +34,10 @@ export const EngineSwitch = ({ running = null, className = '' }) => {
           setOtherRunning(data.mode === otherEngine && typeof data.running === 'boolean' ? data.running : null);
         }
       } catch {
-        if (!controller.signal.aborted) setOtherRunning(null);
+        if (!controller.signal.aborted) {
+          const cached = getEngineSnapshotStatus(otherEngine);
+          setOtherRunning(cached !== null ? cached : null);
+        }
       } finally {
         pending = false;
       }
@@ -33,11 +48,17 @@ export const EngineSwitch = ({ running = null, className = '' }) => {
       controller.abort();
       clearInterval(timer);
     };
-  }, [otherEngine]);
+  }, [otherEngine, selectedEngine]);
 
   if (!selectedEngine) return null;
 
   const activeMode = pendingMode || selectedEngine;
+
+  const handleIntent = (mode) => {
+    if (mode !== selectedEngine && typeof useTradingStore?.getState === 'function') {
+      useTradingStore.getState().prewarmEngine?.(mode);
+    }
+  };
 
   return (
     <nav
@@ -64,8 +85,22 @@ export const EngineSwitch = ({ running = null, className = '' }) => {
           <a
             key={mode}
             href={href}
-            onClick={() => {
-              if (mode !== selectedEngine) setPendingMode(mode);
+            onMouseEnter={() => handleIntent(mode)}
+            onFocus={() => handleIntent(mode)}
+            onTouchStart={() => handleIntent(mode)}
+            onPointerDown={() => handleIntent(mode)}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                return;
+              }
+              e.preventDefault();
+              if (mode !== selectedEngine) {
+                setPendingMode(mode);
+                const switched = useTradingStore.getState().switchEngine?.(mode);
+                if (!switched) {
+                  setPendingMode(null);
+                }
+              }
             }}
             aria-current={mode === selectedEngine ? 'page' : undefined}
             aria-label={`${label} · ${statusLabel}`}

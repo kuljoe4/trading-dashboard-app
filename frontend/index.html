@@ -62,6 +62,7 @@
         <div style="flex:1;padding:13px 10px 0 10px;max-width:1600px;margin:0 auto;width:100%;" class="boot-main">
           <div style="border-radius:16px 16px 0 0;background:#0d121f;border-bottom:1px solid #1c2436;height:50px;" class="boot-h1"></div>
           <div style="border-radius:0 0 16px 16px;background:#0d121f;border-bottom:1px solid #1c2436;height:30px;margin-bottom:12px;" class="boot-h2"></div>
+          <div style="display:none;height:42px;width:166px;border-radius:12px;background:#0d121f;border:1px solid #1c2436;margin-bottom:12px;" class="boot-engine-switch"></div>
           <div class="boot-kpis" style="display:grid;gap:10px;margin-bottom:12px;">
             <div style="height:56px;border-radius:12px;background:#0d121f;border:1px solid #1c2436;"></div>
             <div style="height:56px;border-radius:12px;background:#0d121f;border:1px solid #1c2436;"></div>
@@ -77,6 +78,22 @@
         @media(min-width:768px){.boot-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
         @media(min-width:1024px){.boot-sidebar{display:block!important}.boot-main{padding:23px 20px 0 20px!important}.boot-h2{margin-bottom:16px!important}}
       </style>
+      <script>
+        (function(){
+          try {
+            var root = document.getElementById('boot-shell');
+            if (!root) return;
+            if (localStorage.getItem('sidebar_collapsed') === 'true') {
+              var sb = root.querySelector('.boot-sidebar');
+              if (sb) sb.style.width = '80px';
+            }
+            if (window.location.search && window.location.search.indexOf('engine=') !== -1) {
+              var es = root.querySelector('.boot-engine-switch');
+              if (es) es.style.display = 'block';
+            }
+          } catch (e) {}
+        })();
+      </script>
     </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

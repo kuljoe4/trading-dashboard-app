@@ -1,7 +1,15 @@
-import { enginePath, engineStorageKey, selectedEngine } from '../utils/engineMode.js'
+import {
+  dualEngineEnabled,
+  enginePath,
+  engineStorageKey,
+  getSelectedEngine,
+  registerPopstateEngineHandler,
+  selectedEngine,
+  setSelectedEngine,
+} from '../utils/engineMode.js'
 import { createWithEqualityFn } from 'zustand/traditional'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { sessionAPI, normalizeUrl } from '../api/client.js'
+import { sessionAPI, normalizeUrl, setApiEngineMode } from '../api/client.js'
 import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits.js'
 import { pickBestRotationCandidate, extractHtfEmaCross, formatHtfCrossCompact } from '../utils/htfEmaCross.js'
 import {
@@ -28,20 +36,63 @@ let wsErrorDebounceTimeout = null;
 let wsReconnectTimeout = null;
 let lastAuxFetchTs = 0;
 let resumeSyncSafetyTimeout = null;
+let engineGeneration = 0;
+const engineSnapshots = {};
+const prewarmInFlight = {};
+
+export const getEngineGeneration = () => engineGeneration;
+
+export const getEngineSnapshotStatus = (mode) => {
+  const snap = mode ? engineSnapshots[mode] : null;
+  if (!snap || !snap.initialStatusLoaded) return null;
+  return Boolean(snap.sessionActive);
+};
+
+const clearEngineTimers = () => {
+  activeSyncPromise = null;
+  lastAuxFetchTs = 0;
+  if (syncRetryTimeout) {
+    clearTimeout(syncRetryTimeout);
+    syncRetryTimeout = null;
+  }
+  if (detailRefreshTimeout) {
+    clearTimeout(detailRefreshTimeout);
+    detailRefreshTimeout = null;
+  }
+  if (resumeSyncSafetyTimeout) {
+    clearTimeout(resumeSyncSafetyTimeout);
+    resumeSyncSafetyTimeout = null;
+  }
+  if (wsErrorDebounceTimeout) {
+    clearTimeout(wsErrorDebounceTimeout);
+    wsErrorDebounceTimeout = null;
+  }
+  if (wsReconnectTimeout) {
+    clearTimeout(wsReconnectTimeout);
+    wsReconnectTimeout = null;
+  }
+};
 
 const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => {
   const now = Date.now();
+  const reqGen = engineGeneration;
+  const reqEngine = getSelectedEngine();
+  const runRefresh = () => {
+    if (reqGen !== engineGeneration || getSelectedEngine() !== reqEngine) return;
+    if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
+    if (typeof get().fetchTradeHistory === 'function') {
+      get().fetchTradeHistory('all');
+    }
+    if (fetchSessions && typeof get().fetchSessions === 'function') get().fetchSessions();
+  };
+
   if (immediate && (now - lastDetailRefreshTs > 300)) {
     lastDetailRefreshTs = now;
     if (detailRefreshTimeout) {
       clearTimeout(detailRefreshTimeout);
       detailRefreshTimeout = null;
     }
-    if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
-    if (typeof get().fetchTradeHistory === 'function') {
-      get().fetchTradeHistory('all');
-    }
-    if (fetchSessions && typeof get().fetchSessions === 'function') get().fetchSessions();
+    runRefresh();
     return;
   }
 
@@ -49,11 +100,7 @@ const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => 
   detailRefreshTimeout = setTimeout(() => {
     detailRefreshTimeout = null;
     lastDetailRefreshTs = Date.now();
-    if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
-    if (typeof get().fetchTradeHistory === 'function') {
-      get().fetchTradeHistory('all');
-    }
-    if (fetchSessions && typeof get().fetchSessions === 'function') get().fetchSessions();
+    runRefresh();
   }, 25);
 };
 
@@ -833,10 +880,149 @@ const defaultConfig = {
   trade_retention_days: 30,
 };
 
+  const snapshotPaperDefault = getSelectedEngine() === 'live' ? false : true;
+const SNAPSHOT_STATE_KEYS = [
+  'sessionActive', 'sessionPaused', 'pausedStrategies', 'strategyGateStates', 'strategyId',
+  'balance', 'totalPnl', 'realizedPnl', 'activePnl', 'lastKnownPnl',
+  'totalRiskPct', 'totalSlUsed', 'totalEstPnlToRealize',
+  'activeTrades', 'logs', 'scannerResults', 'variantScannerResults', 'variantStats', 'activeWindows',
+  'tradeHistory', 'sessionTradeHistory', 'sessionTradeHistoryId',
+  'tradeHistoryCounts', 'sessionTradeHistoryCounts', 'lifetimeAnalytics',
+  'gateState', 'gateReason', 'nextSlotTs', 'hibernating', 'hibernationMode',
+  'isAdaptiveTightened', 'agreementRequired', 'tradfiAgreementRequired',
+  'scannerPaused', 'lastScanTs', 'nextScanTs', 'scanIntervalMs', 'lastAuthoritativeUpdateTs',
+  'sessionList', 'sessionListCounts', 'statusLastSession', 'monitoring', 'isEcoMode', 'analytics',
+  'lastUdsBalanceReason', 'lastUdsBalanceTs', 'apiStatus',
+  'tradesInPeriod', 'maxTradesPeriod', 'tradesIn24h', 'maxTrades24h',
+  'effectivePeriodMs', 'jitterFactor', 'entryCount', 'hitCount', 'stats', 'alerts',
+  'initialStatusLoaded', 'isSyncing', 'isSyncingOnResume', 'configSyncing',
+  'sessionsLoading', 'historyLoading', 'analyticsLoading',
+  'rateLimit', 'rateLimitLastSync', 'config', 'lastLocalConfigEditTs',
+];
+
+const extractEngineSnapshot = (state) => {
+  const snap = {};
+  for (let i = 0; i < SNAPSHOT_STATE_KEYS.length; i++) {
+    const k = SNAPSHOT_STATE_KEYS[i];
+    snap[k] = state[k];
+  }
+  snap._snapshotTs = Date.now();
+  return snap;
+};
+
+const readPersistedEngineState = (mode) => {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(engineStorageKey('momentum_trading_store', mode));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed.state === 'object' ? parsed.state : null;
+  } catch (_) {
+    return null;
+  }
+};
+
+const buildBaseEngineSnapshot = (mode) => {
+  const p = readPersistedEngineState(mode);
+  const modeDefaultConfig = {
+    ...defaultConfig,
+    trading_mode: mode || defaultConfig.trading_mode,
+    paper_mode: mode ? mode === 'paper' : snapshotPaperDefault,
+  };
+  const cfg = p?.config && typeof p.config === 'object' && !Array.isArray(p.config)
+    ? { ...modeDefaultConfig, ...p.config, trading_mode: mode || p.config.trading_mode || modeDefaultConfig.trading_mode, paper_mode: mode ? mode === 'paper' : (p.config.paper_mode ?? modeDefaultConfig.paper_mode) }
+    : modeDefaultConfig;
+  const sid = p?.strategyId ?? null;
+  const active = Boolean(p?.sessionActive);
+  const rawCache = p?.lastKnownPnl && typeof p.lastKnownPnl === 'object'
+    ? p.lastKnownPnl
+    : createEmptyLastKnownPnl(sid);
+  const hydratedCache = {
+    ...createEmptyLastKnownPnl(sid),
+    ...rawCache,
+    variants: rawCache.variants && typeof rawCache.variants === 'object' ? rawCache.variants : {},
+    trades: rawCache.trades && typeof rawCache.trades === 'object' ? rawCache.trades : {},
+  };
+  const activeTrades = Array.isArray(p?.activeTrades)
+    ? (active ? p.activeTrades.map((t) => mergeTradeWithCachedPnl(t, hydratedCache.trades, true)) : p.activeTrades)
+    : [];
+
+  return {
+    sessionActive: active,
+    sessionPaused: false,
+    pausedStrategies: [],
+    strategyGateStates: {},
+    strategyId: sid,
+    balance: p?.balance !== undefined ? p.balance : 10000,
+    totalPnl: (active && toNumber(p?.totalPnl, 0) === 0 && toNumber(hydratedCache.totalPnl, 0) !== 0) ? toNumber(hydratedCache.totalPnl, 0) : (p?.totalPnl ?? 0),
+    realizedPnl: (active && toNumber(p?.realizedPnl, 0) === 0 && toNumber(hydratedCache.realizedPnl, 0) !== 0) ? toNumber(hydratedCache.realizedPnl, 0) : (p?.realizedPnl ?? 0),
+    activePnl: (active && toNumber(p?.activePnl, 0) === 0 && toNumber(hydratedCache.activePnl, 0) !== 0) ? toNumber(hydratedCache.activePnl, 0) : (p?.activePnl ?? 0),
+    lastKnownPnl: hydratedCache,
+    totalRiskPct: (active && toNumber(p?.totalRiskPct, 0) === 0 && toNumber(hydratedCache.totalRiskPct, 0) > 0) ? toNumber(hydratedCache.totalRiskPct, 0) : (p?.totalRiskPct ?? 0),
+    totalSlUsed: (active && toNumber(p?.totalSlUsed, 0) === 0 && toNumber(hydratedCache.totalSlUsed, 0) > 0) ? toNumber(hydratedCache.totalSlUsed, 0) : (p?.totalSlUsed ?? 0),
+    totalEstPnlToRealize: (active && toNumber(p?.totalEstPnlToRealize, 0) === 0 && toNumber(hydratedCache.totalEstPnlToRealize, 0) !== 0) ? toNumber(hydratedCache.totalEstPnlToRealize, 0) : (p?.totalEstPnlToRealize ?? 0),
+    activeTrades,
+    logs: [],
+    scannerResults: [],
+    variantScannerResults: {},
+    variantStats: p?.variantStats && typeof p.variantStats === 'object' ? p.variantStats : {},
+    activeWindows: [],
+    tradeHistory: [],
+    sessionTradeHistory: [],
+    sessionTradeHistoryId: null,
+    tradeHistoryCounts: null,
+    sessionTradeHistoryCounts: null,
+    lifetimeAnalytics: null,
+    gateState: null,
+    gateReason: null,
+    nextSlotTs: null,
+    hibernating: false,
+    hibernationMode: cfg.hibernation_mode || 'adaptive',
+    isAdaptiveTightened: false,
+    agreementRequired: false,
+    tradfiAgreementRequired: false,
+    scannerPaused: false,
+    lastScanTs: p?.lastScanTs ?? 0,
+    nextScanTs: null,
+    scanIntervalMs: 15000,
+    lastAuthoritativeUpdateTs: p?.lastAuthoritativeUpdateTs ?? 0,
+    sessionList: [],
+    sessionListCounts: null,
+    statusLastSession: null,
+    monitoring: null,
+    isEcoMode: false,
+    analytics: null,
+    lastUdsBalanceReason: null,
+    lastUdsBalanceTs: null,
+    apiStatus: { isBanned: false, isRateLimited: false, isGeoBlocked: false, banUntil: null, lastErrorMessage: null },
+    tradesInPeriod: undefined,
+    maxTradesPeriod: undefined,
+    tradesIn24h: undefined,
+    maxTrades24h: undefined,
+    effectivePeriodMs: undefined,
+    jitterFactor: undefined,
+    entryCount: (active && toNumber(p?.entryCount, 0) === 0 && toNumber(hydratedCache.entryCount, 0) > 0) ? toNumber(hydratedCache.entryCount, 0) : (p?.entryCount ?? 0),
+    hitCount: (active && toNumber(p?.hitCount, 0) === 0 && toNumber(hydratedCache.hitCount, 0) > 0) ? toNumber(hydratedCache.hitCount, 0) : (p?.hitCount ?? 0),
+    stats: undefined,
+    alerts: [],
+    initialStatusLoaded: false,
+    isSyncing: false,
+    isSyncingOnResume: active,
+    configSyncing: false,
+    sessionsLoading: false,
+    historyLoading: false,
+    analyticsLoading: false,
+    rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 },
+    rateLimitLastSync: new Date().toISOString(),
+    config: cfg,
+    lastLocalConfigEditTs: 0,
+  };
+};
+
 export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, pausedStrategies: [], strategyGateStates: {}, strategyId: null, balance: 10000, totalPnl: 0, realizedPnl: 0, activePnl: 0, lastKnownPnl: createEmptyLastKnownPnl(), totalRiskPct: 0, totalSlUsed: 0, totalEstPnlToRealize: 0,
   activeTrades: [], logs: [], logLimit: 50, logFilters: readPersistedJson('decision_log_filters', DEFAULT_LOG_FILTERS, sanitizeLogFilters), scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], sessionTradeHistory: [], sessionTradeHistoryId: null, tradeHistoryCounts: null, sessionTradeHistoryCounts: null, historyLimit: 250, lifetimeAnalytics: null,
-  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, tradfiAgreementRequired: false, scannerPaused: false, lastScanTs: 0, nextScanTs: null, scanIntervalMs: 15000, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], sessionListCounts: null, sessionListLimit: 20, monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
+  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, tradfiAgreementRequired: false, scannerPaused: false, lastScanTs: 0, nextScanTs: null, scanIntervalMs: 15000, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], sessionListCounts: null, sessionListLimit: 20, statusLastSession: null, monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
   apiStatus: { isBanned: false, isRateLimited: false, isGeoBlocked: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   effectivePeriodMs: undefined, jitterFactor: undefined,
@@ -963,6 +1149,229 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     return { logFilters: next };
   }),
   setSyncing: (s) => set({ isSyncing: s }),
+  prewarmEngine: async (targetMode) => {
+    if (!dualEngineEnabled) return null;
+    const mode = targetMode === 'paper' ? 'paper' : targetMode === 'live' ? 'live' : null;
+    const current = getSelectedEngine();
+    if (!mode || mode === current) return null;
+
+    const existing = engineSnapshots[mode];
+    if (existing?._prewarmedTs && (Date.now() - existing._prewarmedTs) < 12000) {
+      return existing;
+    }
+    if (prewarmInFlight[mode]) {
+      return prewarmInFlight[mode];
+    }
+
+    const reqConfig = {
+      baseURL: enginePath(mode),
+      headers: { 'X-Trading-Engine': mode },
+    };
+
+    prewarmInFlight[mode] = (async () => {
+      try {
+        const [statusRes, listRes, histRes, analyticsRes] = await Promise.allSettled([
+          sessionAPI.status(reqConfig),
+          sessionAPI.list(20, true, reqConfig),
+          sessionAPI.history('all', 250, reqConfig),
+          sessionAPI.analytics(reqConfig),
+        ]);
+
+        // If the user switched into targetMode while prewarm was in-flight, let switchEngine's own live sync own state.
+        if (getSelectedEngine() === mode) return null;
+
+        const base = engineSnapshots[mode]
+          ? { ...engineSnapshots[mode] }
+          : buildBaseEngineSnapshot(mode);
+
+        if (statusRes.status === 'fulfilled' && statusRes.value?.data) {
+          const d = statusRes.value.data;
+          const running = !!d.running;
+          const sid = running ? (d.strategyId || d.strategy_id || null) : null;
+          base.sessionActive = running;
+          base.strategyId = sid;
+          base.sessionPaused = Boolean(d.paused);
+          base.pausedStrategies = Array.isArray(d.paused_strategies) ? d.paused_strategies : [];
+          base.strategyGateStates = d.strategy_gate_states || {};
+          if (d.balance !== undefined) base.balance = toNumber(d.balance, base.balance);
+          if (running) {
+            base.realizedPnl = toNumber(d.realizedPnl ?? d.realized_pnl, base.realizedPnl);
+            base.activePnl = toNumber(d.activePnl ?? d.active_pnl, base.activePnl);
+            base.totalPnl = toNumber(d.totalPnl ?? d.total_pnl, base.totalPnl);
+            base.totalRiskPct = toNumber(d.totalRiskPct, base.totalRiskPct);
+            base.totalSlUsed = toNumber(d.totalSlUsed, base.totalSlUsed);
+            base.totalEstPnlToRealize = toNumber(d.totalEstPnlToRealize ?? d.total_est_pnl_to_realize, base.totalEstPnlToRealize);
+            base.entryCount = d.stats?.entryCount !== undefined ? toNumber(d.stats.entryCount, 0) : base.entryCount;
+            base.hitCount = d.stats?.hitCount !== undefined ? toNumber(d.stats.hitCount, 0) : base.hitCount;
+            if (Array.isArray(d.activeTrades)) {
+              base.activeTrades = d.activeTrades.map((t) => normalizeTrade(t, null, false)).filter(Boolean);
+            }
+            if (d.variant_stats) base.variantStats = d.variant_stats;
+            if (Array.isArray(d.scannerResults)) {
+              base.scannerResults = d.scannerResults.map((o) => normalizeOpportunity(o, null)).filter(Boolean);
+            }
+            if (Array.isArray(d.activeWindows)) base.activeWindows = d.activeWindows;
+            base.statusLastSession = null;
+          } else {
+            base.activeTrades = [];
+            base.activePnl = 0;
+            base.totalRiskPct = 0;
+            base.totalSlUsed = 0;
+            base.totalEstPnlToRealize = 0;
+            base.variantStats = {};
+            base.statusLastSession = d.lastSession || base.statusLastSession || null;
+          }
+          base.gateState = d.gateState ?? base.gateState;
+          base.gateReason = d.gateReason ?? d.reason ?? base.gateReason;
+          base.nextSlotTs = d.nextSlotTs ?? base.nextSlotTs;
+          base.hibernating = d.hibernating ?? base.hibernating;
+          base.hibernationMode = d.hibernation_mode ?? d.hibernationMode ?? base.hibernationMode;
+          base.isAdaptiveTightened = d.isAdaptiveTightened ?? base.isAdaptiveTightened;
+          base.scannerPaused = d.scannerPaused ?? base.scannerPaused;
+          if (d.apiStatus) base.apiStatus = d.apiStatus;
+          if (d.config && typeof d.config === 'object' && !Array.isArray(d.config)) {
+            base.config = mergeConfigObjects(base.config || defaultConfig, {
+              ...d.config,
+              trading_mode: mode,
+              paper_mode: mode === 'paper',
+            });
+          }
+          base.initialStatusLoaded = true;
+          base.isSyncingOnResume = false;
+          base.lastAuthoritativeUpdateTs = Date.now();
+        }
+
+        if (listRes.status === 'fulfilled' && listRes.value?.data) {
+          const payload = listRes.value.data;
+          const rawList = Array.isArray(payload) ? payload : (Array.isArray(payload?.sessions) ? payload.sessions : []);
+          base.sessionList = rawList
+            .map((s) => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 }))
+            .sort((a, b) => {
+              const aActive = a.status === 'active' || a.running === true || !a.endTime;
+              const bActive = b.status === 'active' || b.running === true || !b.endTime;
+              if (aActive !== bActive) return aActive ? -1 : 1;
+              return (b.startTimeMs || 0) - (a.startTimeMs || 0);
+            });
+          if (!Array.isArray(payload) && payload?.sessionCounts && typeof payload.sessionCounts === 'object') {
+            base.sessionListCounts = { ...payload.sessionCounts };
+          }
+        }
+
+        if (histRes.status === 'fulfilled' && histRes.value?.data) {
+          const rawTrades = histRes.value.data?.trades || [];
+          base.tradeHistory = rawTrades
+            .map((t) => normalizeTrade(t, null, false))
+            .filter((t) => t && t.status !== 'ENTRY_FAILED')
+            .sort((a, b) => (b.exit_ts_ms || 0) - (a.exit_ts_ms || 0));
+          if (histRes.value.data?.closedCounts && typeof histRes.value.data.closedCounts === 'object') {
+            base.tradeHistoryCounts = { ...histRes.value.data.closedCounts };
+          }
+          if (base.strategyId) {
+            base.sessionTradeHistory = base.tradeHistory.filter((t) => (t.sessionId || t.session_id) === base.strategyId);
+            base.sessionTradeHistoryId = base.strategyId;
+          }
+        }
+
+        if (analyticsRes.status === 'fulfilled' && analyticsRes.value?.data) {
+          base.analytics = analyticsRes.value.data;
+        }
+
+        base._prewarmedTs = Date.now();
+        base._snapshotTs = Date.now();
+        engineSnapshots[mode] = base;
+        return base;
+      } catch (_) {
+        return null;
+      } finally {
+        delete prewarmInFlight[mode];
+      }
+    })();
+
+    return prewarmInFlight[mode];
+  },
+
+  switchEngine: (nextMode, options = {}) => {
+    if (!dualEngineEnabled) return false;
+    const prevMode = getSelectedEngine();
+    const targetMode = nextMode === 'paper' ? 'paper' : 'live';
+    if (!prevMode || targetMode === prevMode) return false;
+
+    const { pushHistory = true } = options || {};
+
+    // 1. Capture outgoing engine snapshot cleanly before mutating globals or storage name
+    engineSnapshots[prevMode] = extractEngineSnapshot(get());
+
+    // 2. Neutralize and close current engine WebSocket + clear engine-scoped timers
+    clearEngineTimers();
+    const prevWs = get().ws;
+    if (prevWs) {
+      prevWs.onopen = null;
+      prevWs.onmessage = null;
+      prevWs.onerror = null;
+      prevWs.onclose = null;
+      try { prevWs.close(1000, 'Engine Switch'); } catch (_) {}
+    }
+
+    // 3. Advance monotonic generation so any in-flight HTTP/WS work for prevMode is discarded
+    engineGeneration += 1;
+
+    // 4. Reset engine-specific detail hashes back to overview before switching URL
+    let resetRouteToRoot = false;
+    if (typeof window !== 'undefined') {
+      const h = window.location.hash || '';
+      if (h.startsWith('#/strategy/') || h.startsWith('#/trade/')) {
+        resetRouteToRoot = true;
+      }
+    }
+
+    // 5. Switch persistence target key FIRST so restoring nextMode never writes to prevMode's key
+    if (typeof useTradingStore?.persist?.setOptions === 'function') {
+      useTradingStore.persist.setOptions({ name: engineStorageKey('momentum_trading_store', targetMode) });
+    }
+
+    // 6. Switch reactive API client baseURL + selectedEngine URL/listeners
+    setApiEngineMode(targetMode);
+    setSelectedEngine(targetMode, { pushHistory, resetRouteToRoot });
+    if (resetRouteToRoot && typeof window !== 'undefined') {
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+
+    // 7. Synchronously restore cached or localStorage-hydrated snapshot for targetMode
+    const cachedSnap = engineSnapshots[targetMode];
+    const hasWarmCache = Boolean(cachedSnap && cachedSnap.initialStatusLoaded);
+    const nextSnap = cachedSnap ? { ...cachedSnap } : buildBaseEngineSnapshot(targetMode);
+
+    set({
+      ...nextSnap,
+      ws: null,
+      wsStatus: 'offline',
+      wsError: null,
+      apiError: null,
+      isSyncing: false,
+      configSyncing: false,
+      sessionsLoading: false,
+      historyLoading: false,
+      analyticsLoading: false,
+    });
+
+    // 8. Reconcile freshly in background without blocking the first paint frame
+    const prewarmAge = cachedSnap?._prewarmedTs ? (Date.now() - cachedSnap._prewarmedTs) : Infinity;
+    if (nextSnap.sessionActive) {
+      get().connectWS();
+    }
+    if (!hasWarmCache || prewarmAge > 2000) {
+      get().sync(0, { forceDetails: true });
+      get().fetchSessions();
+      get().fetchAnalytics();
+      get().fetchTradeHistory('all');
+    } else {
+      // Even on ultra-fresh hover prewarm, verify lightweight status cleanly in background
+      get().sync(0, { forceDetails: false });
+    }
+
+    return true;
+  },
+
   sync: async (retryCount = 0, options = {}) => {
     // SRE: Guard against concurrent in-flight sync calls
     if (activeSyncPromise) {
@@ -974,6 +1383,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       syncRetryTimeout = null;
     }
 
+    const reqGen = engineGeneration;
+    const reqEngine = getSelectedEngine();
+
     activeSyncPromise = (async () => {
       try {
         const prevSt = get();
@@ -982,6 +1394,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         const prevActiveTradeCount = (prevSt.activeTrades || []).length;
 
         const res = await sessionAPI.status();
+        if (reqGen !== engineGeneration || getSelectedEngine() !== reqEngine) return;
+
         const running = !!res.data.running;
         const incomingSid = res.data.strategyId || res.data.strategy_id || null;
 
@@ -992,6 +1406,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           sessionActive: running,
           status: res.data.status,
           strategyId: incomingSid,
+          lastSession: res.data.lastSession,
           balance: res.data.balance,
           realizedPnl: res.data.realizedPnl ?? res.data.realized_pnl,
           activePnl: res.data.activePnl ?? res.data.active_pnl,
@@ -1041,6 +1456,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           triggerDetailRefresh(get, sessionChanged, true);
         }
       } catch (e) {
+        if (reqGen !== engineGeneration || getSelectedEngine() !== reqEngine) return;
         // SRE P3: Reset syncing feedback states if request was aborted
         if (e.code === 'ERR_CANCELED') {
           set({ isSyncing: false, isSyncingOnResume: false });
@@ -1060,6 +1476,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const jitteredDelay = Math.floor(baseDelay * (0.8 + Math.random() * 0.4));
           syncRetryTimeout = setTimeout(() => {
             syncRetryTimeout = null;
+            if (reqGen !== engineGeneration || getSelectedEngine() !== reqEngine) return;
             get().sync(retryCount + 1, options);
           }, jitteredDelay);
         } else {
@@ -1185,6 +1602,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
   },
   fetchSessions: async (limit) => {
+    const reqGen = engineGeneration;
+    const reqEngine = getSelectedEngine();
     set({ sessionsLoading: true });
     try {
       const stSnapshot = get();
@@ -1193,6 +1612,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         ? (limit === 'ALL' || limit === 'all' ? 500 : Math.min(Math.max(Number(limit) || 20, 1), 500))
         : (stSnapshot.sessionListLimit || 20);
       const r = await sessionAPI.list(resolvedLimit, true);
+      if (reqGen !== engineGeneration || getSelectedEngine() !== reqEngine) return;
       const payload = r?.data;
       const rawList = Array.isArray(payload) ? payload : (Array.isArray(payload?.sessions) ? payload.sessions : []);
       const incomingSessions = rawList.map(s => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 }));
@@ -1224,21 +1644,43 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         };
       });
     } catch (e) {} finally {
-      set({ sessionsLoading: false });
+      if (reqGen === engineGeneration && getSelectedEngine() === reqEngine) {
+        set({ sessionsLoading: false });
+      }
     }
   },
-  fetchLifetimeAnalytics: async (m = 'paper') => { set({ analyticsLoading: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ analyticsLoading: false }); } },
+  fetchLifetimeAnalytics: async (m = 'paper') => {
+    const reqGen = engineGeneration;
+    const reqEngine = getSelectedEngine();
+    set({ analyticsLoading: true });
+    try {
+      const r = await sessionAPI.getLifetimeAnalytics(m);
+      if (reqGen !== engineGeneration || getSelectedEngine() !== reqEngine) return;
+      set({ lifetimeAnalytics: r.data });
+    } catch (e) {} finally {
+      if (reqGen === engineGeneration && getSelectedEngine() === reqEngine) {
+        set({ analyticsLoading: false });
+      }
+    }
+  },
   fetchAnalytics: async () => {
+    const reqGen = engineGeneration;
+    const reqEngine = getSelectedEngine();
     try {
       const r = await sessionAPI.analytics();
+      if (reqGen !== engineGeneration || getSelectedEngine() !== reqEngine) return;
       if (r && r.data) {
         set({ analytics: r.data });
       }
     } catch (e) {
-      console.warn('[Store] fetchAnalytics error:', e);
+      if (reqGen === engineGeneration) {
+        console.warn('[Store] fetchAnalytics error:', e);
+      }
     }
   },
   fetchTradeHistory: async (sid = 'all', limit) => {
+    const reqGen = engineGeneration;
+    const reqEngine = getSelectedEngine();
     set({ historyLoading: true });
     try {
       const isAll = !sid || sid === 'all';
@@ -1251,6 +1693,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         ? (limit === 'ALL' || limit === 'all' ? 50000 : Math.min(Math.max(Number(limit) || 250, 1), 50000))
         : (knownTotal ? Math.min(Math.max(Number(knownTotal), 1), 50000) : (stSnapshot.historyLimit || 250));
       const r = await sessionAPI.history(sid, resolvedLimit);
+      if (reqGen !== engineGeneration || getSelectedEngine() !== reqEngine) return;
       const rawTrades = r.data?.trades || [];
       const rawCounts = r.data?.closedCounts;
       const serverCounts = rawCounts && typeof rawCounts === 'object'
@@ -1323,12 +1766,17 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         };
       });
     } catch (e) {} finally {
-      set({ historyLoading: false });
+      if (reqGen === engineGeneration && getSelectedEngine() === reqEngine) {
+        set({ historyLoading: false });
+      }
     }
   },
   fetchLogs: async (limit = 50) => {
+    const reqGen = engineGeneration;
+    const reqEngine = getSelectedEngine();
     try {
       const res = await sessionAPI.logs(limit);
+      if (reqGen !== engineGeneration || getSelectedEngine() !== reqEngine) return;
       if (res.data && Array.isArray(res.data)) {
         const incoming = res.data.map(normalizeLog).filter(Boolean);
         set(st => {
@@ -1388,9 +1836,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     // SEC: Defensive Merge Pattern. Never overwrite store keys with undefined.
     const merged = { ...st };
     Object.entries(updates).forEach(([key, value]) => {
-      if (key === '_authoritative') return;
+      if (key === '_authoritative' || key === 'lastSession') return;
       if (value !== undefined && (key !== 'config' || (value && typeof value === 'object' && !Array.isArray(value)))) merged[key] = value;
     });
+    if (updates.lastSession !== undefined) {
+      merged.statusLastSession = sessionCurrentlyActive && !isStopped ? null : (updates.lastSession || null);
+    } else if (sessionCurrentlyActive && !isStopped) {
+      merged.statusLastSession = null;
+    }
 
     if (incomingSid && sessionCurrentlyActive && !isStopped) {
       merged.strategyId = incomingSid;
@@ -2069,6 +2522,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   clearApiError: () => set({ apiError: null }),
   connectWS: () => {
     if (get().ws) return;
+    const activeEngine = getSelectedEngine();
+    const wsGen = engineGeneration;
     set({ wsStatus: 'connecting' });
     // DEPLOY-04: Match the WebSocket protocol to the page protocol.
     // Use wss:// on HTTPS pages and ws:// on HTTP (dev) pages. Forcing wss://
@@ -2082,8 +2537,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        window.location.hostname === '127.0.0.1');
 
     let u;
-    if (selectedEngine) {
-      u = `${wsProto}://${window.location.host}${enginePath(selectedEngine)}/session/ws?engine=${selectedEngine}`;
+    if (activeEngine) {
+      u = `${wsProto}://${window.location.host}${enginePath(activeEngine)}/session/ws?engine=${activeEngine}`;
     } else if (isDevPreview || !import.meta.env.VITE_WS_URL) {
       u = `${wsProto}://${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.host}/session/ws`;
     } else {
@@ -2095,6 +2550,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     // SENTINEL: Use sub-protocol for auth instead of query parameter to prevent credential leakage in logs
     const ws = new WebSocket(u, ak || []);
     ws.onopen = () => {
+      if (wsGen !== engineGeneration || getSelectedEngine() !== activeEngine) {
+        try { ws.close(1000, 'Stale Engine'); } catch (_) {}
+        return;
+      }
       if (wsErrorDebounceTimeout) {
         clearTimeout(wsErrorDebounceTimeout);
         wsErrorDebounceTimeout = null;
@@ -2125,6 +2584,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       }
     };
     ws.onerror = (e) => {
+      if (wsGen !== engineGeneration || getSelectedEngine() !== activeEngine) return;
       console.warn('[WebSocket] Connection failed or error occurred:', e);
       // SRE: Grace period debounce. On initial error during reconnect, keep 'reconnecting'
       // to avoid alarm fatigue; only escalate to 'error' if attempts reach 3 or grace timer expires.
@@ -2142,6 +2602,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         let logBuffer = [];
     let logBufferTimeout = null;
     ws.onmessage = (e) => {
+      if (wsGen !== engineGeneration || getSelectedEngine() !== activeEngine) return;
       if (get().isThrottled) return;
       const nowTs = Date.now();
       const d = JSON.parse(e.data);
@@ -2830,6 +3291,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       else if (d.type === 'session_terminated') get().setSessionActive(false, null);
     };
     ws.onclose = (e) => {
+      if (wsGen !== engineGeneration || getSelectedEngine() !== activeEngine) {
+        return;
+      }
       const wasExpected = (e && e.code === 1000) || get().wsStatus === 'offline';
       if (wsReconnectTimeout) {
         clearTimeout(wsReconnectTimeout);
@@ -2875,6 +3339,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       } else if (!wsErrorDebounceTimeout) {
         wsErrorDebounceTimeout = setTimeout(() => {
           wsErrorDebounceTimeout = null;
+          if (wsGen !== engineGeneration || getSelectedEngine() !== activeEngine) return;
           const currentStatus = get().wsStatus;
           if (currentStatus !== 'live' && currentStatus !== 'offline') {
             set({
@@ -2895,6 +3360,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         set({ reconnectAttempts: att + 1 });
         wsReconnectTimeout = setTimeout(() => {
           wsReconnectTimeout = null;
+          if (wsGen !== engineGeneration || getSelectedEngine() !== activeEngine) return;
           if (!get().ws && get().wsStatus !== 'offline') {
             get().connectWS();
           }
@@ -2912,8 +3378,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       clearTimeout(wsReconnectTimeout);
       wsReconnectTimeout = null;
     }
-    if (get().ws) {
-      try { get().ws.close(1000, 'Normal Closure'); } catch (_) {}
+    const currentWs = get().ws;
+    if (currentWs) {
+      currentWs.onopen = null;
+      currentWs.onmessage = null;
+      currentWs.onerror = null;
+      currentWs.onclose = null;
+      try { currentWs.close(1000, 'Normal Closure'); } catch (_) {}
       set({ ws: null, wsStatus: 'offline', wsError: null, reconnectAttempts: 0 });
     }
   },
@@ -3025,3 +3496,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
   }
 }))
+
+registerPopstateEngineHandler((urlMode) => {
+  useTradingStore.getState().switchEngine(urlMode, { pushHistory: false });
+});

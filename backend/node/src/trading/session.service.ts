@@ -3118,7 +3118,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       } else {
         // No active session, but we want to return the last known state and global balance
         const lastSession = await this.sessionRepository.findOne({
-          where: {},
+          where: this.engineMode ? { tradingMode: this.engineMode } : {},
           order: { startTime: "DESC" },
         });
         const settings = await this.settingsRepository.findOne({
@@ -3137,13 +3137,31 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           else if (mode === "live") balance = Number(settings.live_balance);
         }
 
+        const matchedLastSession =
+          lastSession && (!this.engineMode || lastSession.tradingMode === this.engineMode)
+            ? lastSession
+            : null;
+
         return {
           running: false,
           balance,
           tradingMode: mode,
           paperMode: mode === "paper",
-          config: lastSession && (!this.engineMode || lastSession.tradingMode === this.engineMode)
-            ? lastSession.config
+          config: matchedLastSession ? matchedLastSession.config : null,
+          lastSession: matchedLastSession
+            ? {
+                id: matchedLastSession.id,
+                strategyLabel:
+                  matchedLastSession.strategyLabel ||
+                  matchedLastSession.config?.strategy_label ||
+                  "Previous Session",
+                paperMode: matchedLastSession.paperMode,
+                tradingMode: matchedLastSession.tradingMode,
+                startTime: matchedLastSession.startTime,
+                endTime: matchedLastSession.endTime,
+                status: matchedLastSession.running ? "active" : "stopped",
+                config: matchedLastSession.config,
+              }
             : null,
         };
       }

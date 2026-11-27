@@ -1,4 +1,5 @@
-import { engineStorageKey, selectedEngine } from '../utils/engineMode.js'
+import { engineStorageKey } from '../utils/engineMode.js'
+import { useSelectedEngine } from '../hooks/useSelectedEngine'
 import React, { useEffect, useMemo, useState, lazy, Suspense, useRef } from 'react'
 import { resolveStrategyConfig } from '../utils/strategyConfig.js'
 import { shallow } from 'zustand/shallow'
@@ -234,6 +235,7 @@ const MonthlyRevenueChart = React.memo(({
 
   const activeScope = scope === 'session' && hasSession ? 'session' : 'all';
   const scopeText = activeScope === 'session' ? sessionLabel : 'All Sessions';
+  const showLoadingMetrics = Boolean(isLoadingHistory && validTrades.length === 0);
 
   return (
     <div className="bg-surface border border-border rounded-2xl p-3.5 sm:p-5 shadow-md shadow-black/20 flex flex-col gap-3.5 overflow-hidden w-full">
@@ -264,22 +266,22 @@ const MonthlyRevenueChart = React.memo(({
               </span>
               <span aria-hidden="true" className="text-dim/40 text-xs">·</span>
               <span className="text-[11px] text-dim font-medium shrink-0 tabular-nums">
-                Net <strong className={cn("font-mono font-semibold", pnlClass(totalRevenue))}>{fmtUSD(totalRevenue)}</strong>
+                Net <strong className={cn("font-mono font-semibold", showLoadingMetrics ? "text-dim/60" : pnlClass(totalRevenue))}>{showLoadingMetrics ? '--' : fmtUSD(totalRevenue)}</strong>
               </span>
             </div>
 
             {/* Clean Midnight-Aligned Quick Period Totals */}
             <div className="flex items-center gap-2.5 font-mono text-[10px] font-semibold shrink-0 tabular-nums flex-wrap">
               <span className="text-dim">
-                TODAY <span className={pnlClass(periodBadges.today)}>{fmtUSD(periodBadges.today)}</span>
+                TODAY <span className={showLoadingMetrics ? "text-dim/60" : pnlClass(periodBadges.today)}>{showLoadingMetrics ? '--' : fmtUSD(periodBadges.today)}</span>
               </span>
               <span aria-hidden="true" className="text-dim/30">·</span>
               <span className="text-dim">
-                7D <span className={pnlClass(periodBadges.d7)}>{fmtUSD(periodBadges.d7)}</span>
+                7D <span className={showLoadingMetrics ? "text-dim/60" : pnlClass(periodBadges.d7)}>{showLoadingMetrics ? '--' : fmtUSD(periodBadges.d7)}</span>
               </span>
               <span aria-hidden="true" className="text-dim/30 hidden sm:inline">·</span>
               <span className="text-dim hidden sm:inline">
-                30D <span className={pnlClass(periodBadges.d30)}>{fmtUSD(periodBadges.d30)}</span>
+                30D <span className={showLoadingMetrics ? "text-dim/60" : pnlClass(periodBadges.d30)}>{showLoadingMetrics ? '--' : fmtUSD(periodBadges.d30)}</span>
               </span>
             </div>
           </div>
@@ -602,6 +604,7 @@ const ModalLoadingFallback = () => (
 
 // --- Strategy Card ---
 export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, hideEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratMetrics = null, viewMode = 'detailed' }) => {
+  const selectedEngine = useSelectedEngine();
   const analytics = useTradingStore(state => state.analytics);
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = selectedEngine || config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -1369,11 +1372,12 @@ export function DashboardView({ initialStrategy }) {
     return () => clearInterval(id);
   }, []);
 
+  const selectedEngine = useSelectedEngine();
   const {
     sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, activePnl: storeActivePnl, realizedPnl: storeRealizedPnl, lastKnownPnl, totalRiskPct,
     totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig,
-    scannerResults, sessionList, fetchSessions, wsStatus,
+    scannerResults, sessionList, sessionsLoading, statusLastSession, fetchSessions, wsStatus,
     updateStats, analytics, stats, lastUdsBalanceReason, lastUdsBalanceTs,
     variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, historyLoading, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
@@ -1402,6 +1406,8 @@ export function DashboardView({ initialStrategy }) {
     alerts: state.alerts,
     updateStats: state.updateStats,
     sessionList: state.sessionList,
+    sessionsLoading: state.sessionsLoading,
+    statusLastSession: state.statusLastSession,
     fetchSessions: state.fetchSessions,
     wsStatus: state.wsStatus,
     variantScannerResults: state.variantScannerResults,
@@ -1484,9 +1490,12 @@ export function DashboardView({ initialStrategy }) {
         }
       }
     }
+    if (!ls && statusLastSession) {
+      ls = statusLastSession;
+    }
     const lt = validTradeHistory.length > 0 ? validTradeHistory[0] : null;
     return { lastSession: ls, lastTrade: lt };
-  }, [sessionList, validTradeHistory]);
+  }, [sessionList, statusLastSession, validTradeHistory]);
 
   const effectivePeriodicSessionId = strategyId || lastSession?.id || null;
 
@@ -2425,13 +2434,6 @@ export function DashboardView({ initialStrategy }) {
           </SmoothCollapse>
         </div>
 
-        <ReconciliationCenter
-          sessionActive={sessionActive}
-          tradingMode={tradingMode}
-          config={config}
-          addAlert={addAlert}
-        />
-
         {/* Primary Workspace: Active Strategy Cards Promoted to Top */}
         <div className="bg-surface border border-border rounded-xl p-3 sm:p-4 flex flex-col shadow-sm mb-3">
           <div className="flex items-center justify-between gap-2 mb-2.5 min-h-[30px]">
@@ -2601,7 +2603,7 @@ export function DashboardView({ initialStrategy }) {
                   );
                 })()}
               </>
-            ) : !initialStatusLoaded && !lastSession ? (
+            ) : (!initialStatusLoaded || (sessionsLoading && !lastSession && (!sessionList || sessionList.length === 0))) ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 col-span-1 md:col-span-2" role="status" aria-busy="true" aria-label="Checking session status">
                 {[0, 1].map((i) => (
                   <div key={i} className="h-[118px] rounded-xl bg-background/50 border border-border/35 p-3.5 flex flex-col justify-between">
@@ -2625,7 +2627,7 @@ export function DashboardView({ initialStrategy }) {
                   disabled={loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
                   aria-label="Create new trading strategy"
                   className={cn(
-                    "bg-background border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-dim transition-[background-color,border-color,color] duration-200 group min-h-[110px] w-full cursor-pointer",
+                    "bg-background border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-dim transition-[background-color,border-color,color] duration-200 group min-h-[118px] w-full cursor-pointer",
                     lastSession ? "col-span-1" : "col-span-1 md:col-span-2",
                     (loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                   )}
@@ -2644,7 +2646,7 @@ export function DashboardView({ initialStrategy }) {
                     disabled={loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
                     aria-label={`Resume last session: ${lastSession.config?.strategy_label || lastSession.strategyLabel || 'Previous Session'}`}
                     className={cn(
-                      "bg-background border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-dim transition-[background-color,border-color,color] duration-200 group min-h-[110px] w-full col-span-1 cursor-pointer",
+                      "bg-background border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-dim transition-[background-color,border-color,color] duration-200 group min-h-[118px] w-full col-span-1 cursor-pointer",
                       (loading || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                     )}
                   >
@@ -2718,6 +2720,13 @@ export function DashboardView({ initialStrategy }) {
               </Suspense>
             </SmoothCollapse>
           </div>
+
+          <ReconciliationCenter
+            sessionActive={sessionActive}
+            tradingMode={tradingMode}
+            config={config}
+            addAlert={addAlert}
+          />
         </div>
       </div>
       )}

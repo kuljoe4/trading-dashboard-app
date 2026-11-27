@@ -1,6 +1,6 @@
 import React from 'react'
 import { cn } from './utils'
-import { selectedEngine } from '../../utils/engineMode.js'
+import { useSelectedEngine } from '../../hooks/useSelectedEngine'
 import { EngineSwitch } from '../EngineSwitch'
 
 /**
@@ -590,6 +590,7 @@ export const HistorySessionsSkeleton = ({ count = 3 }) => (
  * real Global Metrics labels/toolbar with value-only shimmers, and dynamic Strategy card telemetry placeholders.
  */
 export const DashboardSkeleton = () => {
+  const selectedEngine = useSelectedEngine()
   const expanded = readSkeletonPref('global_metrics_expanded', 'false') === 'true'
   const cardViewMode = readSkeletonPref('dashboard_card_view_mode', 'detailed')
   return (
@@ -705,9 +706,34 @@ export const DashboardSkeleton = () => {
         </div>
       </div>
 
-      <div className="rounded-2xl bg-surface/55 border border-border/50 px-4 py-3.5 flex items-center justify-between">
-        <span className="text-xs font-black uppercase tracking-wider text-text">Periodic P&L</span>
-        <SkeletonBlock className="w-24 h-5 rounded-lg opacity-65" />
+      <div className="flex flex-col gap-3 w-full">
+        <div className="bg-surface border border-border rounded-2xl p-3.5 sm:p-5 flex items-center justify-between gap-2.5 sm:gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+            <SkeletonBlock className="w-8 h-8 rounded-xl opacity-75 shrink-0" />
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-3 min-w-0 flex-1 pr-1 sm:pr-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-bold tracking-tight text-text">Periodic Performance</span>
+                <span aria-hidden="true" className="text-dim/40 text-xs">·</span>
+                <span className="text-[11px] font-medium text-dim">All Sessions</span>
+              </div>
+              <div className="flex items-center gap-2.5 font-mono text-[10px] font-semibold text-dim tabular-nums">
+                <span>TODAY --</span>
+                <span aria-hidden="true" className="text-dim/30">·</span>
+                <span>7D --</span>
+              </div>
+            </div>
+          </div>
+          <SkeletonBlock className="w-8 h-8 sm:w-7 sm:h-7 rounded-lg opacity-65 shrink-0" />
+        </div>
+
+        <div className="bg-surface border border-border rounded-xl px-3 py-2.5 sm:px-3.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <SkeletonBlock className="w-3.5 h-3.5 rounded opacity-75 shrink-0" />
+            <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-text">Session Logs</span>
+            <span className="text-[9px] text-dim font-mono uppercase tracking-wider">Buffer: 500</span>
+          </div>
+          <SkeletonBlock className="w-6 h-6 rounded-md opacity-65 shrink-0" />
+        </div>
       </div>
     </div>
   )

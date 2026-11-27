@@ -1,4 +1,5 @@
-import { engineStorageKey, selectedEngine } from '../utils/engineMode.js'
+import { engineStorageKey } from '../utils/engineMode.js'
+import { useSelectedEngine } from '../hooks/useSelectedEngine'
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -3511,6 +3512,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
   }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false, initialEditingVariantIndex = null, baseConfig = null }) => {
+  const selectedEngine = useSelectedEngine();
   const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics, apiStatus, sessionList, tradeHistory, fetchTradeHistory, strategyId, updateConfig } = useTradingStore(state => ({
     addAlert: state.addAlert,
     isThrottled: state.isThrottled,

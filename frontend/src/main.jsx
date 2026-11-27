@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { MotionConfig, LayoutGroup } from 'framer-motion';
 import { TooltipProvider } from './components/ui/tooltip';
 import ErrorBoundary from './components/ErrorBoundary';
-import { useTradingStore } from './store/trading';
+import { getEngineGeneration, useTradingStore } from './store/trading';
 import api, { sessionAPI, setAdminApiKey, initializeAuth } from './api/client';
+import { getSelectedEngine } from './utils/engineMode.js';
+import { useSelectedEngine } from './hooks/useSelectedEngine';
 import { useVisibility } from './hooks/useVisibility';
 import { AuthOverlay } from './components/AuthOverlay';
 import { ShortcutsModal } from './components/ShortcutsModal';
@@ -268,10 +270,14 @@ const App = () => {
 
     let retryTimer = null;
 
+    const reqGen = getEngineGeneration();
+    const reqEngine = getSelectedEngine();
+
     async function checkStatus(retryCount = 0) {
+      if (reqGen !== getEngineGeneration() || getSelectedEngine() !== reqEngine) return;
       try {
         const res = await sessionAPI.status({ signal: controller.signal });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || reqGen !== getEngineGeneration() || getSelectedEngine() !== reqEngine) return;
 
         const currentState = useTradingStore.getState();
         const running = !!res.data.running;
@@ -283,6 +289,7 @@ const App = () => {
           running,
           sessionActive: running,
           strategyId: incomingSid,
+          lastSession: res.data.lastSession,
           realizedPnl: res.data.realizedPnl ?? res.data.realized_pnl,
           activePnl: res.data.activePnl ?? res.data.active_pnl,
           totalPnl: res.data.totalPnl ?? res.data.total_pnl,
@@ -308,13 +315,14 @@ const App = () => {
           }
         }
       } catch (e) {
+        if (reqGen !== getEngineGeneration() || getSelectedEngine() !== reqEngine) return;
         if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {
           const httpStatus = e?.response?.status;
           if (httpStatus >= 400 && httpStatus < 500) {
             useTradingStore.setState({ initialStatusLoaded: true });
           } else if (retryCount < 8) {
             retryTimer = setTimeout(() => {
-              if (!controller.signal.aborted) {
+              if (!controller.signal.aborted && reqGen === getEngineGeneration() && getSelectedEngine() === reqEngine) {
                 checkStatus(retryCount + 1);
               }
             }, 1500);
@@ -366,7 +374,8 @@ const App = () => {
     ? decodeURIComponent(view.replace('strategy/', ''))
     : null;
 
-  const tradingMode = store.config?.trading_mode || (store.config?.paper_mode ? 'paper' : 'live');
+  const selectedEngine = useSelectedEngine();
+  const tradingMode = selectedEngine || store.config?.trading_mode || (store.config?.paper_mode ? 'paper' : 'live');
 
   const routeGroupKey = view.startsWith('strategy/')
     ? 'cockpit'

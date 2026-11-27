@@ -1,4 +1,4 @@
-import { enginePath, selectedEngine } from '../utils/engineMode.js'
+import { dualEngineEnabled, enginePath, getSelectedEngine } from '../utils/engineMode.js'
 import axios from 'axios'
 
 export const normalizeUrl = (url, forceProtocol = null) => {
@@ -29,13 +29,21 @@ const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env 
 // When running inside AI Studio dev/preview environment (Cloud Run / run.app / localhost),
 // the backend Express server co-hosts the routes on the same origin (port 3000).
 // In standalone production environments (such as Railway or custom domains), VITE_API_URL is fully honored.
-const initialBaseURL = selectedEngine ? enginePath(selectedEngine) : (!isDevPreview && baseUrlEnv ? normalizeUrl(baseUrlEnv) : '') || '';
+const initialEngine = getSelectedEngine();
+const initialBaseURL = initialEngine ? enginePath(initialEngine) : (!isDevPreview && baseUrlEnv ? normalizeUrl(baseUrlEnv) : '') || '';
 let currentBaseURL = initialBaseURL;
 
 const api = axios.create({
   baseURL: currentBaseURL,
   timeout: 15000, // 15 seconds default timeout to prevent indefinite hangs
 })
+
+export const setApiEngineMode = (mode) => {
+  if (!dualEngineEnabled && !mode) return;
+  const nextBase = mode ? enginePath(mode) : ((!isDevPreview && baseUrlEnv ? normalizeUrl(baseUrlEnv) : '') || '');
+  currentBaseURL = nextBase;
+  api.defaults.baseURL = nextBase;
+};
 
 // Dynamically inject Admin API Key
 let adminKey = typeof localStorage !== 'undefined' ? localStorage.getItem('MOMENTUM_ADMIN_API_KEY') : null;
@@ -101,7 +109,7 @@ api.interceptors.response.use(
   async (error) => {
     // Failover: If an external API URL failed (e.g. network failure, CORS error, DNS error, or 404 from defunct staging host),
     // and we haven't tried same-origin yet, automatically retry once against same-origin ('')
-    if (!selectedEngine && currentBaseURL && (!error.response || error.response.status === 404 || error.response.status >= 500 || error.code === 'ERR_NETWORK')) {
+    if (!getSelectedEngine() && currentBaseURL && (!error.response || error.response.status === 404 || error.response.status >= 500 || error.code === 'ERR_NETWORK')) {
       if (error.config && !error.config._retriedSameOrigin) {
         error.config._retriedSameOrigin = true;
         error.config.baseURL = '';
@@ -139,8 +147,9 @@ api.interceptors.response.use(
 );
 
 api.interceptors.request.use(async (config) => {
-  if (selectedEngine && !config.headers['X-Trading-Engine']) {
-    config.headers['X-Trading-Engine'] = selectedEngine;
+  const activeEngine = getSelectedEngine();
+  if (activeEngine && !config.headers['X-Trading-Engine']) {
+    config.headers['X-Trading-Engine'] = activeEngine;
   }
   // If we haven't fetched the key yet, wait until it is set.
   // Note: auth/config should not be protected by this, or it will deadlock.
@@ -388,22 +397,27 @@ export const createSessionAPI = (apiInstance = api) => ({
       params: Object.keys(params).length > 0 ? params : undefined,
     });
   },
-  list: (limit, withCounts = true) => apiInstance.get('/session/list', {
+  list: (limit, withCounts = true, requestConfig = {}) => apiInstance.get('/session/list', {
+    ...requestConfig,
     params: {
       ...(limit ? { limit } : {}),
       ...(withCounts ? { withCounts: '1' } : {}),
+      ...(requestConfig?.params || {}),
     }
   }),
   update: (id, config) => apiInstance.patch(`/session/${id}`, { config: sanitizeSessionConfig(config) }),
   pause: (paused, strategyLabel) => apiInstance.post('/session/pause', { paused, strategyLabel }),
   delete: (id) => apiInstance.delete(`/session/${id}`),
   rateLimit: () => apiInstance.get('/session/binance/rate-limit'),
-  history: (sessionId, limit) => apiInstance.get('/session/history', { params: { sessionId, limit } }),
+  history: (sessionId, limit, requestConfig = {}) => apiInstance.get('/session/history', {
+    ...requestConfig,
+    params: { sessionId, limit, ...(requestConfig?.params || {}) }
+  }),
   logs: (limit) => apiInstance.get('/session/logs', { params: { limit } }),
   getTrade: (id) => apiInstance.get(`/session/trade/${id}`),
   closeTrade: (symbol) => apiInstance.post(`/session/trade/${symbol}/close`),
   updateTradeConfig: (id, payload) => apiInstance.patch(`/session/trade/${id}/config`, payload),
-  analytics: () => apiInstance.get('/session/analytics'),
+  analytics: (requestConfig = {}) => apiInstance.get('/session/analytics', requestConfig),
   getLifetimeAnalytics: (mode) => apiInstance.get('/session/lifetime-analytics', { params: { mode } }),
   resetPaperBalance: () => apiInstance.post('/session/reset-paper-balance'),
   deleteOrphans: () => apiInstance.delete('/session/trades/orphans'),

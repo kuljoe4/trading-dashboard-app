@@ -1,5 +1,6 @@
-import { price as fmtPrice } from '../lib/formatters.js';
+import { price as fmtPrice, formatDuration } from '../lib/formatters.js';
 import { formatStopLossDescriptor, formatTakeProfitDescriptor } from './strategySummary.js';
+import { evaluateAntiWhipsawStatus, evaluateStrategyAntiWhipsawLocks } from './antiWhipsaw.js';
 
 export const SIGNAL_LABELS = {
   momentum_pct: 'Momentum',
@@ -198,7 +199,9 @@ export function getStrategyRulesDiagnostics({
   effectiveGate = 'ACTIVE',
   effectiveReason = 'OK',
   isStrategyPaused = false,
-}) {
+  closedTrades = [],
+  nowMs = Date.now(),
+} = {}) {
   const scanTf = strategyConfig.scan_interval || '5m';
   const scanThreshold = Number(strategyConfig.scan_pct_threshold ?? 2.0);
   const scanLookback = Number(strategyConfig.scan_lookback ?? 3);
@@ -500,21 +503,73 @@ export function getStrategyRulesDiagnostics({
       : `Min-notional auto-scale: ${strategyConfig.auto_scale_min_notional !== false ? `ON (max ${strategyConfig.auto_scale_max_overshoot ?? 3}x)` : 'OFF'}${strategyConfig.risk_hardening_enabled ? ` · Hard cap ${strategyConfig.max_single_trade_risk_pct ?? 20}%` : ''}`,
   });
 
-  // Concurrency & Anti-Whipsaw
+  // Concurrency & Anti-Whipsaw (live lock + disabled + slow-TF guidance)
   const tradesFull = activeTradeCount >= maxOpenTrades;
-  const awDelay = strategyConfig.anti_whipsaw_candle_delay ?? 1;
-  const awMaxTf = strategyConfig.anti_whipsaw_max_tf || '4h';
   const minInterval = strategyConfig.min_trade_interval_min ?? 0;
+  const focusedSym = (focusedOpp?.symbol && focusedOpp.symbol !== '---')
+    ? focusedOpp.symbol
+    : (activeTrade?.symbol || '');
+  const awLocks = evaluateStrategyAntiWhipsawLocks(strategyConfig, closedTrades, nowMs);
+  const focusedAw = focusedSym
+    ? evaluateAntiWhipsawStatus(focusedSym, strategyConfig, closedTrades, nowMs)
+    : null;
+  const awDisabled = awLocks.disabled;
+  const awDelay = awLocks.candleDelay;
+  const awTfDelayMin = awLocks.tfDelayMin;
+  const awMaxTf = awLocks.maxTf || '4h';
+  const awTfsText = awLocks.timeframes.join(',');
+  const awConfigSegment = awDisabled
+    ? 'AW Disabled (0c/0m)'
+    : awLocks.explicitTimeframes
+      ? `AW ${awDelay}c${awTfDelayMin > 0 ? `+${awTfDelayMin}m` : ''} [${awTfsText}]`
+      : `AW ${awDelay}c${awTfDelayMin > 0 ? `+${awTfDelayMin}m` : ''} (≤${awMaxTf}: ${awTfsText})`;
+  const awSlowHint = awLocks.hasSlowLockoutRisk && awLocks.maxPotentialLockMs > 0
+    ? ` · Max ${formatDuration(awLocks.maxPotentialLockMs)} lock (cap via Max AW TF = 15m for fast 5m re-entry)`
+    : '';
+  const freqSummary = `Freq: ${strategyConfig.max_trades_per_period ? `${strategyConfig.max_trades_per_period}/${strategyConfig.trades_period_min || 60}m` : 'Unlimited'} · 24h cap: ${strategyConfig.max_trades_24h || 'Unlimited'}`;
+
+  let awLiveSuffix = 'AW Clear';
+  let awStatus = 'allowed';
+  let awVerdictLabel = 'ALLOWED';
+  let awReasonText = `${freqSummary} · Anti-Whipsaw clear (${awLocks.scopeLabel})${awSlowHint}`;
+
+  if (tradesFull) {
+    awStatus = 'rejected';
+    awVerdictLabel = 'SLOTS FULL';
+    awLiveSuffix = awDisabled
+      ? 'AW Off'
+      : focusedAw?.locked
+        ? 'AW Locked'
+        : awLocks.lockedCount > 0
+          ? `${awLocks.lockedCount} AW Lock`
+          : 'AW Clear';
+    awReasonText = `Max open trades reached (${activeTradeCount}/${maxOpenTrades})${focusedAw?.locked ? ` · ${focusedSym} AW locked (${focusedAw.summary})` : ''}${awSlowHint}`;
+  } else if (focusedAw?.locked) {
+    awStatus = 'warning';
+    awVerdictLabel = 'AW LOCKED';
+    awLiveSuffix = `Locked ${formatDuration(focusedAw.remainingMs)}`;
+    awReasonText = `${focusedSym} locked by Anti-Whipsaw (${focusedAw.summary} · ${awLocks.scopeLabel})${awSlowHint}`;
+  } else if (awLocks.lockedCount > 0) {
+    const topLock = awLocks.locks[0];
+    awStatus = 'warning';
+    awVerdictLabel = awLocks.lockedCount === 1 ? '1 AW LOCK' : `${awLocks.lockedCount} AW LOCKS`;
+    awLiveSuffix = `${awLocks.lockedCount} AW Locked`;
+    awReasonText = `Active AW lock: ${topLock.symbol.replace('USDT', '')} (${topLock.summary})${awLocks.lockedCount > 1 ? ` +${awLocks.lockedCount - 1} more` : ''}${awSlowHint}`;
+  } else if (awDisabled) {
+    awStatus = 'allowed';
+    awVerdictLabel = 'AW OFF';
+    awLiveSuffix = 'AW Disabled';
+    awReasonText = `Anti-Whipsaw disabled (0c / 0m · immediate re-entry allowed) · ${freqSummary}`;
+  }
 
   riskChecks.push({
     key: 'concurrency_whipsaw',
     label: 'Slots & Anti-Whipsaw',
-    configuredText: `Max ${maxOpenTrades} open (${strategyConfig.max_open_trades_per_symbol ?? 1}/sym) · AW ${awDelay}c (≤${awMaxTf})${minInterval > 0 ? ` · ${minInterval}m cooldown` : ''}`,
-    liveText: `${activeTradeCount} / ${maxOpenTrades} Open`,
-    status: tradesFull ? 'rejected' : 'allowed',
-    reasonText: tradesFull
-      ? `Max open trades reached (${activeTradeCount}/${maxOpenTrades})`
-      : `Frequency: ${strategyConfig.max_trades_per_period ? `${strategyConfig.max_trades_per_period}/${strategyConfig.trades_period_min || 60}m` : 'Unlimited'} · 24h cap: ${strategyConfig.max_trades_24h || 'Unlimited'}`,
+    configuredText: `Max ${maxOpenTrades} open (${strategyConfig.max_open_trades_per_symbol ?? 1}/sym) · ${awConfigSegment}${minInterval > 0 ? ` · ${minInterval}m cooldown` : ''}${awSlowHint}`,
+    liveText: `${activeTradeCount} / ${maxOpenTrades} Open · ${awLiveSuffix}`,
+    status: awStatus,
+    verdictLabel: awVerdictLabel,
+    reasonText: awReasonText,
   });
 
   // Schedule, TOD & Martingale (only detail if active or noteworthy)
@@ -598,6 +653,8 @@ export function buildStrategyNarrative({
   lastScanTs,
   streamAgeSec,
   recentSkipEvent = null,
+  closedTrades = [],
+  nowMs = Date.now(),
   formatTimeAgo,
   formatClockTime,
 }) {
@@ -645,6 +702,16 @@ export function buildStrategyNarrative({
   }
 
   const hasCand = bestOpp && bestOpp.symbol && bestOpp.symbol !== '---';
+  const focusedAwNarrative = hasCand ? evaluateAntiWhipsawStatus(bestOpp.symbol, strategyConfig, closedTrades, nowMs) : null;
+  if (hasCand && focusedAwNarrative?.locked) {
+    return {
+      tone: 'warning',
+      headline: `${bestOpp.symbol} paused by Anti-Whipsaw (${focusedAwNarrative.blockingReason})`,
+      detail: `Re-entry locked for ${formatDuration(focusedAwNarrative.remainingMs)} (${focusedAwNarrative.scopeLabel}).`,
+      when: lastScanTs ? `Last scan ${formatTimeAgo(lastScanTs)}` : `Live ${streamAgeSec}s`,
+    };
+  }
+
   if (entryMet && hasCand) {
     return {
       tone: 'positive',

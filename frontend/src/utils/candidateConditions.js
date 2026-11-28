@@ -1,176 +1,24 @@
 import { price as fmtPrice, calculateProximity, formatDuration } from '../lib/formatters.js';
 import { formatSignalLabel, getSignalParamsSummary, resolveSignalParamClient, getBaseSignalType } from './strategyDiagnostics.js';
+import {
+  timeframeToMs,
+  resolveAntiWhipsawTimeframes,
+  evaluateAntiWhipsawStatus,
+  evaluateStrategyAntiWhipsawLocks,
+  resolveTradingMode,
+  formatTradingModeLabel,
+  evaluateCounterpartModeAntiWhipsaw,
+} from './antiWhipsaw.js';
 
-export function timeframeToMs(tf) {
-  if (!tf || typeof tf !== 'string') return 60 * 1000;
-  const match = tf.trim().match(/^(\d+)([mhdwM])$/);
-  if (!match) return 60 * 1000;
-  const num = parseInt(match[1], 10);
-  const unit = match[2];
-  if (unit === 'm') return num * 60 * 1000;
-  if (unit === 'h') return num * 60 * 60 * 1000;
-  if (unit === 'd') return num * 24 * 60 * 60 * 1000;
-  if (unit === 'w') return num * 7 * 24 * 60 * 60 * 1000;
-  if (unit === 'M') return num * 30 * 24 * 60 * 60 * 1000;
-  return 60 * 1000;
-}
-
-export function resolveAntiWhipsawTimeframes(strategyConfig = {}) {
-  const explicit = Array.isArray(strategyConfig.anti_whipsaw_timeframes)
-    ? strategyConfig.anti_whipsaw_timeframes.map(s => String(s).trim()).filter(Boolean)
-    : (typeof strategyConfig.anti_whipsaw_timeframes === 'string'
-        ? strategyConfig.anti_whipsaw_timeframes.split(',').map(s => s.trim()).filter(Boolean)
-        : []);
-
-  if (explicit.length > 0) {
-    return Array.from(new Set(explicit));
-  }
-
-  const out = new Set();
-  const scanTf = strategyConfig.scan_interval || '1m';
-  out.add(scanTf);
-
-  const maxTf = strategyConfig.anti_whipsaw_max_tf || '4h';
-  const maxTfMs = maxTf === 'none' ? Infinity : timeframeToMs(maxTf);
-  const enabled = strategyConfig.enabled_signals || [];
-  for (let i = 0; i < enabled.length; i++) {
-    const tf = strategyConfig.signal_timeframes?.[enabled[i]];
-    if (tf && tf !== 'default' && timeframeToMs(tf) <= maxTfMs) {
-      out.add(tf);
-    }
-  }
-  return Array.from(out);
-}
-
-function toMs(val) {
-  if (!val) return 0;
-  if (typeof val === 'number') return val < 1e11 ? val * 1000 : val;
-  if (val instanceof Date) return val.getTime();
-  const parsed = Date.parse(String(val));
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-/**
- * Evaluates live Anti-Whipsaw re-entry readiness for a symbol and strategy config
- * using already-synced tradeHistory without triggering any API requests.
- */
-export function evaluateAntiWhipsawStatus(symbol, strategyConfig = {}, closedTrades = [], nowMs = Date.now()) {
-  const candleDelay = Math.max(0, Number(strategyConfig.anti_whipsaw_candle_delay ?? 1));
-  const tfDelayMin = Math.max(0, Number(strategyConfig.anti_whipsaw_tf_delay_min ?? 0));
-  const perStrategy = strategyConfig.anti_whipsaw_per_strategy !== false;
-  const strategyLabel = strategyConfig.strategy_label || 'Momentum Strategy';
-  const timeframes = resolveAntiWhipsawTimeframes(strategyConfig);
-
-  if (candleDelay === 0 && tfDelayMin === 0) {
-    return {
-      status: 'clear',
-      disabled: true,
-      locked: false,
-      timeframes,
-      candleDelay,
-      tfDelayMin,
-      perStrategy,
-      allowKnife: !!strategyConfig.anti_whipsaw_allow_knife,
-      remainingMs: 0,
-      summary: 'Disabled (0c / 0m)',
-    };
-  }
-
-  if (!symbol || symbol === '---' || !Array.isArray(closedTrades) || closedTrades.length === 0) {
-    return {
-      status: 'clear',
-      disabled: false,
-      locked: false,
-      timeframes,
-      candleDelay,
-      tfDelayMin,
-      perStrategy,
-      allowKnife: !!strategyConfig.anti_whipsaw_allow_knife,
-      remainingMs: 0,
-      summary: `Ready (${candleDelay}c${tfDelayMin > 0 ? ` / ${tfDelayMin}m` : ''} on ${timeframes.join(', ')})`,
-    };
-  }
-
-  const tfDelayMs = tfDelayMin * 60 * 1000;
-  let longestRemainingMs = 0;
-  let blockingTf = null;
-  let blockingReason = '';
-  let lastTradeWasKnife = false;
-
-  for (let i = 0; i < closedTrades.length; i++) {
-    const t = closedTrades[i];
-    if (!t || t.symbol !== symbol) continue;
-    const status = t.status;
-    if (status === 'ENTRY_FAILED' || status === 'CANCELLED' || status === 'REJECTED' || t.is_reconciliation) continue;
-    if (perStrategy && t.strategy_label && t.strategy_label !== strategyLabel) continue;
-
-    const entryTs = toMs(t.entry_ts || t.opened_at || t.created_at);
-    const exitTs = toMs(t.exit_ts || t.closed_at);
-    const relevantTs = Math.max(entryTs, exitTs);
-    if (relevantTs <= 0) continue;
-
-    if (tfDelayMs > 0) {
-      const timeRem = relevantTs + tfDelayMs - nowMs;
-      if (timeRem > longestRemainingMs) {
-        longestRemainingMs = timeRem;
-        blockingTf = timeframes[0] || strategyConfig.scan_interval || '1m';
-        blockingReason = `Time delay (${tfDelayMin}m)`;
-        lastTradeWasKnife = !!t.is_knife;
-      }
-    }
-
-    if (candleDelay > 0) {
-      for (let j = 0; j < timeframes.length; j++) {
-        const tf = timeframes[j];
-        const tfMs = timeframeToMs(tf);
-        const currentCandleStart = Math.floor(nowMs / tfMs) * tfMs;
-        const gateStart = currentCandleStart - (candleDelay - 1) * tfMs;
-        if ((entryTs > 0 && entryTs >= gateStart) || (exitTs > 0 && exitTs >= gateStart)) {
-          const candlesElapsed = Math.floor((currentCandleStart - Math.floor(relevantTs / tfMs) * tfMs) / tfMs);
-          const remainingCandles = Math.max(1, candleDelay - candlesElapsed);
-          const candleCloseTs = currentCandleStart + remainingCandles * tfMs;
-          const candleRem = Math.max(0, candleCloseTs - nowMs);
-          if (candleRem >= longestRemainingMs) {
-            longestRemainingMs = candleRem;
-            blockingTf = tf;
-            blockingReason = `${candleDelay}c on ${tf}`;
-            lastTradeWasKnife = !!t.is_knife;
-          }
-        }
-      }
-    }
-  }
-
-  if (longestRemainingMs > 0) {
-    return {
-      status: 'locked',
-      disabled: false,
-      locked: true,
-      timeframes,
-      candleDelay,
-      tfDelayMin,
-      perStrategy,
-      allowKnife: !!strategyConfig.anti_whipsaw_allow_knife,
-      lastTradeWasKnife,
-      blockingTf,
-      remainingMs: longestRemainingMs,
-      summary: `${blockingReason} · ${formatDuration(longestRemainingMs)} left`,
-    };
-  }
-
-  return {
-    status: 'clear',
-    disabled: false,
-    locked: false,
-    timeframes,
-    candleDelay,
-    tfDelayMin,
-    perStrategy,
-    allowKnife: !!strategyConfig.anti_whipsaw_allow_knife,
-    remainingMs: 0,
-    summary: `Clear (${candleDelay}c${tfDelayMin > 0 ? ` + ${tfDelayMin}m` : ''} on ${timeframes.join(', ')})`,
-  };
-}
+export {
+  timeframeToMs,
+  resolveAntiWhipsawTimeframes,
+  evaluateAntiWhipsawStatus,
+  evaluateStrategyAntiWhipsawLocks,
+  resolveTradingMode,
+  formatTradingModeLabel,
+  evaluateCounterpartModeAntiWhipsaw,
+};
 
 function formatCompactValue(val, unit, thresholdIsPrice) {
   if (val === undefined || val === null || Number.isNaN(Number(val))) return '---';
@@ -425,10 +273,14 @@ export function evaluateSlCheck({
 
   slDistPct = Math.max(0.05, Number(slDistPct.toFixed(2)));
   const applyStructuralBounds = slType !== 'pct';
+  const hasStructuralData = slSource !== 'default';
+  if (applyStructuralBounds && !hasStructuralData) {
+    slDistPct = Number(slMaxPct.toFixed(2));
+  }
   const slCapUsedPct = slMaxPct > 0 ? Math.max(0, (slDistPct / slMaxPct) * 100) : 0;
   const slCapRoomPct = slMaxPct - slDistPct;
-  const slExceedsMax = applyStructuralBounds && slDistPct > slMaxPct;
-  const slBelowMin = applyStructuralBounds && slDistPct < slMinPct;
+  const slExceedsMax = applyStructuralBounds && hasStructuralData && slDistPct > slMaxPct;
+  const slBelowMin = applyStructuralBounds && hasStructuralData && slDistPct < slMinPct;
   const slRejected = (slExceedsMax || slBelowMin) && slOobAction === 'reject';
   const slClamped = slExceedsMax && !slRejected;
   const slWidened = slBelowMin && !slRejected;
@@ -1783,7 +1635,10 @@ export function buildCandidateConditionsModel({
   gateReason = '',
   lastScanTs = 0,
   nowMs = Date.now(),
+  tradingMode = null,
 }) {
+  const effectiveMode = resolveTradingMode(strategyConfig, tradingMode);
+  const effectiveModeLabel = formatTradingModeLabel(effectiveMode);
   const symbol = activeTrade?.symbol || opp?.symbol || '---';
   const scanTf = strategyConfig.scan_interval || '5m';
   const dirRaw = activeTrade?.direction || opp?.dir || opp?.direction || (opp?.pct !== undefined ? (opp.pct >= 0 ? 'LONG' : 'SHORT') : '---');
@@ -2134,6 +1989,8 @@ export function buildCandidateConditionsModel({
       },
       conditions: exitConditions,
       antiWhipsaw: null,
+      tradingMode: effectiveMode,
+      tradingModeLabel: effectiveModeLabel,
       actionSummary: tpPrice > 0
         ? `EXIT AT ${exitConditions.length > 0 ? `${exitLogic.toUpperCase()} signal / ` : ''}TP ${fmtPrice(tpPrice)} or SL ${fmtPrice(slPrice)}`
         : `EXIT AT ${exitConditions.length > 0 ? `${exitLogic.toUpperCase()} signal or ` : ''}SL ${fmtPrice(slPrice)}`,
@@ -2584,7 +2441,12 @@ export function buildCandidateConditionsModel({
         ? Math.min(Number(scannerCondition.dialPct) || 0, rawCompositeSignalDial)
         : rawCompositeSignalDial);
 
-  const antiWhipsaw = evaluateAntiWhipsawStatus(symbol, strategyConfig, closedTrades, nowMs);
+  const rawAntiWhipsaw = evaluateAntiWhipsawStatus(symbol, strategyConfig, closedTrades, nowMs, effectiveMode);
+  const strategyAwLocks = evaluateStrategyAntiWhipsawLocks(strategyConfig, closedTrades, nowMs, effectiveMode);
+  const antiWhipsaw = {
+    ...rawAntiWhipsaw,
+    strategyLocks: strategyAwLocks,
+  };
   const compositeProximity = symbol === '---'
     ? 0
     : Math.min(100, Math.max(0, compositeDialPct >= 100 ? 100 : compositeDialPct));
@@ -2603,16 +2465,17 @@ export function buildCandidateConditionsModel({
         : signalConditionItems.some(c => c.alreadyCrossed)
   );
   const hasWarmingEntry = entryConditions.some(c => c.stateLabel === 'WARMING');
-  const entryCompositeRejected = !sideMatched || slCheck.slRejected || blockedBySignals;
-  const compositeDial = (!entryCompositeRejected && !hasWarmingEntry && blockedByAlreadyCrossed)
-    ? { dialZone: 'crossed_stale', dialStatus: 'Already Crossed', dialOverText: 'Crossed · needs reset', isOffScale: false }
-    : resolveDialZone(compositeDialPct, {
-        insufficientData: hasWarmingEntry,
-        rejected: entryCompositeRejected,
-      });
-
+  const entryCompositeRejected = symbol !== '---' && (!sideMatched || slCheck.slRejected || blockedBySignals);
   const normalizedGate = String(gateState || 'ACTIVE').toUpperCase();
   const isGateBlocked = isPaused || (normalizedGate !== 'ACTIVE' && normalizedGate !== 'OK');
+  const compositeDial = (symbol !== '---' && !entryCompositeRejected && !hasWarmingEntry && blockedByAlreadyCrossed)
+    ? { dialZone: 'crossed_stale', dialStatus: 'Already Crossed', dialOverText: 'Crossed · needs reset', isOffScale: false }
+    : (symbol !== '---' && !entryCompositeRejected && !hasWarmingEntry && !isGateBlocked && antiWhipsaw.locked)
+      ? { dialZone: 'crossed_stale', dialStatus: 'AW Locked', dialOverText: `${formatDuration(antiWhipsaw.remainingMs)} left`, isOffScale: false }
+      : resolveDialZone(compositeDialPct, {
+          insufficientData: symbol !== '---' && hasWarmingEntry,
+          rejected: entryCompositeRejected,
+        });
 
   let overallStatus = compositeDialPct >= 80
     ? `NEAR · ${compositeProximity}%`
@@ -2654,16 +2517,26 @@ export function buildCandidateConditionsModel({
   const slPct = isFixedSl
     ? `${slCheck.effectiveSlDistPct.toFixed(2)}% SL (Fixed)`
     : symbol === '---'
-      ? `${slCheck.slDistPct.toFixed(2)}% SL (max ${slCheck.slMaxPct.toFixed(2)}%)`
+      ? `${slCheck.slMinPct.toFixed(2)}–${slCheck.slMaxPct.toFixed(2)}% SL`
       : (slCheck.slClamped
           ? `${slCheck.slMaxPct.toFixed(2)}% SL (clamped)`
           : `${slCheck.effectiveSlDistPct.toFixed(2)}% SL (${slUsedRound}% max)`);
+  const tpMode = strategyConfig.tp_mode || 'fixed';
+  const liveSeq = Array.isArray(strategyConfig.live_rr_sequence)
+    ? strategyConfig.live_rr_sequence.map(Number).filter(n => Number.isFinite(n) && n > 0)
+    : [];
   const rrTarget = opp?.prospect_rr !== undefined && opp?.prospect_rr !== null
     ? `${opp.prospect_rr}R target`
-    : `${strategyConfig.tp_ratio ?? 2.0}R target`;
+    : ((tpMode === 'exp_rr_seq' || tpMode === 'exp_rr_seq_switch') && liveSeq.length > 0)
+      ? (liveSeq.length > 1
+          ? `${Math.min(...liveSeq)}–${Math.max(...liveSeq)}R ladder`
+          : `${liveSeq[0]}R ladder`)
+      : `${strategyConfig.tp_ratio ?? 2.0}R target`;
 
   return {
     mode: 'searching',
+    tradingMode: effectiveMode,
+    tradingModeLabel: effectiveModeLabel,
     symbol,
     dir,
     markPrice,

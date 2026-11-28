@@ -2,7 +2,8 @@ import { resolveStrategyConfig } from '../utils/strategyConfig.js';
 import React, { useMemo, useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
 import { pnlClass, fmtUSD } from '../lib/theme'
-import { useTradingStore } from '../store/trading'
+import { dualEngineEnabled } from '../utils/engineMode.js'
+import { useTradingStore, getEngineSnapshotData } from '../store/trading'
 import { getMarketRegimeInfo } from '../utils/marketRegime'
 import {
   SIGNAL_LABELS,
@@ -14,6 +15,11 @@ import {
   formatDecisionLogsForCopy,
 } from '../utils/strategyDiagnostics'
 import { formatStopLossDescriptor, formatTakeProfitDescriptor } from '../utils/strategySummary.js'
+import {
+  evaluateStrategyAntiWhipsawLocks,
+  evaluateCounterpartModeAntiWhipsaw,
+  resolveTradingMode,
+} from '../utils/antiWhipsaw.js'
 import {
   StatCard, SectionLabel, StatusBadge,
   CopyButton, cn, ViewHeader, Tooltip
@@ -321,7 +327,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
   const {
     config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing,
     isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused,
-    activeTrades, tradeHistory, logs, strategyGateStates, lastAuthoritativeUpdateTs,
+    activeTrades, tradeHistory, sessionTradeHistory, strategyId, logs, strategyGateStates, lastAuthoritativeUpdateTs,
     lastScanTs, gateState, gateReason, storeBalance, totalSessionPnl, lastKnownPnl, healthEnabled
   } = useTradingStore(state => ({
     config: state.config,
@@ -337,6 +343,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
     sessionPaused: state.sessionPaused,
     activeTrades: state.activeTrades,
     tradeHistory: state.tradeHistory,
+    sessionTradeHistory: state.sessionTradeHistory,
+    strategyId: state.strategyId,
     logs: state.logs || [],
     strategyGateStates: state.strategyGateStates || {},
     lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs || Date.now(),
@@ -488,6 +496,24 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
     return trades.filter(t => (t.strategy_label || 'Momentum Strategy') === s.strategy_label);
   }, [tradeHistory, s.strategy_label]);
 
+  const activeTradingMode = useMemo(
+    () => resolveTradingMode(strategyConfig) || resolveTradingMode(config) || 'paper',
+    [strategyConfig, config]
+  );
+
+  // Live Anti-Whipsaw evaluates strictly against closed trades from the active session & trading mode
+  const sessionClosedTrades = useMemo(() => {
+    const raw = (Array.isArray(sessionTradeHistory) && sessionTradeHistory.length > 0)
+      ? sessionTradeHistory
+      : (strategyId
+          ? (Array.isArray(tradeHistory) ? tradeHistory : []).filter(t => (t?.sessionId || t?.session_id) === strategyId)
+          : (Array.isArray(tradeHistory) ? tradeHistory : []));
+    return raw.filter((t) => {
+      const tradeMode = resolveTradingMode(t);
+      return !tradeMode || tradeMode === activeTradingMode;
+    });
+  }, [sessionTradeHistory, tradeHistory, strategyId, activeTradingMode]);
+
   // Per-strategy performance metrics calculation
   const stratPerformance = useMemo(() => {
     const metrics = calculatePerformanceMetrics(strategyTrades, startingBal);
@@ -498,7 +524,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
     const overallWr = typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50;
     const hitRateRatio = overallWr > 0 ? hitRate / overallWr : 1.0;
 
-    const targetRr = strategyConfig.exit_rr_target || strategyConfig.min_rr || strategyConfig.tp_ratio || 1.5;
+    const tpMode = strategyConfig.tp_mode || 'fixed';
+    const liveSeq = Array.isArray(strategyConfig.live_rr_sequence)
+      ? strategyConfig.live_rr_sequence.map(Number).filter(n => Number.isFinite(n) && n > 0)
+      : [];
+    const targetRr = (tpMode === 'exp_rr_seq' || tpMode === 'exp_rr_seq_switch')
+      ? (strategyConfig.exit_rr_target || strategyConfig.min_rr || liveSeq[1] || liveSeq[0] || 2.0)
+      : (strategyConfig.exit_rr_target || strategyConfig.min_rr || strategyConfig.tp_ratio || 1.5);
     const breakevenWr = Math.round((1 / (1 + targetRr)) * 100);
     const recommendedWr = Math.min(85, Math.round(breakevenWr * 1.3));
 
@@ -701,11 +733,32 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
   }, [selectedFocusSymbol, autoHeldSymbol, strategyScannerResults, proximityLeaderboard, strategyActiveTrades, strategyTrades]);
 
   const bestOpp = focusedOpp;
-  const diagnosticStrategyConfig = useMemo(() => (
-    bestOpp?.isEntrySnapshot && bestOpp.snapshotConfig
+  const diagnosticStrategyConfig = useMemo(() => {
+    const base = bestOpp?.isEntrySnapshot && bestOpp.snapshotConfig
       ? { ...strategyConfig, ...bestOpp.snapshotConfig }
-      : strategyConfig
-  ), [bestOpp, strategyConfig]);
+      : strategyConfig;
+    if (resolveTradingMode(base)) return base;
+    return {
+      ...base,
+      trading_mode: activeTradingMode,
+      paper_mode: activeTradingMode === 'paper',
+    };
+  }, [bestOpp, strategyConfig, activeTradingMode]);
+
+  const counterpartAntiWhipsaw = useMemo(() => {
+    if (!dualEngineEnabled || (activeTradingMode !== 'live' && activeTradingMode !== 'paper')) {
+      return null;
+    }
+    const counterpartMode = activeTradingMode === 'paper' ? 'live' : 'paper';
+    const counterpartSnapshot = getEngineSnapshotData(counterpartMode);
+    return evaluateCounterpartModeAntiWhipsaw({
+      counterpartSnapshot,
+      strategyLabel: stratName,
+      symbol: bestOpp?.symbol || '---',
+      nowMs: Number(lastScanTs) > 0 ? Number(lastScanTs) : undefined,
+      resolveVariantConfig: resolveStrategyConfig,
+    });
+  }, [activeTradingMode, stratName, bestOpp?.symbol, lastScanTs, sessionActive, strategyConfig]);
   const focusedActiveTrade = useMemo(() => {
     return strategyActiveTrades.find(t => t.symbol === focusedOpp.symbol) || strategyActiveTrades[0] || null;
   }, [strategyActiveTrades, focusedOpp.symbol]);
@@ -1015,7 +1068,15 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
           },
           { label: 'Risk Per Trade', value: `${strategyConfig.risk_pct_per_trade || 1.0}% ($${((startingBal * (strategyConfig.risk_pct_per_trade || 1.0)) / 100).toFixed(2)})` },
           { label: 'Max Risk / Slots', value: `${strategyConfig.max_total_risk_pct || 5.0}% Cap · ${strategyConfig.max_open_trades || 3} Open` },
-          { label: 'Anti-Whipsaw', value: `${strategyConfig.anti_whipsaw_candle_delay ?? 1}c (≤${strategyConfig.anti_whipsaw_max_tf || '4h'})` }
+          {
+            label: 'Anti-Whipsaw',
+            value: (() => {
+              const locksSummary = evaluateStrategyAntiWhipsawLocks(strategyConfig, sessionClosedTrades, lastScanTs || undefined, activeTradingMode);
+              if (locksSummary.disabled) return 'Disabled (0c/0m)';
+              const base = `${locksSummary.candleDelay}c${locksSummary.tfDelayMin > 0 ? `+${locksSummary.tfDelayMin}m` : ''} (${locksSummary.timeframes.join(',')})`;
+              return locksSummary.lockedCount > 0 ? `${base} · ${locksSummary.lockedCount} locked` : base;
+            })()
+          }
         ]
       },
       {
@@ -1095,10 +1156,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
       effectiveGate,
       effectiveReason,
       isStrategyPaused,
+      closedTrades: sessionClosedTrades,
+      nowMs: lastScanTs || undefined,
     });
   }, [
     diagnosticStrategyConfig, bestOpp, focusedActiveTrade, activeTradeCount, s.totalRiskPct,
-    startingBal, effectiveGate, effectiveReason, isStrategyPaused
+    startingBal, effectiveGate, effectiveReason, isStrategyPaused, sessionClosedTrades, lastScanTs
   ]);
 
   const formatClockTime = useCallback((ts) => {
@@ -1649,13 +1712,15 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
     lastScanTs,
     streamAgeSec: '0.0',
     recentSkipEvent,
+    closedTrades: sessionClosedTrades,
+    nowMs: lastScanTs || undefined,
     formatTimeAgo,
     formatClockTime,
   }), [
     isStrategyPaused, effectiveGate, effectiveReason, stratGate.updatedAt,
     timeframeDebugItems, strategyActiveTrades, bestOpp, entryMet, firedCount,
     signalsCount, strategyConfig, isStaticWatchlist, staticSymbols, lastScanTs,
-    recentSkipEvent, formatTimeAgo, formatClockTime
+    recentSkipEvent, sessionClosedTrades, formatTimeAgo, formatClockTime
   ]);
 
   const reasonOutcomeCounts = useMemo(() => {
@@ -2936,11 +3001,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                 opp={bestOpp}
                 strategyConfig={diagnosticStrategyConfig}
                 activeTrade={focusedTradeForGauge}
-                closedTrades={tradeHistory}
+                closedTrades={sessionClosedTrades}
                 isPaused={isStrategyPaused}
                 gateState={effectiveGate}
                 gateReason={effectiveReason}
                 lastScanTs={lastScanTs}
+                tradingMode={activeTradingMode}
+                counterpartAntiWhipsaw={counterpartAntiWhipsaw}
                 headerAction={gaugeModeSwitchAction}
                 ruleFilter={rulesMobileSection}
                 entryOpp={matchingOpenTradeForSymbol ? (entrySnapshotOpportunity(matchingOpenTradeForSymbol) || bestOpp) : bestOpp}
@@ -3011,7 +3078,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                   } else if (check.key === 'concurrency_whipsaw') {
                     const maxOpen = Math.max(1, Number(strategyConfig.max_open_trades ?? 3));
                     fillScale = Math.max(0, Math.min(1, activeTradeCount / maxOpen));
-                    barTone = check.status === 'rejected' ? 'bg-red' : 'bg-accent';
+                    barTone = check.status === 'rejected' ? 'bg-red' : check.status === 'warning' ? 'bg-amber' : 'bg-accent';
                   }
 
                   return (
@@ -3022,7 +3089,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onEditMouseEnter, onPause, onOp
                         </Tooltip>
                         <div className="flex items-center gap-2 shrink-0 font-mono tabular-nums">
                           <span className="text-[11px] font-semibold text-text">{check.liveText}</span>
-                          <VerdictTag status={check.status} />
+                          <VerdictTag status={check.status} customLabel={check.verdictLabel} />
                         </div>
                       </div>
 

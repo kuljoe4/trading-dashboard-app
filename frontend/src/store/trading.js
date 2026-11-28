@@ -48,6 +48,37 @@ export const getEngineSnapshotStatus = (mode) => {
   return Boolean(snap.sessionActive);
 };
 
+export const getEngineSnapshotData = (mode) => {
+  if (!mode) return null;
+  const mem = engineSnapshots[mode];
+  if (mem && typeof mem === 'object') {
+    return {
+      mode,
+      source: mem.initialStatusLoaded ? 'live_cache' : 'persisted',
+      sessionActive: Boolean(mem.sessionActive),
+      strategyId: mem.strategyId || null,
+      config: mem.config || null,
+      sessionTradeHistory: Array.isArray(mem.sessionTradeHistory) ? mem.sessionTradeHistory : [],
+      tradeHistory: Array.isArray(mem.tradeHistory) ? mem.tradeHistory : [],
+      initialStatusLoaded: Boolean(mem.initialStatusLoaded),
+    };
+  }
+  const persisted = readPersistedEngineState(mode);
+  if (persisted && typeof persisted === 'object') {
+    return {
+      mode,
+      source: 'persisted',
+      sessionActive: Boolean(persisted.sessionActive),
+      strategyId: persisted.strategyId || null,
+      config: persisted.config || null,
+      sessionTradeHistory: Array.isArray(persisted.sessionTradeHistory) ? persisted.sessionTradeHistory : [],
+      tradeHistory: Array.isArray(persisted.tradeHistory) ? persisted.tradeHistory : [],
+      initialStatusLoaded: false,
+    };
+  }
+  return null;
+};
+
 const clearEngineTimers = () => {
   activeSyncPromise = null;
   lastAuxFetchTs = 0;

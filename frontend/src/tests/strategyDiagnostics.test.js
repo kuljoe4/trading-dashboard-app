@@ -351,5 +351,77 @@ describe('Strategy Diagnostics & UX Clarity', () => {
     assert.strictEqual(parsed.entries[0].direction, 'LONG');
     assert.strictEqual(parsed.entries[0].reason, 'Rejected by MACD (-0.00042)');
   });
+
+  test('Slots & Anti-Whipsaw card and narrative reflect live locks, disabled (0c/0m), and slow-TF guidance', () => {
+    const hourMs = 60 * 60 * 1000;
+    const now = Math.floor(Date.now() / hourMs) * hourMs + 10 * 60 * 1000;
+
+    // 1. Disabled (0c / 0m)
+    const disabledDiag = getStrategyRulesDiagnostics({
+      strategyConfig: {
+        strategy_label: '5m Sniper',
+        scan_interval: '5m',
+        max_open_trades: 3,
+        anti_whipsaw_candle_delay: 0,
+        anti_whipsaw_tf_delay_min: 0,
+      },
+      closedTrades: [{ symbol: 'BTCUSDT', strategy_label: '5m Sniper', status: 'CLOSED', exit_ts: now - 60_000 }],
+      nowMs: now,
+    });
+    const disabledCard = disabledDiag.riskChecks.find(c => c.key === 'concurrency_whipsaw');
+    assert.strictEqual(disabledCard.status, 'allowed');
+    assert.strictEqual(disabledCard.verdictLabel, 'AW OFF');
+    assert.ok(disabledCard.liveText.includes('AW Disabled'), `Expected AW Disabled in liveText: ${disabledCard.liveText}`);
+    assert.ok(disabledCard.configuredText.includes('AW Disabled (0c/0m)'), `Expected AW Disabled in configuredText: ${disabledCard.configuredText}`);
+
+    // 2. Focused symbol locked by 3c on 4h (slow-lock guidance included)
+    const mtfCfg = {
+      strategy_label: '5m MTF Trend Continuation (50R)',
+      scan_interval: '5m',
+      max_open_trades: 3,
+      enabled_signals: ['supertrend', 'supertrend_2', 'ema_dual', 'macd_pbc'],
+      signal_timeframes: { supertrend: '4h', supertrend_2: '1h', ema_dual: '15m', macd_pbc: '5m' },
+      anti_whipsaw_candle_delay: 3,
+      anti_whipsaw_max_tf: '4h',
+    };
+    const recentClosed = [{ symbol: 'SOLUSDT', strategy_label: '5m MTF Trend Continuation (50R)', status: 'CLOSED', exit_ts: now - 60_000 }];
+
+    const focusedLockDiag = getStrategyRulesDiagnostics({
+      strategyConfig: mtfCfg,
+      focusedOpp: { symbol: 'SOLUSDT', dir: 'long', pct: 1.5 },
+      closedTrades: recentClosed,
+      nowMs: now,
+    });
+    const focusedCard = focusedLockDiag.riskChecks.find(c => c.key === 'concurrency_whipsaw');
+    assert.strictEqual(focusedCard.status, 'warning');
+    assert.strictEqual(focusedCard.verdictLabel, 'AW LOCKED');
+    assert.ok(focusedCard.liveText.includes('Locked'), `Expected Locked in liveText: ${focusedCard.liveText}`);
+    assert.ok(focusedCard.reasonText.includes('SOLUSDT locked by Anti-Whipsaw'), `Expected symbol in reasonText: ${focusedCard.reasonText}`);
+    assert.ok(focusedCard.configuredText.includes('Max AW TF = 15m'), `Expected fast 5m cap hint in configuredText: ${focusedCard.configuredText}`);
+
+    const lockedNarrative = buildStrategyNarrative({
+      bestOpp: { symbol: 'SOLUSDT', dir: 'long', pct: 1.5 },
+      strategyConfig: mtfCfg,
+      closedTrades: recentClosed,
+      nowMs: now,
+      formatTimeAgo: () => '1s ago',
+      formatClockTime: () => '12:00:00',
+    });
+    assert.strictEqual(lockedNarrative.tone, 'warning');
+    assert.ok(lockedNarrative.headline.includes('Anti-Whipsaw'), `Expected Anti-Whipsaw in narrative: ${lockedNarrative.headline}`);
+
+    // 3. Portfolio-level lock surfaced even when NO CANDIDATE (---) is focused
+    const portfolioLockDiag = getStrategyRulesDiagnostics({
+      strategyConfig: mtfCfg,
+      focusedOpp: { symbol: '---', dir: '---', pct: 0 },
+      closedTrades: recentClosed,
+      nowMs: now,
+    });
+    const portfolioCard = portfolioLockDiag.riskChecks.find(c => c.key === 'concurrency_whipsaw');
+    assert.strictEqual(portfolioCard.status, 'warning');
+    assert.strictEqual(portfolioCard.verdictLabel, '1 AW LOCK');
+    assert.ok(portfolioCard.liveText.includes('1 AW Locked'), `Expected 1 AW Locked in liveText: ${portfolioCard.liveText}`);
+    assert.ok(portfolioCard.reasonText.includes('SOL'), `Expected SOL in portfolio reasonText: ${portfolioCard.reasonText}`);
+  });
 });
 

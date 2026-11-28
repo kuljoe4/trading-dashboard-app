@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   timeframeToMs,
   resolveAntiWhipsawTimeframes,
@@ -18,6 +19,9 @@ import {
   pickNiceRatioMax,
   buildRunwayRTicks,
   isCrossoverEventSignal,
+  resolveTradingMode,
+  formatTradingModeLabel,
+  evaluateCounterpartModeAntiWhipsaw,
 } from '../utils/candidateConditions.js';
 import { getStrategyRulesDiagnostics, buildStrategyNarrative } from '../utils/strategyDiagnostics.js';
 
@@ -1444,7 +1448,251 @@ test('CandidateConditionsGauge helper suite', async (t) => {
     assert.strictEqual(narrative.tone, 'warning');
     assert.ok(narrative.headline.includes('already crossed'));
   });
+
+  await t.test('NO CANDIDATE with structural SL and exp_rr_seq does not mark Composite Blocked or leak inherited fixed SL/TP', () => {
+    const model = buildCandidateConditionsModel({
+      opp: { symbol: '---', pct: 0, dir: '---' },
+      strategyConfig: {
+        scan_interval: '5m',
+        scan_pct_threshold: 0.8,
+        enabled_signals: ['supertrend', 'macd_pbc'],
+        signal_logic: 'all',
+        sl_type: 'streak_extreme',
+        sl_distance_pct: 2.7,
+        sl_min_pct: 0.2,
+        sl_max_pct: 0.6,
+        sl_out_of_bounds_action: 'reject',
+        tp_mode: 'exp_rr_seq',
+        tp_ratio: 0.67,
+        live_rr_sequence: [1.5, 3, 5, 8, 12, 18, 25, 35, 45, 50],
+        exit_rr_sequence: [0, 1, 2.5, 4.5, 7, 11, 17, 25, 34, 40],
+      },
+      closedTrades: [],
+    });
+
+    assert.strictEqual(model.overallStatus, 'NO CANDIDATE');
+    assert.strictEqual(model.slCheck.slRejected, false);
+    assert.strictEqual(model.compositeDial.dialZone, 'watching');
+    assert.ok(!model.actionSummary.includes('2.70%'), `Action should not leak inherited sl_distance_pct: ${model.actionSummary}`);
+    assert.ok(!model.actionSummary.includes('0.67R'), `Action should not leak inherited tp_ratio: ${model.actionSummary}`);
+    assert.ok(model.actionSummary.includes('0.20–0.60% SL'), `Expected structural SL range in actionSummary: ${model.actionSummary}`);
+    assert.ok(model.actionSummary.includes('1.5–50R ladder'), `Expected dynamic ladder in actionSummary: ${model.actionSummary}`);
+  });
+
+  await t.test('Anti-Whipsaw explicitly surfaces disabled (0c/0m), live lock, portfolio lock, and slow-TF lockout risk', () => {
+    const hourMs = 60 * 60 * 1000;
+    const now = Math.floor(Date.now() / hourMs) * hourMs + 15 * 60 * 1000;
+
+    // 1. Disabled (0c / 0m) returns explicit DISABLED state and never hides status strip
+    const disabledModel = buildCandidateConditionsModel({
+      opp: { symbol: 'BTCUSDT', dir: 'long', pct: 1.2, close: 90000 },
+      strategyConfig: {
+        strategy_label: '5m Sniper',
+        scan_interval: '5m',
+        anti_whipsaw_candle_delay: 0,
+        anti_whipsaw_tf_delay_min: 0,
+        enabled_signals: ['supertrend'],
+      },
+      closedTrades: [{ symbol: 'BTCUSDT', strategy_label: '5m Sniper', status: 'CLOSED', exit_ts: now - 60_000 }],
+      nowMs: now,
+    });
+    assert.strictEqual(disabledModel.antiWhipsaw.disabled, true);
+    assert.strictEqual(disabledModel.antiWhipsaw.status, 'disabled');
+    assert.strictEqual(disabledModel.antiWhipsaw.statusLabel, 'DISABLED');
+    assert.ok(disabledModel.antiWhipsaw.summary.includes('Disabled (0c / 0m'));
+
+    // 2. Live lock on focused symbol when closed within 3c of 4h triggers LOCKED + WHIPSAW WAIT + AW Locked composite dial
+    const sniperCfg = {
+      strategy_label: '5m MTF Trend Continuation (50R)',
+      scan_interval: '5m',
+      scan_pct_threshold: 0.8,
+      enabled_signals: ['supertrend', 'supertrend_2', 'ema_dual', 'macd_pbc'],
+      signal_timeframes: { supertrend: '4h', supertrend_2: '1h', ema_dual: '15m', macd_pbc: '5m' },
+      anti_whipsaw_candle_delay: 3,
+      anti_whipsaw_max_tf: '4h',
+      anti_whipsaw_per_strategy: true,
+    };
+    const lockedModel = buildCandidateConditionsModel({
+      opp: {
+        symbol: 'ETHUSDT',
+        dir: 'long',
+        pct: 1.1,
+        close: 3000,
+        signalResult: {
+          allFired: true,
+          signals: { supertrend: { fired: true }, supertrend_2: { fired: true }, ema_dual: { fired: true }, macd_pbc: { fired: true } },
+        },
+      },
+      strategyConfig: sniperCfg,
+      closedTrades: [{ symbol: 'ETHUSDT', strategy_label: '5m MTF Trend Continuation (50R)', status: 'CLOSED', entry_ts: now - 120_000, exit_ts: now - 60_000 }],
+      nowMs: now,
+    });
+    assert.strictEqual(lockedModel.antiWhipsaw.locked, true);
+    assert.strictEqual(lockedModel.antiWhipsaw.statusLabel, 'LOCKED');
+    assert.strictEqual(lockedModel.antiWhipsaw.hasSlowLockoutRisk, true);
+    assert.strictEqual(lockedModel.antiWhipsaw.maxPotentialLockMs, 12 * 60 * 60 * 1000);
+    assert.ok(lockedModel.overallStatus.startsWith('WHIPSAW WAIT ·'), `Expected WHIPSAW WAIT, got ${lockedModel.overallStatus}`);
+    assert.strictEqual(lockedModel.compositeDial.dialStatus, 'AW Locked');
+    assert.strictEqual(lockedModel.antiWhipsaw.strategyLocks.lockedCount, 1);
+
+    // 3. Capping Max AW TF to 15m or setting explicit 5m removes multi-hour slow lockout risk
+    const cappedAw = evaluateAntiWhipsawStatus('ETHUSDT', { ...sniperCfg, anti_whipsaw_max_tf: '15m' }, [], now);
+    assert.deepStrictEqual(cappedAw.timeframes, ['5m', '15m']);
+    assert.strictEqual(cappedAw.hasSlowLockoutRisk, false);
+    const explicitAw = evaluateAntiWhipsawStatus('ETHUSDT', { ...sniperCfg, anti_whipsaw_timeframes: ['5m'] }, [], now);
+    assert.deepStrictEqual(explicitAw.timeframes, ['5m']);
+    assert.strictEqual(explicitAw.hasSlowLockoutRisk, false);
+
+    // 4. Component renders disabled & locked strips explicitly
+    const gaugeSrc = fs.readFileSync(new URL('../components/ui/CandidateConditionsGauge.jsx', import.meta.url), 'utf-8');
+    assert.ok(gaugeSrc.includes('data-testid="anti-whipsaw-status-strip"'), 'Condition Widget must render anti-whipsaw status strip');
+    assert.ok(!gaugeSrc.includes('model.antiWhipsaw && !model.antiWhipsaw.disabled'), 'Condition Widget must NOT hide Anti-Whipsaw strip when disabled');
+    assert.ok(gaugeSrc.includes('data-testid="anti-whipsaw-lock-notice"'), 'Condition Widget must render explicit lock notice when candidate is locked');
+  });
+
+  await t.test('Differentiates Live vs Paper modes, isolates closed-trade Anti-Whipsaw locks per mode, and evaluates counterpart guard engagement', () => {
+    const hourMs = 60 * 60 * 1000;
+    const now = Math.floor(Date.now() / hourMs) * hourMs + 12 * 60 * 1000;
+
+    // 1. Mode resolution helper
+    assert.strictEqual(resolveTradingMode({ trading_mode: 'live', paper_mode: false }), 'live');
+    assert.strictEqual(resolveTradingMode({ paper_mode: true }), 'paper');
+    assert.strictEqual(resolveTradingMode({ trading_mode: 'testnet' }), 'testnet');
+    assert.strictEqual(formatTradingModeLabel('live'), 'Live');
+    assert.strictEqual(formatTradingModeLabel('paper'), 'Paper');
+
+    // 2. Closed Paper trade does NOT lock Live mode; matching Paper mode DOES lock
+    const paperTrade = {
+      symbol: 'SOLUSDT',
+      strategy_label: 'Sniper 5m',
+      status: 'CLOSED',
+      trading_mode: 'paper',
+      paper_mode: true,
+      entry_ts: now - 120_000,
+      exit_ts: now - 60_000,
+    };
+    const liveTrade = {
+      symbol: 'BTCUSDT',
+      strategy_label: 'Sniper 5m',
+      status: 'CLOSED',
+      trading_mode: 'live',
+      paper_mode: false,
+      entry_ts: now - 120_000,
+      exit_ts: now - 60_000,
+    };
+
+    const baseCfg = {
+      strategy_label: 'Sniper 5m',
+      scan_interval: '5m',
+      anti_whipsaw_candle_delay: 2,
+      anti_whipsaw_per_strategy: true,
+      enabled_signals: ['ema_dual'],
+      signal_timeframes: { ema_dual: '15m' },
+    };
+
+    const liveModel = buildCandidateConditionsModel({
+      opp: { symbol: 'SOLUSDT', dir: 'long', pct: 1.5, close: 180 },
+      strategyConfig: { ...baseCfg, trading_mode: 'live', paper_mode: false },
+      closedTrades: [paperTrade],
+      nowMs: now,
+    });
+    assert.strictEqual(liveModel.tradingMode, 'live');
+    assert.strictEqual(liveModel.tradingModeLabel, 'Live');
+    assert.strictEqual(liveModel.antiWhipsaw.engaged, true);
+    assert.strictEqual(liveModel.antiWhipsaw.locked, false);
+    assert.strictEqual(liveModel.antiWhipsaw.tradingMode, 'live');
+
+    const paperModel = buildCandidateConditionsModel({
+      opp: { symbol: 'SOLUSDT', dir: 'long', pct: 1.5, close: 180 },
+      strategyConfig: { ...baseCfg, trading_mode: 'paper', paper_mode: true },
+      closedTrades: [paperTrade, liveTrade],
+      nowMs: now,
+    });
+    assert.strictEqual(paperModel.tradingMode, 'paper');
+    assert.strictEqual(paperModel.tradingModeLabel, 'Paper');
+    assert.strictEqual(paperModel.antiWhipsaw.engaged, true);
+    assert.strictEqual(paperModel.antiWhipsaw.locked, true);
+    assert.strictEqual(paperModel.antiWhipsaw.strategyLocks.lockedCount, 1);
+
+    // 3. Counterpart engine evaluation (viewing Paper while comparing Live)
+    const liveDisabledCounterpart = evaluateCounterpartModeAntiWhipsaw({
+      counterpartSnapshot: {
+        mode: 'live',
+        sessionActive: false,
+        initialStatusLoaded: false,
+        config: {
+          ...baseCfg,
+          trading_mode: 'live',
+          paper_mode: false,
+          anti_whipsaw_candle_delay: 0,
+          anti_whipsaw_tf_delay_min: 0,
+        },
+        sessionTradeHistory: [],
+      },
+      strategyLabel: 'Sniper 5m',
+      symbol: 'SOLUSDT',
+      nowMs: now,
+    });
+    assert.strictEqual(liveDisabledCounterpart.mode, 'live');
+    assert.strictEqual(liveDisabledCounterpart.modeLabel, 'Live');
+    assert.strictEqual(liveDisabledCounterpart.configured, true);
+    assert.strictEqual(liveDisabledCounterpart.disabled, true);
+    assert.strictEqual(liveDisabledCounterpart.engaged, false);
+    assert.strictEqual(liveDisabledCounterpart.statusText, 'Disabled (0c / 0m)');
+
+    const liveLockedCounterpart = evaluateCounterpartModeAntiWhipsaw({
+      counterpartSnapshot: {
+        mode: 'live',
+        sessionActive: true,
+        initialStatusLoaded: true,
+        config: { ...baseCfg, trading_mode: 'live', paper_mode: false },
+        sessionTradeHistory: [liveTrade],
+      },
+      strategyLabel: 'Sniper 5m',
+      symbol: 'BTCUSDT',
+      nowMs: now,
+    });
+    assert.strictEqual(liveLockedCounterpart.engaged, true);
+    assert.strictEqual(liveLockedCounterpart.locked, true);
+    assert.strictEqual(liveLockedCounterpart.symbolLocked, true);
+    assert.ok(liveLockedCounterpart.statusText.startsWith('Engaged · Locked BTC'));
+
+    const missingVariantCounterpart = evaluateCounterpartModeAntiWhipsaw({
+      counterpartSnapshot: {
+        mode: 'live',
+        sessionActive: true,
+        initialStatusLoaded: true,
+        config: { ...baseCfg, strategy_label: 'Other Base', strategy_variants: [] },
+      },
+      strategyLabel: 'Sniper 5m',
+      symbol: 'SOLUSDT',
+      nowMs: now,
+    });
+    assert.strictEqual(missingVariantCounterpart.configured, false);
+    assert.strictEqual(missingVariantCounterpart.statusText, 'Not in mode');
+
+    const unsyncedCounterpart = evaluateCounterpartModeAntiWhipsaw({
+      counterpartSnapshot: null,
+      strategyLabel: 'Sniper 5m',
+      symbol: 'SOLUSDT',
+      nowMs: now,
+    });
+    assert.strictEqual(unsyncedCounterpart.configured, false);
+    assert.strictEqual(unsyncedCounterpart.statusText, 'Not synced');
+
+    // 4. Component & StrategyDetailView wiring checks
+    const gaugeSrc = fs.readFileSync(new URL('../components/ui/CandidateConditionsGauge.jsx', import.meta.url), 'utf-8');
+    assert.ok(gaugeSrc.includes('data-testid="condition-widget-mode"'), 'Condition Widget must render explicit Live/Paper mode badge in header');
+    assert.ok(gaugeSrc.includes('data-testid="anti-whipsaw-mode-matrix"'), 'Condition Widget must render Live vs Paper Anti-Whipsaw engagement comparison');
+    assert.ok(gaugeSrc.includes('ENGAGED ·') && gaugeSrc.includes('DISABLED'), 'Condition Widget must distinguish ENGAGED vs DISABLED states');
+
+    const detailSrc = fs.readFileSync(new URL('../views/StrategyDetailView.jsx', import.meta.url), 'utf-8');
+    assert.ok(detailSrc.includes('tradingMode={activeTradingMode}'), 'StrategyDetailView must pass activeTradingMode to CandidateConditionsGauge');
+    assert.ok(detailSrc.includes('counterpartAntiWhipsaw={counterpartAntiWhipsaw}'), 'StrategyDetailView must pass counterpartAntiWhipsaw to CandidateConditionsGauge');
+  });
 });
+
+
 
 
 

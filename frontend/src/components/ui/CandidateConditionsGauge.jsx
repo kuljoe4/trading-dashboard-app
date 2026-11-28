@@ -2,12 +2,14 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { cn } from './primitives';
 import { SmoothHeightContainer } from './SmoothMotion';
 import { ConditionCardsSkeleton } from './Skeletons';
-import { price as fmtPrice } from '../../lib/formatters';
+import { price as fmtPrice, formatDuration } from '../../lib/formatters';
 import { useNow } from '../../hooks/useNow';
 import {
   buildCandidateConditionsModel,
   computeConditionValueDelta,
   computeHtfLadderDomain,
+  resolveTradingMode,
+  formatTradingModeLabel,
 } from '../../utils/candidateConditions';
 
 const ZONE_COLOR_MAP = {
@@ -94,6 +96,16 @@ const ConditionFreshness = React.memo(function ConditionFreshness({ evaluatedAtM
       {formatFreshness(evaluatedAtMs, effectiveNow)}
     </span>
   );
+});
+
+const AntiWhipsawCountdown = React.memo(function AntiWhipsawCountdown({ expiresAtMs = 0, fallbackMs = 0, suffix = 'left' }) {
+  const now = useNow();
+  const target = Number(expiresAtMs);
+  const remMs = Number.isFinite(target) && target > 0
+    ? Math.max(0, target - now)
+    : Math.max(0, Number(fallbackMs) || 0);
+  if (remMs <= 0) return <span className="tabular-nums whitespace-nowrap">0s {suffix}</span>;
+  return <span className="tabular-nums whitespace-nowrap">{formatDuration(remMs)} {suffix}</span>;
 });
 
 /**
@@ -1431,6 +1443,8 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
   isSyncing = false,
   stickyHeader = false,
   rotationControl = null,
+  tradingMode = null,
+  counterpartAntiWhipsaw = null,
 }) {
   const mountTsRef = useRef(Date.now());
   const modelNowMs = nowMs ?? (Number(lastScanTs) > 0 ? Number(lastScanTs) : mountTsRef.current);
@@ -1465,7 +1479,16 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
     gateReason,
     lastScanTs,
     nowMs: modelNowMs,
-  }), [effectiveOpp, strategyConfig, effectiveActiveTrade, closedTrades, isPaused, gateState, gateReason, lastScanTs, modelNowMs]);
+    tradingMode,
+  }), [effectiveOpp, strategyConfig, effectiveActiveTrade, closedTrades, isPaused, gateState, gateReason, lastScanTs, modelNowMs, tradingMode]);
+
+  const activeMode = model.tradingMode || resolveTradingMode(strategyConfig, tradingMode);
+  const activeModeLabel = model.tradingModeLabel || formatTradingModeLabel(activeMode);
+  const modeTextClass = activeMode === 'live'
+    ? 'text-green'
+    : activeMode === 'testnet'
+      ? 'text-amber'
+      : 'text-accent';
 
   const isInPos = model.mode === 'in_position';
   const hasCandidate = model.symbol && model.symbol !== '---';
@@ -1592,6 +1615,17 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
             >
               {showingExitView ? 'Exit Conditions' : 'Entry Conditions'}
             </span>
+            {activeMode && (
+              <span
+                data-testid="condition-widget-mode"
+                className={cn(
+                  'text-[10px] font-black uppercase tracking-wider font-mono whitespace-nowrap',
+                  modeTextClass
+                )}
+              >
+                · {activeMode.toUpperCase()} MODE
+              </span>
+            )}
             {hasCandidate && (
               <span className="text-xs font-black font-mono text-text tracking-tight">
                 {model.symbol}
@@ -2247,7 +2281,12 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                       )}
                     >
                       <span className={cn('w-1.5 h-1.5 rounded-full transition-colors duration-200', ZONE_DOT_CLASS[compositeDial.dialZone] || 'bg-dim')} />
-                      {formatCleanCardStatus(compositeDial.dialZone, model.firedConditionsCount === model.totalConditionsCount && model.totalConditionsCount > 0 ? 'Ready' : 'Watching')}
+                      {formatCleanCardStatus(
+                        compositeDial.dialZone,
+                        model.antiWhipsaw?.locked && hasCandidate
+                          ? 'AW Locked'
+                          : (model.firedConditionsCount === model.totalConditionsCount && model.totalConditionsCount > 0 ? 'Ready' : 'Watching')
+                      )}
                     </span>
                   </div>
 
@@ -2271,31 +2310,159 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
             </div>
           )}
 
-          {/* Footer Strip: Anti-Whipsaw & Execution Gate */}
-          {!showingExitView && model.antiWhipsaw && !model.antiWhipsaw.disabled && (
-            <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-border/40 text-[10px] font-mono flex-wrap">
-              <div className="flex items-center gap-2 min-w-0">
-                <span
-                  className={cn(
-                    'w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-200',
-                    model.antiWhipsaw.locked ? 'bg-amber' : 'bg-green'
-                  )}
-                />
-                <span className="text-dim font-bold uppercase">Anti-Whipsaw:</span>
-                <span
-                  className={cn(
-                    'font-bold truncate whitespace-nowrap tabular-nums transition-colors duration-200',
-                    model.antiWhipsaw.locked ? 'text-amber' : 'text-text/90'
-                  )}
-                >
-                  {model.antiWhipsaw.summary}
-                </span>
-              </div>
-              <span className="text-dim tabular-nums whitespace-nowrap shrink-0">
-                {model.actionSummary}
+          {/* Explicit Anti-Whipsaw Live Lock Callout (when focused candidate is blocked from re-entry) */}
+          {!showingExitView && model.antiWhipsaw?.locked && hasCandidate && (
+            <div
+              data-testid="anti-whipsaw-lock-notice"
+              className="rounded-lg border border-amber/35 bg-amber/10 px-2.5 py-1.5 flex items-center justify-between gap-2 text-[10.5px] font-mono text-amber flex-wrap"
+            >
+              <span className="font-semibold">
+                LOCKED{activeModeLabel ? ` (${activeModeLabel})` : ''} · Anti-Whipsaw guard engaged on {model.symbol} ({model.antiWhipsaw.blockingReason})
+              </span>
+              <span className="font-bold tabular-nums whitespace-nowrap">
+                <AntiWhipsawCountdown expiresAtMs={model.antiWhipsaw.expiresAtMs} fallbackMs={model.antiWhipsaw.remainingMs} suffix="remaining" />
               </span>
             </div>
           )}
+
+          {/* Footer Strip: Anti-Whipsaw Engagement & Live/Paper Guard Comparison */}
+          {!showingExitView && model.antiWhipsaw && (() => {
+            const aw = model.antiWhipsaw;
+            const locks = aw.strategyLocks?.locks || [];
+            const topLock = locks[0] || null;
+            const otherLocksCount = !aw.locked ? locks.length : 0;
+            const isLockedState = Boolean(aw.locked || otherLocksCount > 0);
+            const isDisabledState = Boolean(aw.disabled);
+            const dotCls = isDisabledState
+              ? 'bg-dim/60'
+              : isLockedState
+                ? 'bg-amber'
+                : 'bg-green';
+            const statusTextCls = isDisabledState
+              ? 'text-dim'
+              : isLockedState
+                ? 'text-amber'
+                : 'text-green';
+            const statusWord = isDisabledState
+              ? 'DISABLED'
+              : aw.locked
+                ? 'ENGAGED · LOCKED'
+                : otherLocksCount > 0
+                  ? `ENGAGED · ${otherLocksCount} LOCKED`
+                  : `ENGAGED · ${aw.statusLabel || 'READY'}`;
+
+            const awTfText = Array.isArray(aw.timeframes) && aw.timeframes.length > 0
+              ? aw.timeframes.join(', ')
+              : (strategyConfig?.scan_interval || '1m');
+            const awRuleBrief = isDisabledState
+              ? '0c / 0m'
+              : `${aw.candleDelay}c${aw.tfDelayMin > 0 ? `+${aw.tfDelayMin}m` : ''} on ${awTfText}`;
+            const activeMatrixText = isDisabledState
+              ? 'Disabled (0c / 0m)'
+              : aw.locked
+                ? `Engaged · Locked ${hasCandidate ? model.symbol.replace('USDT', '') : ''}`
+                : otherLocksCount > 0
+                  ? `Engaged · ${otherLocksCount} Locked (${awRuleBrief})`
+                  : `Engaged (${awRuleBrief} · ${aw.statusLabel === 'CLEAR' ? 'Clear' : 'Ready'})`;
+            const activeMatrixTone = isDisabledState
+              ? 'text-dim'
+              : isLockedState
+                ? 'text-amber'
+                : 'text-green';
+
+            const showModeMatrix = Boolean(
+              counterpartAntiWhipsaw && (activeMode === 'live' || activeMode === 'paper')
+            );
+            const counterpartTone = !counterpartAntiWhipsaw?.configured || counterpartAntiWhipsaw?.disabled
+              ? 'text-dim'
+              : counterpartAntiWhipsaw?.locked
+                ? 'text-amber'
+                : 'text-text/85';
+
+            const liveEntry = activeMode === 'live'
+              ? { label: 'Live (Active)', text: activeMatrixText, tone: activeMatrixTone, isActive: true }
+              : { label: 'Live', text: counterpartAntiWhipsaw?.statusText || 'Not synced', tone: counterpartTone, isActive: false };
+            const paperEntry = activeMode === 'paper'
+              ? { label: 'Paper (Active)', text: activeMatrixText, tone: activeMatrixTone, isActive: true }
+              : { label: 'Paper', text: counterpartAntiWhipsaw?.statusText || 'Not synced', tone: counterpartTone, isActive: false };
+
+            return (
+              <div
+                data-testid="anti-whipsaw-status-strip"
+                className="flex flex-col gap-1 pt-1.5 border-t border-border/40 text-[10px] font-mono"
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                    <span
+                      className={cn(
+                        'w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-200',
+                        dotCls
+                      )}
+                    />
+                    <span className="text-dim font-bold uppercase">
+                      Anti-Whipsaw{activeModeLabel ? ` · ${activeModeLabel}` : ''}:
+                    </span>
+                    <span className={cn('font-bold uppercase tracking-wide whitespace-nowrap', statusTextCls)}>
+                      {statusWord}
+                    </span>
+                    <span className="text-border" aria-hidden="true">·</span>
+                    {isDisabledState ? (
+                      <span className="text-dim truncate">
+                        Guard off (0c / 0m) · Re-entry unrestricted ({aw.scopeLabel})
+                      </span>
+                    ) : aw.locked ? (
+                      <span className="text-amber font-semibold truncate tabular-nums">
+                        {aw.blockingReason} · <AntiWhipsawCountdown expiresAtMs={aw.expiresAtMs} fallbackMs={aw.remainingMs} /> ({aw.scopeLabel}{aw.allowKnife ? ' · Knife bypass ON' : ''})
+                      </span>
+                    ) : otherLocksCount > 0 && topLock ? (
+                      <span className="text-amber/95 font-semibold truncate tabular-nums">
+                        {topLock.symbol.replace('USDT', '')} (<AntiWhipsawCountdown expiresAtMs={topLock.expiresAtMs} fallbackMs={topLock.remainingMs} />)
+                        {otherLocksCount > 1 ? ` +${otherLocksCount - 1}` : ''}
+                        {' · '}
+                        <span className="text-dim font-normal">{aw.summary}</span>
+                      </span>
+                    ) : (
+                      <span className="text-text/90 truncate tabular-nums">
+                        {aw.summary} · {aw.scopeLabel}
+                        {aw.hasSlowLockoutRisk && aw.maxPotentialLockMs > 0 ? (
+                          <span className="text-amber ml-1" title="Set Max Anti-Whipsaw Timeframe to 15m or specify anti_whipsaw_timeframes to prevent multi-hour lockouts on 5m entries">
+                            (max {formatDuration(aw.maxPotentialLockMs)} lock · cap via Max TF)
+                          </span>
+                        ) : null}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-dim tabular-nums whitespace-nowrap shrink-0">
+                    {model.actionSummary}
+                  </span>
+                </div>
+
+                {showModeMatrix && (
+                  <div
+                    data-testid="anti-whipsaw-mode-matrix"
+                    className="flex items-center gap-x-2.5 gap-y-0.5 flex-wrap text-[9.5px] text-dim tabular-nums pl-3"
+                  >
+                    <span className="uppercase tracking-wider text-[8.5px] font-semibold text-dim/80">
+                      Modes
+                    </span>
+                    <span className="whitespace-nowrap">
+                      <span className={liveEntry.isActive ? 'text-green font-bold' : 'text-dim font-semibold'}>
+                        {liveEntry.label}:
+                      </span>{' '}
+                      <span className={liveEntry.tone}>{liveEntry.text}</span>
+                    </span>
+                    <span className="text-border" aria-hidden="true">·</span>
+                    <span className="whitespace-nowrap">
+                      <span className={paperEntry.isActive ? 'text-accent font-bold' : 'text-dim font-semibold'}>
+                        {paperEntry.label}:
+                      </span>{' '}
+                      <span className={paperEntry.tone}>{paperEntry.text}</span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </SmoothHeightContainer>
     </div>
